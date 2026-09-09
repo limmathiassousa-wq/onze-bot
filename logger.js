@@ -1,5 +1,8 @@
 const { ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SectionBuilder, ThumbnailBuilder, MessageFlags } = require('discord.js');
-const { CANAL_LOGS_MOD, IMG_DISCORD_LOGO } = require('./constants');
+const {
+    CANAL_LOGS_MOD, CANAL_LOGS_BANS, CANAL_LOGS_MEMBROS, CANAL_LOGS_CARGOS,
+    CANAL_LOGS_CALLTEMP, CANAL_LOGS_KICKS, CANAL_LOGS_AUTOMOD, IMG_DISCORD_LOGO
+} = require('./constants');
 
 // ============ MOTOR: monta o container e envia ============
 async function enviarLogModeracao({ guild, tipo, alvo, alvoUser, autor, motivo, extra, canalId }) {
@@ -70,6 +73,82 @@ async function logar(tipo, alvo, autor, opcoes = {}) {
     });
 }
 
+// ============ BANIMENTO / UNBAN ============
+async function logarBanimento({ guild, tipo, alvo, alvoUser, autor, motivo, extra }) {
+    return enviarLogModeracao({
+        guild,
+        tipo,
+        alvo,
+        alvoUser: alvoUser || null,
+        autor,
+        motivo: motivo || null,
+        extra: extra || null,
+        canalId: CANAL_LOGS_BANS
+    });
+}
+
+// ============ ENTRADA / SAÍDA DE MEMBROS ============
+async function logarMembro({ guild, tipo, membro, extra }) {
+    return enviarLogModeracao({
+        guild,
+        tipo: `Membro — ${tipo}`,
+        alvo: `${membro} (${membro.tag})`,
+        alvoUser: membro,
+        autor: 'Sistema',
+        motivo: null,
+        extra: extra || null,
+        canalId: CANAL_LOGS_MEMBROS
+    });
+}
+
+// ============ EXPULSÃO (KICK) ============
+async function logarExpulsao({ guild, alvo, alvoUser, autor, motivo, extra }) {
+    return enviarLogModeracao({
+        guild,
+        tipo: 'Expulsão (Kick)',
+        alvo,
+        alvoUser: alvoUser || null,
+        autor,
+        motivo: motivo || null,
+        extra: extra || null,
+        canalId: CANAL_LOGS_KICKS
+    });
+}
+
+// ============ CARGOS ============
+async function logarCargo({ guild, tipo, alvo, alvoUser, autor, cargo, extra }) {
+    const linhaCargo = cargo ? `**Cargo:** ${cargo}` : null;
+    const extraFinal = [linhaCargo, extra].filter(Boolean).join('\n') || null;
+
+    return enviarLogModeracao({
+        guild,
+        tipo,
+        alvo,
+        alvoUser: alvoUser || null,
+        autor,
+        motivo: null,
+        extra: extraFinal,
+        canalId: CANAL_LOGS_CARGOS
+    });
+}
+
+// ============ CALL TEMPORÁRIA ============
+async function logarCallTemp({ guild, acao, dono, canalVoz, alvo, extra }) {
+    const linhaAlvo = alvo ? `**Alvo:** ${alvo}` : null;
+    const extraFinal = [linhaAlvo, extra].filter(Boolean).join('\n') || null;
+
+    return enviarLogModeracao({
+        guild,
+        tipo: `Call Temp — ${acao}`,
+        alvo: `${dono} (${dono.tag || dono.username})`,
+        alvoUser: dono,
+        autor: `${canalVoz}`,
+        motivo: null,
+        extra: extraFinal,
+        canalId: CANAL_LOGS_CALLTEMP
+    });
+}
+
 // ============ ANTI-LINK / ANTI-SPAM / ANTI-BOT ============
 async function logarAntiLink({ guild, usuario, motivo, link, canal }) {
     return enviarLogModeracao({
@@ -110,4 +189,8 @@ async function logarAntiBot({ guild, bot, acao }) {
     });
 }
 
-module.exports = { enviarLogModeracao, logar, logarAntiLink, logarAntiSpam, logarAntiBot };
+module.exports = {
+    enviarLogModeracao, logar,
+    logarBanimento, logarMembro, logarCargo, logarCallTemp, logarExpulsao,
+    logarAntiLink, logarAntiSpam, logarAntiBot
+};
