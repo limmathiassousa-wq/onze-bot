@@ -11168,14 +11168,15 @@ function montarCardComentarioTellonym(dados, pagina) {
     const paginaSegura = Math.min(Math.max(pagina, 1), totalPaginas);
     const comentario = dados.comentarios[paginaSegura - 1];
 
-    const texto = new TextDisplayBuilder().setContent(
-        `## ${EMOJI_COMENTAR} Tellonym\n<@${comentario.autorId}>: ${comentario.texto}\n-# página ${paginaSegura}/${totalPaginas}`
-    );
-
-    const components = [texto];
+    const container = new ContainerBuilder()
+        .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(
+                `## ${EMOJI_COMENTAR} Tellonym\n<@${comentario.autorId}>: ${comentario.texto}\n-# página ${paginaSegura}/${totalPaginas}`
+            )
+        );
 
     if (totalPaginas > 1) {
-        components.push(
+        container.addActionRowComponents(
             new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
                     .setCustomId(`tellonym_comentario_voltar_${dados.messageId}_${paginaSegura}`)
@@ -11196,7 +11197,7 @@ function montarCardComentarioTellonym(dados, pagina) {
         );
     }
 
-    return components;
+    return [container];
 }
 
 if (interaction.isButton() && interaction.customId === 'tellonym_comentar') {
