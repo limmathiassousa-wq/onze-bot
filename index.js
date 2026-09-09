@@ -26,7 +26,7 @@ const {
     urlValida, avisoSucessoModeracao
 } = require('./helpers');
 
-const { logar, enviarLogModeracao, logarBanimento, logarMembro, logarCargo, logarCallTemp, logarExpulsao } = require('./logger');
+const { logar, enviarLogModeracao, logarBanimento, logarMembro, logarCargo, logarCallTemp, logarExpulsao, logarAntiLink, logarAntiSpam, logarAntiBot } = require('./logger');
 
 
 // ============ BOT ============
@@ -65,7 +65,7 @@ const {
     EMOJI_ATIVADO, EMOJI_DESATIVADO,
     CANAL_TELLONYM_MOD, CANAL_TELLONYM, CANAL_TICKETS,
     GIFS_BEIJO,
-    CANAL_LOGS_MOD, CANAL_LOGS_TICKETS, CATEGORIA_MOEDAS_BOASVINDAS,
+    CANAL_LOGS_MOD, CANAL_LOGS_TICKETS, CATEGORIA_MOEDAS_BOASVINDAS, CANAL_LOGS_AUTOMOD,
     CANAIS_INSTA, CANAL_GERADOR_ID,
     REACOES_ANEXO, INTERVALO_TICK_CALL_SORTEIO_MS, CORES_MSG_CRIADOR,
     CORES_BOTAO, POSICOES_BOTAO,
@@ -3871,29 +3871,33 @@ async function carregarTellonymPendentes() {
         console.error('--- Erro ao carregar Tellonyms pendentes ---', err);
     }
 }
-
-const CANAL_LOGS_AUTOMOD = '1542321891405070397';
-
-function formatarAlvoLog(user) {
-    return `${user} — \`${user.username}\` \`${user.id}\` `;
-}
-
+
 async function verificarAntiLink(message) {
     if (!protecaoConfig.antiLink.ativo) return false;
 
     const cargosLiberados = [CARGO_BOOSTER, ...CARGOS_ATENDENTE, ...protecaoConfig.antiLink.cargosBypass];
     if (message.member.roles.cache.some(r => cargosLiberados.includes(r.id))) return false;
 
-    if (protecaoConfig.antiLink.bloquearConvites) {
-        const regexConvite = new RegExp(`(?:https?:\\/\\/)?(?:www\\.)?(${DOMINIOS_CONVITE.map(d => d.replace('.', '\\.')).join('|')})\\/(invite\\/)?[a-zA-Z0-9-]+`, 'i');
-
-        if (regexConvite.test(message.content)) {
-            await message.delete().catch(() => null);
-            message.channel.send(`${message.author} Sem links aqui, seu trouxa!`)
-                .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
-            return true;
-        }
-    }
+    if (protecaoConfig.antiLink.bloquearConvites) {
+    const regexConvite = new RegExp(`(?:https?:\\/\\/)?(?:www\\.)?(${DOMINIOS_CONVITE.map(d => d.replace('.', '\\.')).join('|')})\\/(invite\\/)?[a-zA-Z0-9-]+`, 'i');
+    const conviteDetectado = message.content.match(regexConvite);
+
+    if (conviteDetectado) {
+        await message.delete().catch(() => null);
+        message.channel.send(`${message.author} Sem links aqui, seu trouxa!`)
+            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
+
+        await logarAntiLink({
+            guild: message.guild,
+            usuario: message.author,
+            motivo: 'Convite de outro servidor detectado',
+            link: conviteDetectado[0],
+            canal: message.channel
+        }).catch(() => null);
+
+        return true;
+    }
+}
 
     const regexLink = /(https?:\/\/[^\s]+)/gi;
     const links = message.content.match(regexLink);
@@ -3912,12 +3916,12 @@ if (BLACKLIST_DOMINIOS.some(d => host === d || host.endsWith(`.${d}`))) {
     message.channel.send(`${message.author} Sem links aqui, seu trouxa!!`)
         .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
 
-    await logar('Anti-Link — Domínio na blacklist', formatarAlvoLog(message.author), 'Sistema Automático', {
+    await logarAntiLink({
         guild: message.guild,
-        alvoUser: message.author,
+        usuario: message.author,
         motivo: `Domínio bloqueado: \`${host}\``,
-        extra: `**Canal:** ${message.channel}\n**Link:** \`\`\`${link}\`\`\``,
-        canalId: CANAL_LOGS_AUTOMOD
+        link,
+        canal: message.channel
     }).catch(() => null);
 
     return true;
@@ -3928,12 +3932,12 @@ if (!linkPermitido(link)) {
     message.channel.send(`${message.author} Sem links aqui, seu trouxa!!`)
         .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
 
-    await logar('Anti-Link — Link não permitido', formatarAlvoLog(message.author), 'Sistema Automático', {
+    await logarAntiLink({
         guild: message.guild,
-        alvoUser: message.author,
+        usuario: message.author,
         motivo: 'Link fora da whitelist',
-        extra: `**Canal:** ${message.channel}\n**Link:** \`\`\`${link}\`\`\``,
-        canalId: CANAL_LOGS_AUTOMOD
+        link,
+        canal: message.channel
     }).catch(() => null);
 
     return true;
@@ -4146,23 +4150,15 @@ async function verificarSpamMensagem(message) {
         console.error('--- Erro ao aplicar timeout de anti-spam ---', err);
     }
 
-    await redis.del(chave);
-
-await enviarAlertaProtecao(message.guild, 'Spam detectado', [
-    `**Usuário:** <@${userId}>`,
-    `**Motivo:** ${flood ? 'Flood de mensagens' : 'Mensagens duplicadas'}`,
-    `**Ação:** Mensagens apagadas + timeout de \`${cfg.muteMinutos}\` minuto(s)`
-], message.author.displayAvatarURL({ extension: 'png', size: 256 }));
+await redis.del(chave);
 
-await logar('Anti-Spam', formatarAlvoLog(message.author), 'Sistema Automático', {
+await logarAntiSpam({
     guild: message.guild,
-    alvoUser: message.author,
+    usuario: message.author,
     motivo: flood ? 'Flood de mensagens' : 'Mensagens duplicadas',
-    extra: `**Canal:** ${message.channel}\n**Ação:** Mensagens apagadas + timeout de \`${cfg.muteMinutos}\` minuto(s)`,
-    canalId: CANAL_LOGS_AUTOMOD
+    canal: message.channel,
+    muteMinutos: cfg.muteMinutos
 }).catch(() => null);
-
-return true;
 
     return true;
 }
@@ -6499,34 +6495,27 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
 
 client.on('guildMemberAdd', async (member) => {
 	// ============ ANTI BOT ============
-	if (member.user.bot && protecaoConfig.antiBot.ativo) {
-        const acaoBot = protecaoConfig.antiBot.acao;
-
-        try {
-            if (acaoBot === 'banir') {
-                await member.ban({ reason: 'Anti-Bot: bots não são permitidos neste servidor' }).catch(() => null);
-            } else {
-                await member.kick('Anti-Bot: bots não são permitidos neste servidor').catch(() => null);
-            }
-        } catch (err) {
-            console.error('--- Erro ao remover bot detectado pelo Anti-Bot ---', err);
-        }
-
-        await enviarAlertaProtecao(member.guild, 'BOT DETECTADO', [
-    `**Bot:** ${member.user.tag} (${member.id})`,
-    `**Ação aplicada:** \`${acaoBot === 'banir' ? 'banido' : 'expulso'}\``
-], member.user.displayAvatarURL({ extension: 'png', size: 256 }));
+	if (member.user.bot && protecaoConfig.antiBot.ativo) {
+    const acaoBot = protecaoConfig.antiBot.acao;
 
-await logar('Anti-Bot', formatarAlvoLog(member.user), 'Sistema Automático', {
-    guild: member.guild,
-    alvoUser: member.user,
-    motivo: 'Bot detectado ao entrar no servidor',
-    extra: `**Ação aplicada:** \`${acaoBot === 'banir' ? 'banido' : 'expulso'}\``,
-    canalId: CANAL_LOGS_AUTOMOD
-}).catch(() => null);
+    try {
+        if (acaoBot === 'banir') {
+            await member.ban({ reason: 'Anti-Bot: bots não são permitidos neste servidor' }).catch(() => null);
+        } else {
+            await member.kick('Anti-Bot: bots não são permitidos neste servidor').catch(() => null);
+        }
+    } catch (err) {
+        console.error('--- Erro ao remover bot detectado pelo Anti-Bot ---', err);
+    }
 
-return;
-    }
+    await logarAntiBot({
+        guild: member.guild,
+        bot: member.user,
+        acao: acaoBot
+    }).catch(() => null);
+
+    return;
+}
     
     // ============ LOG DE ENTRADA ============
     await logarMembro({
