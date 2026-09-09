@@ -7328,14 +7328,7 @@ if (message.content.toLowerCase() === `${PREFIXO}botcall`) {
     registrarPainelBotCall(message.guild.id, msgPainel.channel.id, msgPainel.id);
     return;
 }
-
-if (message.content.toLowerCase().startsWith(`${PREFIXO}userinfo`)) {
-        flags: [MessageFlags.IsComponentsV2]
-    });
-    registrarPainelBotCall(message.guild.id, msgPainel.channel.id, msgPainel.id);
-    return;
-}
-
+
 if (message.content.toLowerCase().startsWith(`${PREFIXO}userinfo`)) {
     try {
         const alvo = message.mentions.users.first() || message.author;
