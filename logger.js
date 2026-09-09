@@ -23,7 +23,7 @@ async function enviarLogModeracao({ guild, tipo, alvo, alvoUser, autor, motivo, 
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
-                        new TextDisplayBuilder().setContent(`### ${tipo}`),
+                        new TextDisplayBuilder().setContent(`### ${tipo} — ${guild.name}`),
                         new TextDisplayBuilder().setContent(`**Usuário:** ${alvo}`),
                         new TextDisplayBuilder().setContent(`**Executado por:** ${autor}`)
                     )
