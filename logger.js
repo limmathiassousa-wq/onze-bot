@@ -92,7 +92,7 @@ async function logarBanimento({ guild, tipo, alvo, alvoUser, autor, motivo, extr
 async function logarMembro({ guild, tipo, membro, extra }) {
     return enviarLogModeracao({
         guild,
-        tipo: `Membro — ${tipo}`,
+        tipo,
         alvo: `${membro} (${membro.tag})`,
         alvoUser: membro,
         autor: 'Sistema',
