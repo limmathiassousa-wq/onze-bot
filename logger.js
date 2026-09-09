@@ -19,6 +19,7 @@ async function enviarLogModeracao({ guild, tipo, alvo, alvoUser, autor, motivo, 
             : IMG_DISCORD_LOGO;
 
         const container = new ContainerBuilder()
+            .setAccentColor(0xFFFFFF)
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
