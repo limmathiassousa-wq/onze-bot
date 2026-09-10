@@ -6514,7 +6514,6 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
     const estavaMutado = antesMs > agoraMs;
     const estaMutado = depoisMs > agoraMs;
 
-    // dispara quando o mute é aplicado, removido, ou a duração é alterada enquanto já mutado
     if (estavaMutado !== estaMutado || (estaMutado && antesMs !== depoisMs)) {
         const entries = await buscarAuditLogsComCache(newMember.guild, AuditLogEvent.MemberUpdate);
         const entrada = entries.find(e =>
@@ -6524,7 +6523,6 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
         );
         const executor = entrada?.executor ?? null;
 
-        // Loga apenas mutes/unmutes feitos manualmente (fora dos comandos do bot)
         if (executor && executor.id !== client.user.id) {
             if (estaMutado) {
                 await logarMute({
@@ -6548,9 +6546,8 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
             }
         }
     }
-});
 
-// ============ MUTE / UNMUTE POR CARGO — LOG APENAS MANUAL ============
+    // ============ MUTE / UNMUTE POR CARGO — LOG APENAS MANUAL ============
     const tinhaCargoMutado = oldMember.roles.cache.has(CARGO_MUTADO);
     const temCargoMutado = newMember.roles.cache.has(CARGO_MUTADO);
 
@@ -6562,7 +6559,6 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
         );
         const executorCargo = entradaCargo?.executor ?? null;
 
-        // Loga apenas mutes/unmutes por cargo feitos manualmente (fora dos painéis do bot)
         if (executorCargo && executorCargo.id !== client.user.id) {
             if (temCargoMutado) {
                 await logarMute({
@@ -6585,6 +6581,7 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
             }
         }
     }
+});
 
 client.on('guildMemberAdd', async (member) => {
 	// ============ ANTI BOT ============
