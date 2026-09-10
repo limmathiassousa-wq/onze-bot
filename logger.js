@@ -103,16 +103,30 @@ async function logarMembro({ guild, tipo, membro, extra }) {
 }
 
 // ============ EXPULSÃO (KICK) ============
-async function logarExpulsao({ guild, alvo, alvoUser, autor, motivo, extra }) {
+async function logarExpulsao({ guild, tipo, alvo, alvoUser, autor, motivo, extra }) {
     return enviarLogModeracao({
         guild,
-        tipo: 'Expulsão (Kick)',
+        tipo: tipo || 'Expulsão (Kick)',
         alvo,
         alvoUser: alvoUser || null,
         autor,
         motivo: motivo || null,
         extra: extra || null,
         canalId: CANAL_LOGS_KICKS
+    });
+}
+
+// ============ MUTE / UNMUTE (TIMEOUT) ============
+async function logarMute({ guild, tipo, alvo, alvoUser, autor, motivo, extra, canalId }) {
+    return enviarLogModeracao({
+        guild,
+        tipo,
+        alvo,
+        alvoUser: alvoUser || null,
+        autor,
+        motivo: motivo || null,
+        extra: extra || null,
+        canalId: canalId || CANAL_LOGS_MOD
     });
 }
 
@@ -192,6 +206,6 @@ async function logarAntiBot({ guild, bot, acao }) {
 
 module.exports = {
     enviarLogModeracao, logar,
-    logarBanimento, logarMembro, logarCargo, logarCallTemp, logarExpulsao,
+    logarBanimento, logarMembro, logarCargo, logarCallTemp, logarExpulsao, logarMute,
     logarAntiLink, logarAntiSpam, logarAntiBot
 };
