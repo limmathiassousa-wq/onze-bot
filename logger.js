@@ -359,10 +359,51 @@ async function logarCastigo({ guild, tipo, alvo, alvoUser, autor, motivo, duraca
     });
 }
 
+// ============ CARGO DO SERVIDOR CRIADO / EXCLUÍDO ============
+async function logarCargoServidor({ guild, tipo, cargo, executor, motivo, extra, canalId }) {
+    try {
+        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_CARGOS).catch(() => null);
+        if (!canal) return;
+
+        const agora = new Date();
+        const horaFormatada = agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Sao_Paulo' });
+        const dataFormatada = agora.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+
+        const container = new ContainerBuilder()
+            .setAccentColor(0xFFFFFF)
+            .addTextDisplayComponents(
+                new TextDisplayBuilder().setContent(`### ${tipo} — ${guild.name}`),
+                new TextDisplayBuilder().setContent(`**Cargo:** ${cargo}`),
+                new TextDisplayBuilder().setContent(`**Executado por:** ${executor}`)
+            )
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+
+        if (motivo) {
+            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Motivo:** ${motivo}`));
+        }
+
+        if (extra) {
+            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(extra));
+        }
+
+        container
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
+
+        await canal.send({
+            components: [container],
+            flags: [MessageFlags.IsComponentsV2],
+            allowedMentions: { parse: [] }
+        });
+    } catch (err) {
+        console.error('--- Erro ao enviar log de cargo do servidor ---', err);
+    }
+}
+
 module.exports = {
     enviarLogModeracao, logar,
     logarBanimento, logarMembro, logarCargo, logarCallTemp, logarExpulsao, logarMute,
     logarAntiLink, logarAntiSpam, logarAntiBot,
     logarMensagemApagada, logarMensagemEditada,
-    logarVoz, logarCastigo
+    logarVoz, logarCastigo, logarCargoServidor
 };
