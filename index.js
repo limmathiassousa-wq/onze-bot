@@ -26,7 +26,7 @@ const {
     urlValida, avisoSucessoModeracao
 } = require('./helpers');
 
-const { logar, enviarLogModeracao, logarBanimento, logarMembro, logarCargo, logarCallTemp, logarExpulsao, logarMute, logarAntiLink, logarAntiSpam, logarAntiBot } = require('./logger');
+const { logar, enviarLogModeracao, logarBanimento, logarMembro, logarCargo, logarCallTemp, logarExpulsao, logarMute, logarAntiLink, logarAntiSpam, logarAntiBot, logarMensagemApagada, logarMensagemEditada } = require('./logger');
 
 
 // ============ BOT ============
@@ -688,7 +688,11 @@ const CARGOS_RESTRITOS_GERENCIADOR_LIMITADO = [
     '1542321888234045549',
     '1542321888234045548',
     '1542321888234045547',
-    '1542321888234045546'
+    '1542321888234045546',
+    '1542321888355684453',
+    '1546329251219771512',
+    '1542321888309809211',
+    '1546329417062686820'
 ];
 
 function ehAdminGRoles(member) {
@@ -6940,8 +6944,51 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
     }
 
     await verificarAntiLink(newMessage);
+
+    // ============ LOG: MENSAGEM EDITADA ============
+    // Só loga quando temos o conteúdo antigo em cache (oldMessage não-partial) e ele realmente mudou.
+    // Evita falsos positivos de updates que o Discord dispara sem mudança de texto (ex: unfurl de link/embed).
+    if (!oldMessage.partial && oldMessage.content !== newMessage.content) {
+        logarMensagemEditada({
+            guild: newMessage.guild,
+            autor: newMessage.author,
+            canal: newMessage.channel,
+            mensagemId: newMessage.id,
+            antes: oldMessage.content,
+            depois: newMessage.content,
+            url: newMessage.url
+        }).catch(err => console.error('--- Erro ao logar mensagem editada ---', err));
+    }
 });
 
+// ============ LOG: MENSAGEM APAGADA ============
+client.on('messageDelete', async (message) => {
+    try {
+        if (!message.guild || !message.channel) return;
+
+        if (message.partial) {
+            try { message = await message.fetch(); } catch { /* mensagem não pôde ser recuperada, segue com dados parciais */ }
+        }
+
+        if (!message.author || message.author.bot) return;
+
+        const executorAuditoria = await obterExecutorAuditLog(message.guild, AuditLogEvent.MessageDelete, message.author.id).catch(() => null);
+        const executor = (executorAuditoria && executorAuditoria.id !== message.author.id)
+            ? `${executorAuditoria} — \`${executorAuditoria.tag ?? executorAuditoria.username}\``
+            : 'O próprio autor (ou sistema)';
+
+        await logarMensagemApagada({
+            guild: message.guild,
+            autor: message.author,
+            canal: message.channel,
+            executor,
+            mensagemId: message.id,
+            conteudo: message.content
+        });
+    } catch (err) {
+        console.error('--- Erro ao processar log de mensagem apagada ---', err);
+    }
+});
 
 client.on('messageCreate', async (message) => {
     if (message.author.bot || !message.guild || !message.channel) return;
