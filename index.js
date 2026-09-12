@@ -656,6 +656,17 @@ module.exports = {
 
 // ============ FUNCTIONS/ACTIONS============
 
+async function aguardarEBuscarAuditLog(guild, tipoEvento, delayMs = 1200) {
+    await new Promise(resolve => setTimeout(resolve, delayMs));
+    try {
+        const logs = await guild.fetchAuditLogs({ type: tipoEvento, limit: 10 });
+        return [...logs.entries.values()];
+    } catch (err) {
+        console.error('--- Erro ao buscar audit log fresco ---', err);
+        return [];
+    }
+}
+
 
 // ============ GERENCIAMENTO DE CARGOS (o!groles) ============
 const GROLES_POR_PAGINA = 5;
@@ -7019,9 +7030,9 @@ if (oldState.channel && oldState.channelId !== CANAL_GERADOR_ID) {
         }
 
         if (oldState.serverDeaf !== newState.serverDeaf) {
-            const entriesDeaf = await buscarAuditLogsComCache(newState.guild, AuditLogEvent.MemberUpdate);
+            const entriesDeaf = await aguardarEBuscarAuditLog(newState.guild, AuditLogEvent.MemberUpdate);
             const entradaDeaf = entriesDeaf.find(e =>
-                (Date.now() - e.createdTimestamp) < 10000 &&
+                (Date.now() - e.createdTimestamp) < 6000 &&
                 e.target?.id === membroLogVoz.id &&
                 e.changes?.some(c => c.key === 'deaf')
             );
