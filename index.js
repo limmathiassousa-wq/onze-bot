@@ -6647,7 +6647,7 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
     
 });
 
-client.on('guildRoleCreate', async (role) => {
+client.on('roleCreate', async (role) => {
     try {
         const entries = await buscarAuditLogsComCache(role.guild, AuditLogEvent.RoleCreate);
         const entrada = entries.find(e => (Date.now() - e.createdTimestamp) < 15000 && e.target?.id === role.id);
@@ -6675,7 +6675,7 @@ client.on('guildRoleCreate', async (role) => {
     }
 });
 
-client.on('guildRoleDelete', async (role) => {
+client.on('roleDelete', async (role) => {
     try {
         const entries = await buscarAuditLogsComCache(role.guild, AuditLogEvent.RoleDelete);
         const entrada = entries.find(e => (Date.now() - e.createdTimestamp) < 15000 && e.target?.id === role.id);
