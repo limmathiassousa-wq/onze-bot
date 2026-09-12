@@ -26,7 +26,7 @@ const {
     urlValida, avisoSucessoModeracao
 } = require('./helpers');
 
-const { logar, enviarLogModeracao, logarBanimento, logarMembro, logarCargo, logarCallTemp, logarExpulsao, logarMute, logarAntiLink, logarAntiSpam, logarAntiBot, logarMensagemApagada, logarMensagemEditada } = require('./logger');
+const { logar, enviarLogModeracao, logarBanimento, logarMembro, logarCargo, logarCallTemp, logarExpulsao, logarMute, logarAntiLink, logarAntiSpam, logarAntiBot, logarMensagemApagada, logarMensagemEditada, logarVoz, logarCastigo } = require('./logger');
 
 
 // ============ BOT ============
@@ -6418,12 +6418,20 @@ client.on('inviteDelete', invite => {
 });
 
 client.on('guildMemberRemove', async (member) => {
+    // Dentro de guildMemberRemove, na chamada de logarMembro:
     const tempoNoServidor = member.joinedTimestamp ? formatarDuracaoMs(Date.now() - member.joinedTimestamp) : 'desconhecido';
+    const cargosDoMembro = member.roles?.cache?.filter(c => c.id !== member.guild.id).map(c => `${c}`).join(', ') || '`nenhum`';
+
     await logarMembro({
         guild: member.guild,
         tipo: 'Saída',
         membro: member.user,
-        extra: `**Estava no servidor há:** \`${tempoNoServidor}\``
+        extra:
+            `**ID:** \`${member.id}\`\n` +
+            `**Tag:** \`${member.user.tag}\`\n` +
+            `**Estava no servidor há:** \`${tempoNoServidor}\`\n` +
+            `**Cargos que possuía:** ${cargosDoMembro}\n` +
+            `**Membros no servidor:** \`${member.guild.memberCount}\``
     }).catch(() => null);
 
     // ============ EXPULSÃO — LOG + ANTI KICK EM MASSA (embutido no Anti-Nuke) ============
@@ -6529,24 +6537,24 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
 
         if (executor && executor.id !== client.user.id) {
             if (estaMutado) {
-                await logarMute({
+                await logarCastigo({
                     guild: newMember.guild,
-                    tipo: 'Mute (Manual)',
+                    tipo: 'Castigo Manual',
                     alvo: `${newMember.user} (${newMember.user.tag})`,
                     alvoUser: newMember.user,
                     autor: executor,
                     motivo: entrada?.reason || null,
-                    extra: `**Expira em:** <t:${Math.floor(depoisMs / 1000)}:F>`
-                }).catch(err => console.error('--- Erro ao logar mute manual ---', err));
+                    duracao: `expira em <t:${Math.floor(depoisMs / 1000)}:R>`
+                }).catch(err => console.error('--- Erro ao logar castigo manual ---', err));
             } else {
-                await logarMute({
+                await logarCastigo({
                     guild: newMember.guild,
-                    tipo: 'Unmute (Manual)',
+                    tipo: 'Castigo Removido Manualmente',
                     alvo: `${newMember.user} (${newMember.user.tag})`,
                     alvoUser: newMember.user,
                     autor: executor,
                     motivo: entrada?.reason || null
-                }).catch(err => console.error('--- Erro ao logar unmute manual ---', err));
+                }).catch(err => console.error('--- Erro ao logar remoção de castigo manual ---', err));
             }
         }
     }
@@ -6585,6 +6593,47 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
             }
         }
     }
+    
+    // ============ CARGO ADICIONADO/REMOVIDO MANUALMENTE (FORA DE COMANDO DO BOT) ============
+    const cargosAntesGeral = oldMember.roles.cache;
+    const cargosDepoisGeral = newMember.roles.cache;
+    const cargosAdicionadosGeral = cargosDepoisGeral.filter(c => !cargosAntesGeral.has(c.id) && c.id !== CARGO_MUTADO);
+    const cargosRemovidosGeral = cargosAntesGeral.filter(c => !cargosDepoisGeral.has(c.id) && c.id !== CARGO_MUTADO);
+
+    if (cargosAdicionadosGeral.size > 0 || cargosRemovidosGeral.size > 0) {
+        const entriesCargoGeral = await buscarAuditLogsComCache(newMember.guild, AuditLogEvent.MemberRoleUpdate);
+        const entradaGeral = entriesCargoGeral.find(e =>
+            (Date.now() - e.createdTimestamp) < 15000 &&
+            e.target?.id === newMember.id
+        );
+        const executorGeral = entradaGeral?.executor ?? null;
+
+        if (executorGeral && executorGeral.id !== client.user.id) {
+            for (const cargo of cargosAdicionadosGeral.values()) {
+                await logarCargo({
+                    guild: newMember.guild,
+                    tipo: 'Cargo Adicionado Manualmente',
+                    alvo: `${newMember.user} (${newMember.user.tag})`,
+                    alvoUser: newMember.user,
+                    autor: executorGeral,
+                    cargo: `${cargo}`,
+                    extra: entradaGeral?.reason ? `**Motivo:** ${entradaGeral.reason}` : null
+                }).catch(err => console.error('--- Erro ao logar cargo adicionado manualmente ---', err));
+            }
+            for (const cargo of cargosRemovidosGeral.values()) {
+                await logarCargo({
+                    guild: newMember.guild,
+                    tipo: 'Cargo Removido Manualmente',
+                    alvo: `${newMember.user} (${newMember.user.tag})`,
+                    alvoUser: newMember.user,
+                    autor: executorGeral,
+                    cargo: `${cargo}`,
+                    extra: entradaGeral?.reason ? `**Motivo:** ${entradaGeral.reason}` : null
+                }).catch(err => console.error('--- Erro ao logar cargo removido manualmente ---', err));
+            }
+        }
+    }
+    
 });
 
 client.on('guildMemberAdd', async (member) => {
@@ -6611,14 +6660,20 @@ client.on('guildMemberAdd', async (member) => {
     return;
 }
     
-    // ============ LOG DE ENTRADA ============
+    // Dentro de guildMemberAdd, na chamada de logarMembro:
+    const contaCriadaEm = Math.floor(member.user.createdTimestamp / 1000);
+    const idadeContaDias = ((Date.now() - member.user.createdTimestamp) / (1000 * 60 * 60 * 24)).toFixed(1);
+
     await logarMembro({
         guild: member.guild,
         tipo: 'Entrada',
-        membro: member.user
+        membro: member.user,
+        extra:
+            `**ID:** \`${member.id}\`\n` +
+            `**Tag:** \`${member.user.tag}\`\n` +
+            `**Conta criada em:** <t:${contaCriadaEm}:F> (\`${idadeContaDias}\` dia(s) atrás)\n` +
+            `**Membros no servidor:** \`${member.guild.memberCount}\``
     }).catch(() => null);
-
-	garantirHistoricoInicial(member.user).catch(() => null);
 	
 	
 	try {
@@ -6883,6 +6938,108 @@ if (oldState.channel && oldState.channelId !== CANAL_GERADOR_ID) {
         }
     }
     
+    // ============ LOGS DE VOZ: ENTROU / SAIU / MOVIDO / EXPULSO / MUTE / DEAFEN ============
+    const membroLogVoz = newState.member ?? oldState.member;
+    if (membroLogVoz && !membroLogVoz.user.bot) {
+        const canalAntes = oldState.channelId ? (oldState.channel ?? await newState.guild.channels.fetch(oldState.channelId).catch(() => null)) : null;
+        const canalDepois = newState.channelId ? (newState.channel ?? await newState.guild.channels.fetch(newState.channelId).catch(() => null)) : null;
+
+        const listarMembros = (canal) => {
+            if (!canal) return '`ninguém`';
+            const lista = canal.members.filter(m => !m.user.bot).map(m => `${m}`).join(', ');
+            return lista || '`ninguém`';
+        };
+
+        if (!canalAntes && canalDepois) {
+            await logarVoz({
+                guild: newState.guild,
+                tipo: 'Entrou',
+                membro: membroLogVoz.user,
+                extra:
+                    `**Canal:** ${canalDepois} — \`${canalDepois.name}\` (\`${canalDepois.id}\`)\n` +
+                    `**Na call (${canalDepois.members.filter(m => !m.user.bot).size}):** ${listarMembros(canalDepois)}`
+            }).catch(err => console.error('--- Erro ao logar entrada em call ---', err));
+
+        } else if (canalAntes && !canalDepois) {
+            const entradasDisconnect = await buscarAuditLogsComCache(newState.guild, AuditLogEvent.MemberDisconnect);
+            const entradaDisconnect = entradasDisconnect.find(e => (Date.now() - e.createdTimestamp) < 10000);
+            const executorDisconnect = entradaDisconnect?.executor ?? null;
+
+            if (executorDisconnect && executorDisconnect.id !== membroLogVoz.id) {
+                await logarVoz({
+                    guild: newState.guild,
+                    tipo: 'Expulso/Desconectado',
+                    membro: membroLogVoz.user,
+                    extra:
+                        `**Canal:** ${canalAntes} — \`${canalAntes.name}\` (\`${canalAntes.id}\`)\n` +
+                        `**Executado por:** ${executorDisconnect} — \`${executorDisconnect.tag ?? executorDisconnect.username}\``
+                }).catch(err => console.error('--- Erro ao logar expulsão de call ---', err));
+            } else {
+                await logarVoz({
+                    guild: newState.guild,
+                    tipo: 'Saiu',
+                    membro: membroLogVoz.user,
+                    extra:
+                        `**Canal:** ${canalAntes} — \`${canalAntes.name}\` (\`${canalAntes.id}\`)\n` +
+                        `**Restam (${canalAntes.members.filter(m => !m.user.bot).size}):** ${listarMembros(canalAntes)}`
+                }).catch(err => console.error('--- Erro ao logar saída de call ---', err));
+            }
+
+        } else if (canalAntes && canalDepois && canalAntes.id !== canalDepois.id) {
+            await logarVoz({
+                guild: newState.guild,
+                tipo: 'Movido',
+                membro: membroLogVoz.user,
+                extra:
+                    `**Saiu de:** ${canalAntes} — \`${canalAntes.name}\` (\`${canalAntes.id}\`)\n` +
+                    `**Entrou em:** ${canalDepois} — \`${canalDepois.name}\` (\`${canalDepois.id}\`)\n` +
+                    `**Na call (${canalDepois.members.filter(m => !m.user.bot).size}):** ${listarMembros(canalDepois)}`
+            }).catch(err => console.error('--- Erro ao logar movimentação de call ---', err));
+        }
+
+        if (oldState.serverMute !== newState.serverMute) {
+            const entriesMute = await buscarAuditLogsComCache(newState.guild, AuditLogEvent.MemberUpdate);
+            const entradaMute = entriesMute.find(e =>
+                (Date.now() - e.createdTimestamp) < 10000 &&
+                e.target?.id === membroLogVoz.id &&
+                e.changes?.some(c => c.key === 'mute')
+            );
+            const executorMute = entradaMute?.executor ?? null;
+
+            if (executorMute && executorMute.id !== client.user.id) {
+                await logarVoz({
+                    guild: newState.guild,
+                    tipo: newState.serverMute ? 'Mutado no Servidor' : 'Desmutado no Servidor',
+                    membro: membroLogVoz.user,
+                    extra:
+                        `**Canal:** ${canalDepois ? `${canalDepois} — \`${canalDepois.name}\`` : '`fora de uma call`'}\n` +
+                        `**Executado por:** ${executorMute} — \`${executorMute.tag ?? executorMute.username}\``
+                }).catch(err => console.error('--- Erro ao logar mute de voz ---', err));
+            }
+        }
+
+        if (oldState.serverDeaf !== newState.serverDeaf) {
+            const entriesDeaf = await buscarAuditLogsComCache(newState.guild, AuditLogEvent.MemberUpdate);
+            const entradaDeaf = entriesDeaf.find(e =>
+                (Date.now() - e.createdTimestamp) < 10000 &&
+                e.target?.id === membroLogVoz.id &&
+                e.changes?.some(c => c.key === 'deaf')
+            );
+            const executorDeaf = entradaDeaf?.executor ?? null;
+
+            if (executorDeaf && executorDeaf.id !== client.user.id) {
+                await logarVoz({
+                    guild: newState.guild,
+                    tipo: newState.serverDeaf ? 'Áudio Desativado no Servidor' : 'Áudio Reativado no Servidor',
+                    membro: membroLogVoz.user,
+                    extra:
+                        `**Canal:** ${canalDepois ? `${canalDepois} — \`${canalDepois.name}\`` : '`fora de uma call`'}\n` +
+                        `**Executado por:** ${executorDeaf} — \`${executorDeaf.tag ?? executorDeaf.username}\``
+                }).catch(err => console.error('--- Erro ao logar deafen de voz ---', err));
+            }
+        }
+    }
+    
     // ============ SINCRONIZAÇÃO AUTOMÁTICA DO PAINEL BOTCALL ============
     const ehOProprioBot = (oldState.member?.id === client.user.id) || (newState.member?.id === client.user.id);
 
@@ -6946,15 +7103,17 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
     await verificarAntiLink(newMessage);
 
     // ============ LOG: MENSAGEM EDITADA ============
-    // Só loga quando temos o conteúdo antigo em cache (oldMessage não-partial) e ele realmente mudou.
-    // Evita falsos positivos de updates que o Discord dispara sem mudança de texto (ex: unfurl de link/embed).
-    if (!oldMessage.partial && oldMessage.content !== newMessage.content) {
+    const antigoDisponivel = !oldMessage.partial && typeof oldMessage.content === 'string';
+    const conteudoMudou = !antigoDisponivel || oldMessage.content !== newMessage.content;
+
+    if (conteudoMudou) {
         logarMensagemEditada({
             guild: newMessage.guild,
             autor: newMessage.author,
             canal: newMessage.channel,
             mensagemId: newMessage.id,
-            antes: oldMessage.content,
+            antes: antigoDisponivel ? oldMessage.content : null,
+            antesIndisponivel: !antigoDisponivel,
             depois: newMessage.content,
             url: newMessage.url
         }).catch(err => console.error('--- Erro ao logar mensagem editada ---', err));
@@ -6973,10 +7132,16 @@ client.on('messageDelete', async (message) => {
         if (!message.author || message.author.bot) return;
 
         const executorAuditoria = await obterExecutorAuditLog(message.guild, AuditLogEvent.MessageDelete, message.author.id).catch(() => null);
-        const executor = (executorAuditoria && executorAuditoria.id !== message.author.id)
-            ? `${executorAuditoria} — \`${executorAuditoria.tag ?? executorAuditoria.username}\``
-            : 'O próprio autor (ou sistema)';
 
+        let executor;
+        if (executorAuditoria && executorAuditoria.id === client.user.id) {
+            executor = 'Sistema';
+        } else if (executorAuditoria && executorAuditoria.id !== message.author.id) {
+            executor = `${executorAuditoria} — \`${executorAuditoria.tag ?? executorAuditoria.username}\` (\`${executorAuditoria.id}\`)`;
+        } else {
+            executor = `${message.author} — \`${message.author.tag}\` (o próprio autor)`;
+        }
+        
         await logarMensagemApagada({
             guild: message.guild,
             autor: message.author,
@@ -7009,8 +7174,10 @@ if (ticketDB.has(message.channel.id)) {
     }
 
     // ============ DELEÇÃO AUTOMÁTICA DE COMANDOS COM PREFIXO ============
-    const conteudoLower = message.content.toLowerCase();
-    const ehComandoPrefixo = conteudoLower === 'cl' || conteudoLower.startsWith(PREFIXO.toLowerCase());
+    const conteudoLower = message.content.toLowerCase().trim();
+    const prefixoLower = PREFIXO.toLowerCase();
+    const ehComandoPrefixo = conteudoLower === 'cl' ||
+        (conteudoLower.startsWith(prefixoLower) && conteudoLower.length > prefixoLower.length);
     if (ehComandoPrefixo) {
         message.delete().catch(() => null);
     }
