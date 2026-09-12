@@ -1,8 +1,13 @@
-const { ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SectionBuilder, ThumbnailBuilder, MessageFlags } = require('discord.js');
+const { ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SectionBuilder, ThumbnailBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const {
     CANAL_LOGS_MOD, CANAL_LOGS_BANS, CANAL_LOGS_MEMBROS, CANAL_LOGS_CARGOS,
-    CANAL_LOGS_CALLTEMP, CANAL_LOGS_KICKS, CANAL_LOGS_AUTOMOD, IMG_DISCORD_LOGO
+    CANAL_LOGS_CALLTEMP, CANAL_LOGS_KICKS, CANAL_LOGS_AUTOMOD, IMG_DISCORD_LOGO,
+    CANAL_LOGS_MENSAGENS
 } = require('./constants');
+
+// Se CANAL_LOGS_MENSAGENS ainda não existir em constants.js, usa o ID fixo como fallback.
+// (Recomendado: adicionar `CANAL_LOGS_MENSAGENS: '1548376183685783582'` em constants.js)
+const CANAL_LOGS_MENSAGENS_ID = CANAL_LOGS_MENSAGENS || '1548376183685783582';
 
 // ============ MOTOR: monta o container e envia ============
 async function enviarLogModeracao({ guild, tipo, alvo, alvoUser, autor, motivo, extra, canalId }) {
@@ -204,8 +209,125 @@ async function logarAntiBot({ guild, bot, acao }) {
     });
 }
 
+// ============ MENSAGEM APAGADA ============
+async function logarMensagemApagada({ guild, autor, canal, executor, mensagemId, conteudo, canalId }) {
+    try {
+        const canalLogs = await guild.channels.fetch(canalId || CANAL_LOGS_MENSAGENS_ID).catch(() => null);
+        if (!canalLogs) return;
+
+        const agora = new Date();
+        const horaFormatada = agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Sao_Paulo' });
+        const dataFormatada = agora.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+
+        const avatarUrl = typeof autor?.displayAvatarURL === 'function'
+            ? autor.displayAvatarURL({ extension: 'png', size: 256 })
+            : IMG_DISCORD_LOGO;
+
+        const conteudoFinal = conteudo && conteudo.trim().length > 0
+            ? conteudo.slice(0, 3500)
+            : '`Sem conteúdo de texto (anexo, embed ou sticker)`';
+
+        const container = new ContainerBuilder()
+            .setAccentColor(0xFFFFFF)
+            .addSectionComponents(
+                new SectionBuilder()
+                    .addTextDisplayComponents(
+                        new TextDisplayBuilder().setContent('### Mensagem apagada'),
+                        new TextDisplayBuilder().setContent(`**Autor:** ${autor ?? '\`desconhecido\`'} — \`${autor?.tag ?? autor?.username ?? '?'}\` (\`${autor?.id ?? '?'}\`)`)
+                    )
+                    .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
+            )
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(
+                new TextDisplayBuilder().setContent(`**Canal:** ${canal} — \`${canal.name}\` (\`${canal.id}\`)`),
+                new TextDisplayBuilder().setContent(`**Executor:** ${executor}`),
+                new TextDisplayBuilder().setContent(`**Mensagem ID:** \`${mensagemId}\``)
+            )
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(
+                new TextDisplayBuilder().setContent('**Conteúdo**'),
+                new TextDisplayBuilder().setContent(`\`\`\`\n${conteudoFinal}\n\`\`\``)
+            )
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
+
+        await canalLogs.send({
+            components: [container],
+            flags: [MessageFlags.IsComponentsV2],
+            allowedMentions: { parse: [] }
+        });
+    } catch (err) {
+        console.error('--- Erro ao enviar log de mensagem apagada ---', err);
+    }
+}
+
+// ============ MENSAGEM EDITADA ============
+async function logarMensagemEditada({ guild, autor, canal, mensagemId, antes, depois, url, canalId }) {
+    try {
+        const canalLogs = await guild.channels.fetch(canalId || CANAL_LOGS_MENSAGENS_ID).catch(() => null);
+        if (!canalLogs) return;
+
+        const agora = new Date();
+        const horaFormatada = agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Sao_Paulo' });
+        const dataFormatada = agora.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+
+        const avatarUrl = typeof autor?.displayAvatarURL === 'function'
+            ? autor.displayAvatarURL({ extension: 'png', size: 256 })
+            : IMG_DISCORD_LOGO;
+
+        const antesFinal = antes && antes.trim().length > 0 ? antes.slice(0, 1500) : '`Sem conteúdo de texto`';
+        const depoisFinal = depois && depois.trim().length > 0 ? depois.slice(0, 1500) : '`Sem conteúdo de texto`';
+
+        const container = new ContainerBuilder()
+            .setAccentColor(0xFFFFFF)
+            .addSectionComponents(
+                new SectionBuilder()
+                    .addTextDisplayComponents(
+                        new TextDisplayBuilder().setContent('### Mensagem editada'),
+                        new TextDisplayBuilder().setContent(`**Autor:** ${autor} — \`${autor?.tag ?? autor?.username ?? '?'}\` (\`${autor?.id ?? '?'}\`)`)
+                    )
+                    .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
+            )
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(
+                new TextDisplayBuilder().setContent(`**Canal:** ${canal} — \`${canal.name}\` (\`${canal.id}\`)`),
+                new TextDisplayBuilder().setContent(`**Mensagem ID:** \`${mensagemId}\``)
+            );
+
+        if (url) {
+            container.addActionRowComponents(
+                new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setLabel('Abrir mensagem').setStyle(ButtonStyle.Link).setURL(url)
+                )
+            );
+        }
+
+        container
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(
+                new TextDisplayBuilder().setContent('**Antes**'),
+                new TextDisplayBuilder().setContent(`\`\`\`\n${antesFinal}\n\`\`\``)
+            )
+            .addTextDisplayComponents(
+                new TextDisplayBuilder().setContent('**Depois**'),
+                new TextDisplayBuilder().setContent(`\`\`\`\n${depoisFinal}\n\`\`\``)
+            )
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
+
+        await canalLogs.send({
+            components: [container],
+            flags: [MessageFlags.IsComponentsV2],
+            allowedMentions: { parse: [] }
+        });
+    } catch (err) {
+        console.error('--- Erro ao enviar log de mensagem editada ---', err);
+    }
+}
+
 module.exports = {
     enviarLogModeracao, logar,
     logarBanimento, logarMembro, logarCargo, logarCallTemp, logarExpulsao, logarMute,
-    logarAntiLink, logarAntiSpam, logarAntiBot
+    logarAntiLink, logarAntiSpam, logarAntiBot,
+    logarMensagemApagada, logarMensagemEditada
 };
