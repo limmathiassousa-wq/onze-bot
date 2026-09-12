@@ -26,7 +26,7 @@ const {
     urlValida, avisoSucessoModeracao
 } = require('./helpers');
 
-const { logar, enviarLogModeracao, logarBanimento, logarMembro, logarCargo, logarCallTemp, logarExpulsao, logarMute, logarAntiLink, logarAntiSpam, logarAntiBot, logarMensagemApagada, logarMensagemEditada, logarVoz, logarCastigo } = require('./logger');
+const { logar, enviarLogModeracao, logarBanimento, logarMembro, logarCargo, logarCallTemp, logarExpulsao, logarMute, logarAntiLink, logarAntiSpam, logarAntiBot, logarMensagemApagada, logarMensagemEditada, logarVoz, logarCastigo, logarCargoServidor } = require('./logger');
 
 
 // ============ BOT ============
@@ -6646,6 +6646,63 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
     }
     
 });
+
+client.on('guildRoleCreate', async (role) => {
+    try {
+        const entries = await buscarAuditLogsComCache(role.guild, AuditLogEvent.RoleCreate);
+        const entrada = entries.find(e => (Date.now() - e.createdTimestamp) < 15000 && e.target?.id === role.id);
+        const executor = entrada?.executor ?? null;
+
+        await logarCargoServidor({
+            guild: role.guild,
+            tipo: 'Cargo Criado',
+            cargo: `${role} — \`${role.name}\``,
+            executor: executor
+                ? (executor.id === client.user.id ? 'Sistema' : `${executor} — \`${executor.tag ?? executor.username}\``)
+                : 'Não identificado',
+            motivo: entrada?.reason || null,
+            extra:
+                `**ID:** \`${role.id}\`\n` +
+                `**Cor:** \`${role.hexColor}\`\n` +
+                `**Posição:** \`${role.position}\`\n` +
+                `**Destacado:** ${role.hoist ? 'Sim' : 'Não'}\n` +
+                `**Mencionável:** ${role.mentionable ? 'Sim' : 'Não'}\n` +
+                `**Gerenciado por integração:** ${role.managed ? 'Sim' : 'Não'}\n` +
+                `**Permissões:** ${role.permissions.has('Administrator') ? '\`Administrator\` (todas as permissões)' : (role.permissions.toArray().length ? '`' + role.permissions.toArray().join('`, `') + '`' : '`nenhuma`')}`
+        });
+    } catch (err) {
+        console.error('--- Erro ao logar criação de cargo ---', err);
+    }
+});
+
+client.on('guildRoleDelete', async (role) => {
+    try {
+        const entries = await buscarAuditLogsComCache(role.guild, AuditLogEvent.RoleDelete);
+        const entrada = entries.find(e => (Date.now() - e.createdTimestamp) < 15000 && e.target?.id === role.id);
+        const executor = entrada?.executor ?? null;
+
+        await logarCargoServidor({
+            guild: role.guild,
+            tipo: 'Cargo Excluído',
+            cargo: `\`${role.name}\``,
+            executor: executor
+                ? (executor.id === client.user.id ? 'Sistema' : `${executor} — \`${executor.tag ?? executor.username}\``)
+                : 'Não identificado',
+            motivo: entrada?.reason || null,
+            extra:
+                `**ID:** \`${role.id}\`\n` +
+                `**Cor:** \`${role.hexColor}\`\n` +
+                `**Posição:** \`${role.position}\`\n` +
+                `**Destacado:** ${role.hoist ? 'Sim' : 'Não'}\n` +
+                `**Mencionável:** ${role.mentionable ? 'Sim' : 'Não'}\n` +
+                `**Gerenciado por integração:** ${role.managed ? 'Sim' : 'Não'}\n` +
+                `**Permissões:** ${role.permissions.has('Administrator') ? '\`Administrator\` (todas as permissões)' : (role.permissions.toArray().length ? '`' + role.permissions.toArray().join('`, `') + '`' : '`nenhuma`')}`
+        });
+    } catch (err) {
+        console.error('--- Erro ao logar exclusão de cargo ---', err);
+    }
+});
+
 
 client.on('guildMemberAdd', async (member) => {
 	// ============ ANTI BOT ============
