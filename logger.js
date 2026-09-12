@@ -2,12 +2,16 @@ const { ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SectionBuilder, 
 const {
     CANAL_LOGS_MOD, CANAL_LOGS_BANS, CANAL_LOGS_MEMBROS, CANAL_LOGS_CARGOS,
     CANAL_LOGS_CALLTEMP, CANAL_LOGS_KICKS, CANAL_LOGS_AUTOMOD, IMG_DISCORD_LOGO,
-    CANAL_LOGS_MENSAGENS
+    CANAL_LOGS_MENSAGENS, CANAL_LOGS_VOZ
 } = require('./constants');
 
 // Se CANAL_LOGS_MENSAGENS ainda não existir em constants.js, usa o ID fixo como fallback.
 // (Recomendado: adicionar `CANAL_LOGS_MENSAGENS: '1548376183685783582'` em constants.js)
 const CANAL_LOGS_MENSAGENS_ID = CANAL_LOGS_MENSAGENS || '1548376183685783582';
+
+// Se CANAL_LOGS_VOZ ainda não existir em constants.js, usa o ID fixo como fallback.
+// (Recomendado: adicionar `CANAL_LOGS_VOZ: '1548380755804029090'` em constants.js)
+const CANAL_LOGS_VOZ_ID = CANAL_LOGS_VOZ || '1548380755804029090';
 
 // ============ MOTOR: monta o container e envia ============
 async function enviarLogModeracao({ guild, tipo, alvo, alvoUser, autor, motivo, extra, canalId }) {
@@ -262,7 +266,7 @@ async function logarMensagemApagada({ guild, autor, canal, executor, mensagemId,
 }
 
 // ============ MENSAGEM EDITADA ============
-async function logarMensagemEditada({ guild, autor, canal, mensagemId, antes, depois, url, canalId }) {
+async function logarMensagemEditada({ guild, autor, canal, mensagemId, antes, depois, antesIndisponivel, url, canalId }) {
     try {
         const canalLogs = await guild.channels.fetch(canalId || CANAL_LOGS_MENSAGENS_ID).catch(() => null);
         if (!canalLogs) return;
@@ -275,7 +279,9 @@ async function logarMensagemEditada({ guild, autor, canal, mensagemId, antes, de
             ? autor.displayAvatarURL({ extension: 'png', size: 256 })
             : IMG_DISCORD_LOGO;
 
-        const antesFinal = antes && antes.trim().length > 0 ? antes.slice(0, 1500) : '`Sem conteúdo de texto`';
+        const antesFinal = antesIndisponivel
+            ? '`Não disponível (mensagem enviada antes do bot reiniciar/cachear)`'
+            : (antes && antes.trim().length > 0 ? antes.slice(0, 1500) : '`Sem conteúdo de texto`');
         const depoisFinal = depois && depois.trim().length > 0 ? depois.slice(0, 1500) : '`Sem conteúdo de texto`';
 
         const container = new ContainerBuilder()
@@ -325,9 +331,38 @@ async function logarMensagemEditada({ guild, autor, canal, mensagemId, antes, de
     }
 }
 
+// ============ LOGS DE VOZ (entrou, saiu, movido, expulso, mute e deafen no servidor) ============
+async function logarVoz({ guild, tipo, membro, extra, canalId }) {
+    return enviarLogModeracao({
+        guild,
+        tipo: `Voz — ${tipo}`,
+        alvo: `${membro} — \`${membro.tag ?? membro.username}\` (\`${membro.id}\`)`,
+        alvoUser: membro,
+        autor: 'Sistema',
+        motivo: null,
+        extra: extra || null,
+        canalId: canalId || CANAL_LOGS_VOZ_ID
+    });
+}
+
+// ============ CASTIGO MANUAL (TIMEOUT APLICADO/REMOVIDO FORA DE COMANDO) ============
+async function logarCastigo({ guild, tipo, alvo, alvoUser, autor, motivo, duracao, canalId }) {
+    return enviarLogModeracao({
+        guild,
+        tipo,
+        alvo,
+        alvoUser: alvoUser || null,
+        autor,
+        motivo: motivo || 'Não informado',
+        extra: duracao ? `**Duração:** \`${duracao}\`` : null,
+        canalId: canalId || CANAL_LOGS_MOD
+    });
+}
+
 module.exports = {
     enviarLogModeracao, logar,
     logarBanimento, logarMembro, logarCargo, logarCallTemp, logarExpulsao, logarMute,
     logarAntiLink, logarAntiSpam, logarAntiBot,
-    logarMensagemApagada, logarMensagemEditada
+    logarMensagemApagada, logarMensagemEditada,
+    logarVoz, logarCastigo
 };
