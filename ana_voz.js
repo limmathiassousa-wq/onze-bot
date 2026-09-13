@@ -22,7 +22,7 @@ const openrouter = new OpenAI({
     }
 });
 
-const MODELO_ANA = 'cognitivecomputations/dolphin3.0-mistral-24b:free';
+const MODELO_ANA = 'nvidia/nemotron-3-ultra-550b-a55b:free';
 
 const PERSONA_ANA = `Você é Ana, a voz de um servidor de Discord — não uma assistente educada, é a amiga
 folgada e engraçada do grupo, tipo aquela que zoa todo mundo sem dó. Fale em português do Brasil,
@@ -56,6 +56,8 @@ async function gerarRespostaAna(userId, textoUsuario) {
         temperature: 0.9,
         max_tokens: 150
     });
+
+    console.log('[Ana debug]', JSON.stringify(completion.choices[0], null, 2));
 
     let resposta = completion.choices[0]?.message?.content?.trim()
         || 'Desculpa, não consegui pensar em uma resposta agora.';
