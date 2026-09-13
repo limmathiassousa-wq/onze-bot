@@ -26,7 +26,7 @@ const {
     urlValida, avisoSucessoModeracao
 } = require('./helpers');
 
-const { logar, enviarLogModeracao, logarBanimento, logarMembro, logarCargo, logarCallTemp, logarExpulsao, logarMute, logarAntiLink, logarAntiSpam, logarAntiBot, logarMensagemApagada, logarMensagemEditada, logarVoz, logarCastigo, logarCargoServidor } = require('./logger');
+const { logar, enviarLogModeracao, logarBanimento, logarMembro, logarCargo, logarCallTemp, logarExpulsao, logarMute, logarAntiLink, logarAntiSpam, logarAntiBot, logarMensagemApagada, logarMensagemEditada, logarVoz, logarCastigo, logarCargoServidor, logarCanalServidor, logarPunicaoCargosStaff } = require('./logger');
 
 
 // ============ BOT ============
@@ -4119,6 +4119,73 @@ async function punirExecutorNuke(guild, executor, motivo) {
    ], executor.displayAvatarURL({ extension: 'png', size: 256 }));
 }
 
+// ============ ANTI-ABUSO: REMOÇÃO TEMPORÁRIA DE CARGOS POR BAN EM MASSA (STAFF) ============
+const staffBanTracker = new Map();       // executorId -> [timestamps]
+const staffPunicaoCargos = new Map();    // executorId -> { idsCargos }
+
+const JANELA_BAN_STAFF_MS = 30 * 60 * 1000; // 30 minutos
+const LIMITE_BANS_STAFF = 3;
+const DURACAO_PUNICAO_STAFF_MS = 2 * 60 * 1000; // 2 minutos
+
+async function verificarBanEmMassaStaff(guild, executor) {
+    if (!executor || executor.bot) return;
+    if (executor.id === guild.ownerId) return;
+    if (protecaoConfig.antiRaid.whitelistIds.includes(executor.id)) return;
+    if (staffPunicaoCargos.has(executor.id)) return; // já está sendo punido, ignora
+
+    const agora = Date.now();
+    const lista = (staffBanTracker.get(executor.id) || []).filter(t => agora - t < JANELA_BAN_STAFF_MS);
+    lista.push(agora);
+    staffBanTracker.set(executor.id, lista);
+
+    if (lista.length < LIMITE_BANS_STAFF) return;
+    staffBanTracker.delete(executor.id);
+
+    const membro = await guild.members.fetch(executor.id).catch(() => null);
+    if (!membro) return;
+
+    const cargosRemover = membro.roles.cache.filter(r => r.id !== guild.id && !r.managed && r.editable);
+    if (cargosRemover.size === 0) return;
+
+    const idsCargos = [...cargosRemover.keys()];
+    const nomesCargos = cargosRemover.map(r => r.name);
+
+    staffPunicaoCargos.set(executor.id, { idsCargos });
+
+    try {
+        await membro.roles.remove(idsCargos, `Anti-Abuso: ${lista.length} bans em menos de ${JANELA_BAN_STAFF_MS / 60000} minutos`);
+    } catch (err) {
+        console.error('--- Erro ao remover cargos (Anti-Abuso: ban em massa) ---', err);
+        staffPunicaoCargos.delete(executor.id);
+        return;
+    }
+
+    await logarPunicaoCargosStaff({
+        guild,
+        tipo: 'Cargos removidos temporariamente (Anti-Abuso)',
+        membro,
+        cargos: nomesCargos,
+        extra: `**Motivo:** baniu ${lista.length} membros em menos de ${JANELA_BAN_STAFF_MS / 60000} minutos\n**Duração:** 2 minutos`
+    }).catch(() => null);
+
+    setTimeout(async () => {
+        staffPunicaoCargos.delete(executor.id);
+        try {
+            const membroAtual = await guild.members.fetch(executor.id).catch(() => null);
+            if (!membroAtual) return;
+            await membroAtual.roles.add(idsCargos, 'Anti-Abuso: devolução dos cargos após 2 minutos');
+            await logarPunicaoCargosStaff({
+                guild,
+                tipo: 'Cargos devolvidos (Anti-Abuso)',
+                membro: membroAtual,
+                cargos: nomesCargos
+            }).catch(() => null);
+        } catch (err) {
+            console.error('--- Erro ao devolver cargos (Anti-Abuso: ban em massa) ---', err);
+        }
+    }, DURACAO_PUNICAO_STAFF_MS);
+}
+
 const spamPunicaoEmAndamento = new Set();
 
 async function verificarSpamMensagem(message) {
@@ -6177,6 +6244,11 @@ client.on('guildBanAdd', async (ban) => {
             await punirExecutorNuke(ban.guild, executor, `Baniu ${total} membros em menos de ${protecaoConfig.antiRaid.janelaMs / 1000}s`);
         }
     }
+    
+    // Anti-Abuso: staff que bane 3+ pessoas em menos de 30min perde os cargos por 2min
+if (executor && executor.id !== client.user.id) {
+    verificarBanEmMassaStaff(ban.guild, executor).catch(err => console.error('--- Erro no Anti-Abuso (guildBanAdd) ---', err));
+}
 
     // Loga apenas bans feitos manualmente (fora dos comandos do bot)
     if (executor && executor.id !== client.user.id) {
@@ -6298,6 +6370,113 @@ client.on('channelUpdate', async (canalAntigo, canalNovo) => {
         nukeTracker.canaisEditados.delete(executor.id);
         await punirExecutorNuke(canalNovo.guild, executor, `Alterou permissões/categoria de ${total} canais em menos de ${protecaoConfig.antiRaid.janelaMs / 1000}s`);
     }
+});
+
+// ============ LOGS DE CANAIS (criação, exclusão, edição) ============
+const CANAL_LOGS_CANAIS_TEXTO = '1548501950964834464';
+const CANAL_LOGS_CANAIS_VOZ = '1548380755804029090';
+
+function nomeTipoCanalLog(tipo) {
+    switch (tipo) {
+        case ChannelType.GuildText: return 'Texto';
+        case ChannelType.GuildVoice: return 'Voz';
+        case ChannelType.GuildCategory: return 'Categoria';
+        case ChannelType.GuildAnnouncement: return 'Anúncios';
+        case ChannelType.GuildStageVoice: return 'Palco';
+        case ChannelType.GuildForum: return 'Fórum';
+        case ChannelType.GuildMedia: return 'Mídia';
+        default: return 'Desconhecido';
+    }
+}
+
+function canalDeLogParaTipo(tipo) {
+    return (tipo === ChannelType.GuildVoice || tipo === ChannelType.GuildStageVoice)
+        ? CANAL_LOGS_CANAIS_VOZ
+        : CANAL_LOGS_CANAIS_TEXTO;
+}
+
+client.on('channelCreate', async (canal) => {
+    if (!canal.guild) return;
+    const executor = await obterExecutorAuditLog(canal.guild, AuditLogEvent.ChannelCreate, canal.id);
+
+    await logarCanalServidor({
+        guild: canal.guild,
+        tipo: 'Canal criado',
+        canal: `${canal} \`${canal.name}\` (\`${canal.id}\`)`,
+        tipoCanal: nomeTipoCanalLog(canal.type),
+        categoria: canal.parent ? canal.parent.name : null,
+        executor: executor ? `${executor}` : '`Desconhecido`',
+        canalId: canalDeLogParaTipo(canal.type)
+    }).catch(err => console.error('--- Erro ao logar criação de canal ---', err));
+});
+
+client.on('channelDelete', async (canal) => {
+    if (!canal.guild) return;
+    const executor = await obterExecutorAuditLog(canal.guild, AuditLogEvent.ChannelDelete, canal.id);
+
+    await logarCanalServidor({
+        guild: canal.guild,
+        tipo: 'Canal apagado',
+        canal: `\`${canal.name}\` (\`${canal.id}\`)`,
+        tipoCanal: nomeTipoCanalLog(canal.type),
+        categoria: canal.parent ? canal.parent.name : null,
+        executor: executor ? `${executor}` : '`Desconhecido`',
+        canalId: canalDeLogParaTipo(canal.type)
+    }).catch(err => console.error('--- Erro ao logar exclusão de canal ---', err));
+});
+
+client.on('channelUpdate', async (canalAntigo, canalNovo) => {
+    if (!canalNovo.guild) return;
+
+    const alteracoes = [];
+
+    if (canalAntigo.name !== canalNovo.name) {
+        alteracoes.push(`**Nome:** \`${canalAntigo.name}\` → \`${canalNovo.name}\``);
+    }
+    if (canalAntigo.parentId !== canalNovo.parentId) {
+        const catAntiga = canalAntigo.parent ? canalAntigo.parent.name : 'Nenhuma';
+        const catNova = canalNovo.parent ? canalNovo.parent.name : 'Nenhuma';
+        alteracoes.push(`**Categoria:** \`${catAntiga}\` → \`${catNova}\``);
+    }
+    if ('topic' in canalAntigo && canalAntigo.topic !== canalNovo.topic) {
+        alteracoes.push(`**Tópico:** \`${canalAntigo.topic || 'Nenhum'}\` → \`${canalNovo.topic || 'Nenhum'}\``);
+    }
+    if ('nsfw' in canalAntigo && canalAntigo.nsfw !== canalNovo.nsfw) {
+        alteracoes.push(`**NSFW:** \`${canalAntigo.nsfw ? 'Ativado' : 'Desativado'}\` → \`${canalNovo.nsfw ? 'Ativado' : 'Desativado'}\``);
+    }
+    if ('rateLimitPerUser' in canalAntigo && canalAntigo.rateLimitPerUser !== canalNovo.rateLimitPerUser) {
+        alteracoes.push(`**Slowmode:** \`${canalAntigo.rateLimitPerUser || 0}s\` → \`${canalNovo.rateLimitPerUser || 0}s\``);
+    }
+    if ('bitrate' in canalAntigo && canalAntigo.bitrate !== canalNovo.bitrate) {
+        alteracoes.push(`**Bitrate:** \`${canalAntigo.bitrate}\` → \`${canalNovo.bitrate}\``);
+    }
+    if ('userLimit' in canalAntigo && canalAntigo.userLimit !== canalNovo.userLimit) {
+        alteracoes.push(`**Limite de usuários:** \`${canalAntigo.userLimit || 'Sem limite'}\` → \`${canalNovo.userLimit || 'Sem limite'}\``);
+    }
+
+    const overwriteAntigo = canalAntigo.permissionOverwrites?.cache?.get(canalNovo.guild.id);
+    const overwriteNovo = canalNovo.permissionOverwrites?.cache?.get(canalNovo.guild.id);
+    const mudouPermissaoEveryone =
+        (overwriteAntigo?.allow?.bitfield ?? 0n) !== (overwriteNovo?.allow?.bitfield ?? 0n) ||
+        (overwriteAntigo?.deny?.bitfield ?? 0n) !== (overwriteNovo?.deny?.bitfield ?? 0n);
+    if (mudouPermissaoEveryone) {
+        alteracoes.push('**Permissões de @everyone alteradas**');
+    }
+
+    if (alteracoes.length === 0) return;
+
+    const executor = await obterExecutorAuditLog(canalNovo.guild, AuditLogEvent.ChannelUpdate, canalNovo.id);
+
+    await logarCanalServidor({
+        guild: canalNovo.guild,
+        tipo: 'Canal editado',
+        canal: `${canalNovo} \`${canalNovo.name}\` (\`${canalNovo.id}\`)`,
+        tipoCanal: nomeTipoCanalLog(canalNovo.type),
+        categoria: canalNovo.parent ? canalNovo.parent.name : null,
+        executor: executor ? `${executor}` : '`Desconhecido`',
+        extra: alteracoes.join('\n'),
+        canalId: canalDeLogParaTipo(canalNovo.type)
+    }).catch(err => console.error('--- Erro ao logar edição de canal ---', err));
 });
 
 // ============ DEBUG DE CONEXÃO (temporário até achar a causa) ============
@@ -10115,6 +10294,7 @@ if (draft.tipo === 'ban') {
         }
 
         await logarBanimento({
+            verificarBanEmMassaStaff(interaction.guild, interaction.user).catch(err => console.error('--- Erro no Anti-Abuso (comando /ban) ---', err));
             guild: interaction.guild, tipo: 'Banimento',
             alvo: `<@${draft.alvoId}> (${draft.alvoTag})`,
             alvoUser: alvoUserFetch,
