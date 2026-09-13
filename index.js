@@ -29,7 +29,7 @@ const {
 const { logar, enviarLogModeracao, logarBanimento, logarMembro, logarCargo, logarCallTemp, logarExpulsao, logarMute, logarAntiLink, logarAntiSpam, logarAntiBot, logarMensagemApagada, logarMensagemEditada, logarVoz, logarCastigo, logarCargoServidor, logarCanalServidor, logarPunicaoCargosStaff } = require('./logger');
 
 const { anaResponderComAudio } = require('./ana_voz');
-const CANAL_VOZ_ANA = '1548489854038581308';
+const CANAIS_VOZ_ANA = ['1548489854038581308', '1548578896054718474'];
 
 
 // ============ BOT ============
