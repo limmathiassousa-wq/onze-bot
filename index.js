@@ -947,7 +947,7 @@ function montarPainelGRolesExcluir(guild, pagina = 0) {
 
 for (const cargo of fatia) {
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
-        `<@&${cargo.id}>\n<:21571:1546008424737677422> **${cargo.members.size}** membro(s)`
+        `<@&${cargo.id}>\n<:pessoa:1548558766230872224> **${cargo.members.size}** membro(s)`
     ));
     container.addActionRowComponents(
         new ActionRowBuilder().addComponents(
@@ -993,7 +993,7 @@ function montarPainelGRolesPermLista(guild, pagina = 0) {
 
     for (const cargo of fatia) {
         container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            `<@&${cargo.id}>\n<:21573:1546008443456983140> **Permissões atuais:** ${montarPermissoesTextoGRoles(cargo)}`
+            `<@&${cargo.id}>\n<:lista:1548558969860132864> **Permissões atuais:** ${montarPermissoesTextoGRoles(cargo)}`
         ));
         container.addActionRowComponents(
             new ActionRowBuilder().addComponents(
@@ -1169,7 +1169,7 @@ for (const cargo of fatia) {
     const semPermissao = (adminEhLimitado && CARGOS_RESTRITOS_GERENCIADOR_LIMITADO.includes(cargo.id)) ||
         (cargo.id === CARGO_RESTRITO_UNICO && !(adminMembro?.roles.cache.has(CARGO_RESTRITO_UNICO)));
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
-        `<@&${cargo.id}>\n<:21571:1546008424737677422> **${cargo.members.size}** membro(s)\n<:21573:1546008443456983140> **Permissões:** ${montarPermissoesTextoGRoles(cargo)}`
+        `<@&${cargo.id}>\n<:pessoa:1548558766230872224> **${cargo.members.size}** membro(s)\n <:lista:1548558969860132864> **Permissões:** ${montarPermissoesTextoGRoles(cargo)}`
     ));
     container.addActionRowComponents(
         new ActionRowBuilder().addComponents(
@@ -1809,7 +1809,7 @@ function montarPainelInfoHierarquia(guild, autorId) {
     const iconUrl = guild.iconURL({ extension: 'png', size: 256 });
 
     return new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent('## <:17676:1540328100099793048> Hierarquia de Cargos'))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('## <:23310:1548566772700024882> Hierarquia de Cargos'))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addSectionComponents(
             new SectionBuilder()
@@ -1830,7 +1830,7 @@ function montarPainelInfoHierarquia(guild, autorId) {
 
 function montarPainelVerificacaoCargos() {
     return new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent('## <:17676:1540328100099793048> Hierarquia de Cargos'))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('## <:23310:1548566772700024882> Hierarquia de Cargos'))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent('Selecione o **cargo** abaixo para ver quem o **possui**'))
         .addActionRowComponents(
@@ -4343,7 +4343,7 @@ function montarPainelProtecao(guildId) {
     const emoji = (ativo) => ativo ? EMOJI_ATIVADO : EMOJI_DESATIVADO;
 
     return new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent('## <:19033:1542337647819620412> Painel de proteção do servidor'))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('## <:coroa:1548555601204744323> Painel de proteção do servidor'))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent('-# Painel principal'))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
@@ -5467,33 +5467,33 @@ if (draft.tipo === 'embed') {
 
 // ============ USERINFO (userinfo / ui) ============
 const EMOJIS_CONEXAO = {
-    battlenet:       '<:19034:1542338134686302269>',
-    bungie:          '<:19035:1542338162209198161>',
-    bluesky:         '<:19036:1542338194161410208>',
-    crunchyroll:     '<:19037:1542338218836369508>',
-    domain:          '<:19038:1542338244358963200>',
-    ebay:            '<:19061:1542340262129303603>',
-    epicgames:       '<:19062:1542340594204934226>',
-    facebook:        '<:19063:1542340761373384816>',
-    github:          '<:19039:1542338276382220288>',
-    instagram:       '<:19040:1542338299312480357>',
-    leagueoflegends: '<:19064:1542341028080652288>',
-    mastodon:        '<:19042:1542338352013910096>',
-    paypal:          '<:19043:1542338421945536522>',
-    playstation:     '<:19044:1542338468494057582>',
-    reddit:          '<:19045:1542338493697622076>',
-    riotgames:       '<:19046:1542338517726920805>',
-    roblox:          '<:19047:1542338541290397767>',
-    samsung:         '<:19049:1542338573506846720>',
-    soundcloud:      '<:19050:1542338596512735263>',
-    spotify:         '<:19041:1542338325023555741>',
-    skype:           '<:19053:1542338665315967048>',
-    steam:           '<:19054:1542338704251555861>',
-    tiktok:          '<:19055:1542338726968033460>',
-    twitch:          '<:19056:1542338744860942396>',
-    twitter:         '<:19057:1542338760405164094>',
-    xbox:            '<:19058:1542338774485176440>',
-    youtube:         '<:19059:1542338788775428137>',
+    battlenet:       '<:battlenet:1548555662001176688>',
+    bungie:          '<:bungie:1548555961638326302>',
+    bluesky:         '<:bluesky:1548556057234776204>',
+    crunchyroll:     '<:crunchyroll:1548556177338535946>',
+    domain:          '<:domain:1548556229872320573>',
+    ebay:            '<:ebay:1548557792024068127>',
+    epicgames:       '<:epicgames:1548557748852097125>',
+    facebook:        '<:facebook:1548557702219960420>',
+    github:          '<:github:1548556275300835488>',
+    instagram:       '<:instagram2:1548561559373217792>',
+    leagueoflegends: '<:LOL:1548557912039882843>',
+    mastodon:        '<:mastodon:1548556572689432646>',
+    paypal:          '<:paypal:1548556521888153720>',
+    playstation:     '<:playstation:1548556466686791761>',
+    reddit:          '<:reddit:1548556355571548270>',
+    riotgames:       '<:riotgames:1548557065549512774>',
+    roblox:          '<:roblox:1548557024961237015>',
+    samsung:         '<:samsung:1548556971735781386>',
+    soundcloud:      '<:soundcloud:1548556928014229524>',
+    spotify:         '<:spotify:1548556760531603538>',
+    skype:           '<:skype:1548556807671250944>',
+    steam:           '<:steam:1548557662969528381>',
+    tiktok:          '<:tiktok:1548557613896302724>',
+    twitch:          '<:twitch:1548557548309712958>',
+    twitter:         '<:X_:1548557498376654938>',
+    xbox:            '<:xbox:1548557362795778088>',
+    youtube:         '<:youtube:1548557827185053806>',
 };
 
 const NOMES_CONEXAO = {
@@ -6055,7 +6055,7 @@ function montarPainelHelp(categoria = 'slash', pagina = 0) {
         new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId(`help_pagina_${categoria}_${paginaAtual - 1}`)
-                .setEmoji('1522620641168330853')
+                .setName('Voltar')
                 .setStyle(ButtonStyle.Secondary)
                 .setDisabled(paginaAtual === 0),
             new ButtonBuilder()
@@ -6065,7 +6065,7 @@ function montarPainelHelp(categoria = 'slash', pagina = 0) {
                 .setDisabled(true),
             new ButtonBuilder()
                 .setCustomId(`help_pagina_${categoria}_${paginaAtual + 1}`)
-                .setEmoji('1522620603616596148')
+                .setName('Avançar')
                 .setStyle(ButtonStyle.Secondary)
                 .setDisabled(paginaAtual >= totalPaginas - 1)
         )
@@ -7014,7 +7014,7 @@ if (protecaoConfig.antiFake.ativo) {
 
     await Promise.all([
         canal
-            ? canal.send(` **Seja bem-vindo(a) a Onze** <@${member.id}>\n <:21354:1545536854722351104> Veja todas as regras em <#1542321889404264480>`).catch(() => null)
+            ? canal.send(` **Seja bem-vindo(a) a Onze** <@${member.id}>\n <:pontored:1548558637507678268> Veja todas as regras em <#1542321889404264480>`).catch(() => null)
             : Promise.resolve(),
         canalMoedas
             ? canalMoedas.send(`<@${member.id}>`).then(m => m.delete().catch(() => null)).catch(() => null)
@@ -7094,14 +7094,14 @@ if (newState.channelId === CANAL_GERADOR_ID) {
                         .setCustomId('menu_painelcall')
                         .setPlaceholder('Selecione uma opção')
                         .addOptions([
-                                 { label: 'Privar call', value: 'call_privada', emoji: { id: '1544877498276388895', name: '20992' } },
-                                 { label: 'Abrir call', value: 'call_publica', emoji: { id: '1544877517356400781', name: '20993' } },
-                                 { label: 'Banir', value: 'call_banir', emoji: { id: '1544877782977482875', name: '20997' } },
-                                 { label: 'Expulsar', value: 'call_expulsar', emoji: { id: '1544883808099106906', name: '21009' } },
-                                 { label: 'Alterar limite', value: 'call_limite', emoji: { id: '1544880984686862406', name: '21003' } },
-                                 { label: 'Alterar nome', value: 'call_renomear', emoji: { id: '1544884537077534801', name: '21011' } },
-                                 { label: 'Alterar status', value: 'call_status', emoji: { id: '1544885393143496704', name: '21016' } },
-                                 { label: 'Permitir alguém', value: 'call_permitir', emoji: { id: '1544881580445667469', name: '21005' } }
+                                 { label: 'Privar call', value: 'call_privada', emoji: { id: '1548558135742959728', name: 'fechado' } },
+                                 { label: 'Abrir call', value: 'call_publica', emoji: { id: '1548558101744193556', name: 'aberto' } },
+                                 { label: 'Banir', value: 'call_banir', emoji: { id: '1548558794320257046', name: 'martelo' } },
+                                 { label: 'Expulsar', value: 'call_expulsar', emoji: { id: '1548558298742267994', name: 'desconectar' } },
+                                 { label: 'Alterar limite', value: 'call_limite', emoji: { id: '1548558468598734898', name: 'info' } },
+                                 { label: 'Alterar nome', value: 'call_renomear', emoji: { id: '1548558265409871952', name: 'editar' } },
+                                 { label: 'Alterar status', value: 'call_status', emoji: { id: '1548558739420880937', name: 'olho' } },
+                                 { label: 'Permitir alguém', value: 'call_permitir', emoji: { id: '1548558348863938660', name: 'mais' } }
                         ])
                 )
             );
@@ -7452,14 +7452,14 @@ if (ticketDB.has(message.channel.id)) {
 if (message.content.toLowerCase() === `${PREFIXO}áreas` || message.content.toLowerCase() === `${PREFIXO}areas`) {
     const texto =
         `# Áreas disponíveis⬇\n\n` +
-        `### <:21992:1546550258937495573> **Sup**\n` +
-        `-# <:21354:1545536854722351104> Atende tickets e ajuda os membros da comunidade\n` +
-        `### <:21992:1546550258937495573> **Mod**\n` +
-        `-# <:21354:1545536854722351104> Modera o servidor de forma controlada com permissão para banir, mutar e expulsar\n` +
-        `### <:21992:1546550258937495573> **Verify TELLONYM**\n` +
-        `-# <:21354:1545536854722351104> Verifica tellonyms enviados para avaliação, ele decide se o tellonym vai ser enviado pro canal, ou não\n` +
-        `### <:21992:1546550258937495573> **Verify INSTAGRAM**\n` +
-        `-# <:21354:1545536854722351104> Verifica imagens enviadas para avaliação em tickets para cargo de instagram, ele decide se o usuário vai poder enviar o post pro canal ou não`;
+        `### <:barra:1548558939115757688> **Sup**\n` +
+        `-# <:pontored:1548558637507678268> Atende tickets e ajuda os membros da comunidade\n` +
+        `### <:barra:1548558939115757688> **Mod**\n` +
+        `-# <:pontored:1548558637507678268> Modera o servidor de forma controlada com permissão para banir, mutar e expulsar\n` +
+        `### <:barra:1548558939115757688> **Verify TELLONYM**\n` +
+        `-# <:pontored:1548558637507678268> Verifica tellonyms enviados para avaliação, ele decide se o tellonym vai ser enviado pro canal, ou não\n` +
+        `### <:barra:1548558939115757688> **Verify INSTAGRAM**\n` +
+        `-# <:pontored:1548558637507678268> Verifica imagens enviadas para avaliação em tickets para cargo de instagram, ele decide se o usuário vai poder enviar o post pro canal ou não`;
 
     return message.channel.send({ content: texto });
 }
@@ -7607,7 +7607,7 @@ if (message.content.toLowerCase() === `${PREFIXO}painelurl`) {
                 new ButtonBuilder()
                     .setCustomId('painelurl_verificar')
                     .setLabel('Verificar url')
-                    .setEmoji({ id: '1545060681219580055', name: '21170' })
+                    .setEmoji({ id: '1548558686136307732', name: 'pontoblack' })
                     .setStyle(ButtonStyle.Secondary)
             )
         );
@@ -7714,7 +7714,7 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}unban `) || message.cont
     }
 
     const containerCarregando = new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent('<a:21356:1545539483754037359> Baixando vídeo, aguarde...'));
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('<a:carregando:1548558543253409882> Baixando vídeo, aguarde...'));
 
     let msgCarregando;
     try {
@@ -7751,7 +7751,7 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}unban `) || message.cont
 const containerFinal = new ContainerBuilder()
 	.setAccentColor(0xFFFFFF) 
     .addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`<:21362:1545540876447654008> **TIKTOK**・Enviado por ${message.author}`)
+        new TextDisplayBuilder().setContent(`<:tiktok2:1548558848258744372> **TIKTOK**・Enviado por ${message.author}`)
     )
     .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
     .addMediaGalleryComponents(
@@ -8205,7 +8205,7 @@ if (message.content.toLowerCase() === `${PREFIXO}nuke`) {
         const horaFormatada = agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Sao_Paulo' });
 
         const container = new ContainerBuilder()
-           .addTextDisplayComponents(new TextDisplayBuilder().setContent('-# <:21569:1546008405305458769> **Canal nukado**'))
+           .addTextDisplayComponents(new TextDisplayBuilder().setContent('-# <:martelo:1548558794320257046> **Canal nukado**'))
            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`Canal **nukado** por ${autor} as **${horaFormatada}**`));
 
@@ -8335,7 +8335,7 @@ const motivoAfkBruto = await getAfk(message.author.id);
             if (foto && (foto.contentType?.startsWith('image/') || foto.contentType?.startsWith('video/'))) {
                 try {
                     const anexo = new AttachmentBuilder(foto.url, { name: 'post.png' });
-                    const textoPost = `> <:19040:1542338299312480357> <@${message.author.id}>${message.content ? '\n' + message.content : ''}`;
+                    const textoPost = `> <:instagram2:1548561559373217792> <@${message.author.id}>${message.content ? '\n' + message.content : ''}`;
 
                     const container = new ContainerBuilder()
                         .setAccentColor(0xFFFFFF)
@@ -8562,8 +8562,8 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}limpar`)) {
                 .setAccentColor(0x000000)
                 .addTextDisplayComponents(new TextDisplayBuilder().setContent(
                     finalizado
-                        ? '### <:21444:1545643785675874420> Limpeza concluída'
-                        : '### <a:21355:1545539464984535100> Limpando canal...'
+                        ? '### <:check:1548558822711365702> Limpeza concluída'
+                        : '### <a:cerregando2:1548558592133824562> Limpando canal...'
                 ))
                 .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
                 .addTextDisplayComponents(new TextDisplayBuilder().setContent(
@@ -9081,7 +9081,7 @@ await enviarLogModeracao({
 
     muteDraftDB.delete(interaction.message.id);
 
-    avisoSucessoModeracao(interaction.channel, `<:21444:1545643785675874420> · ${membroAlvo} foi mutado com sucesso!`);
+    avisoSucessoModeracao(interaction.channel, `<:check:1548558822711365702> · ${membroAlvo} foi mutado com sucesso!`);
 
     return interaction.editReply({
         components: containerTexto(`${membroAlvo} foi mutado por **${draft.duracaoTexto}**!${draft.motivo ? `\n**Motivo:** ${draft.motivo}` : ''}`),
@@ -9141,7 +9141,7 @@ await enviarLogModeracao({
 
     muteDraftDB.delete(interaction.message.id);
 
-    avisoSucessoModeracao(interaction.channel, `<:21444:1545643785675874420> · ${membroAlvo} foi mutado com sucesso!`);
+    avisoSucessoModeracao(interaction.channel, `<:check:1548558822711365702> · ${membroAlvo} foi mutado com sucesso!`);
 
     return interaction.editReply({
         components: containerTexto(`${membroAlvo} foi mutado por cargo por **5 minutos**!${draft.motivo ? `\n**Motivo:** ${draft.motivo}` : ''}`),
@@ -10619,7 +10619,7 @@ if (draft.tipo === 'ban') {
 
         verificarBanEmMassaStaff(interaction.guild, interaction.user).catch(err => console.error('--- Erro no Anti-Abuso (comando /ban) ---', err));
 
-        avisoSucessoModeracao(interaction.channel, `<:21444:1545643785675874420> · <@${draft.alvoId}> foi banido com sucesso!`);
+        avisoSucessoModeracao(interaction.channel, `<:check:1548558822711365702> · <@${draft.alvoId}> foi banido com sucesso!`);
 
         return interaction.editReply({ components: containerTexto(`**${draft.alvoTag}** foi banido com sucesso!`), flags: [MessageFlags.IsComponentsV2] });
     }
@@ -10639,7 +10639,7 @@ if (draft.tipo === 'ban') {
             autor: interaction.user, motivo: draft.motivo
        });
 
-        avisoSucessoModeracao(interaction.channel, `<:21444:1545643785675874420> · <@${draft.alvoId}> foi desbanido com sucesso!`);
+        avisoSucessoModeracao(interaction.channel, `<:check:1548558822711365702> · <@${draft.alvoId}> foi desbanido com sucesso!`);
 
         return interaction.editReply({ components: containerTexto(`**${draft.alvoTag}** foi desbanido com sucesso!`), flags: [MessageFlags.IsComponentsV2] });
     }
@@ -12167,7 +12167,7 @@ if (interaction.isButton() && interaction.customId === 'tellonym_permitir') {
         new ButtonBuilder()
            .setCustomId('tellonym_comentar')
            .setLabel('0')
-           .setEmoji('1526757381357436998')
+           .setEmoji('1548558220539338772')
            .setStyle(ButtonStyle.Secondary),
         new ButtonBuilder()
             .setCustomId('tellonym_vercomentarios')
@@ -13600,7 +13600,7 @@ if (interaction.isButton() && interaction.customId.startsWith('carteira_atualiza
         const botoes = [
     new ButtonBuilder()
         .setCustomId(`carteira_atualizar_${interaction.user.id}_${alvo.id}`)
-        .setEmoji('1526757661142679653')
+        .setEmoji('1548555551514951801')
         .setStyle(ButtonStyle.Secondary)
 ];
 
