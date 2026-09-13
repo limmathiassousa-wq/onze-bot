@@ -6055,7 +6055,7 @@ function montarPainelHelp(categoria = 'slash', pagina = 0) {
         new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId(`help_pagina_${categoria}_${paginaAtual - 1}`)
-                .setName('Voltar')
+                .setLabel('Voltar')
                 .setStyle(ButtonStyle.Secondary)
                 .setDisabled(paginaAtual === 0),
             new ButtonBuilder()
@@ -6065,7 +6065,7 @@ function montarPainelHelp(categoria = 'slash', pagina = 0) {
                 .setDisabled(true),
             new ButtonBuilder()
                 .setCustomId(`help_pagina_${categoria}_${paginaAtual + 1}`)
-                .setName('Avançar')
+                .setLabel('Avançar')
                 .setStyle(ButtonStyle.Secondary)
                 .setDisabled(paginaAtual >= totalPaginas - 1)
         )
