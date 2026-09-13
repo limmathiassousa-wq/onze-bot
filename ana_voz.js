@@ -27,7 +27,7 @@ async function gerarRespostaAna(userId, textoUsuario) {
 
     const mensagens = [
         { role: 'system', content: PERSONA_ANA },
-        ...historico.slice(-20),
+        ...historico.slice(-20).map(m => ({ role: m.role, content: m.content })),
         { role: 'user', content: textoUsuario }
     ];
 
