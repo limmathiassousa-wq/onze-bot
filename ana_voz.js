@@ -57,9 +57,9 @@ async function gerarRespostaAna(userId, textoUsuario) {
         max_tokens: 150
     });
 
-    console.log('[Ana debug]', JSON.stringify(completion.choices[0], null, 2));
+    console.log('[Ana debug]', JSON.stringify(completion, null, 2));
 
-    let resposta = completion.choices[0]?.message?.content?.trim()
+    let resposta = completion?.choices?.[0]?.message?.content?.trim()
         || 'Desculpa, não consegui pensar em uma resposta agora.';
 
     // Trava de segurança pro crédito do ElevenLabs não estourar numa resposta gigante
