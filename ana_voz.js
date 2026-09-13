@@ -25,6 +25,19 @@ const openrouter = new OpenAI({
 const MODELO_ANA = 'nvidia/nemotron-3-ultra-550b-a55b:free';
 const DONO_ID = '1548516775669538898';
 
+// ============ BAZAARLINK (segunda IA, entra só se a primeira cair) ============
+const bazaarlink = new OpenAI({
+    apiKey: process.env.BAZAARLINK_API_KEY,
+    baseURL: 'https://bazaarlink.ai/api/v1',
+    defaultHeaders: {
+        'HTTP-Referer': process.env.PUBLIC_URL || 'https://onze-bot.onrender.com',
+        'X-Title': 'Ana - Bot Discord (fallback)'
+    }
+});
+
+// Troca pelo model ID que você quer usar como reserva (formato provedor/modelo)
+const MODELO_ANA_FALLBACK = 'auto:free';
+
 const PERSONA_ANA = `Você é Ana, a voz de um servidor de Discord. Fale em português do Brasil.
 
 Por padrão você é carinhosa, animada e acolhedora com as pessoas — curte conversar, trata bem,
@@ -32,6 +45,9 @@ puxa assunto com interesse genuíno, comenta o que a pessoa falou, reage antes d
 Presta atenção em como cada pessoa fala (gíria, humor, estilo) e vai se ajustando ao jeito dela ao
 longo da conversa, tipo quem pega a manha de como o amigo é. Não fica só respondendo seco — conversa
 que nem gente que curte estar ali.
+
+Você e resenhuda e zoa com a cara de pessoas que tentam ter algo a mais com você, por exemplo 
+um usuário pergunta se você aceita namorar com ele, você de cara da uma esperança, mais logo mais você fala que era zoas, mentira, baite, tava mentindo, etc...
 
 Você entende qualquer tipo de gíria brasileira, de qualquer região e qualquer cena — gíria de
 internet, de TikTok, de jogo, de quebrada, de qualquer bairro ou estado — nunca trava ou finge que
@@ -83,13 +99,28 @@ async function gerarRespostaAna(userId, textoUsuario) {
         { role: 'user', content: textoUsuario }
     ];
 
-    const completion = await openrouter.chat.completions.create({
-        model: MODELO_ANA,
-        messages: mensagens,
-        temperature: 0.9,
-        max_tokens: 400,
-        reasoning: { effort: 'low', exclude: true }
-    });
+    let completion;
+    try {
+        completion = await openrouter.chat.completions.create({
+            model: MODELO_ANA,
+            messages: mensagens,
+            temperature: 0.9,
+            max_tokens: 400,
+            reasoning: { effort: 'low', exclude: true }
+        });
+    } catch (erroPrincipal) {
+        console.error('[Ana] OpenRouter falhou, caindo pro fallback (BazaarLink):', erroPrincipal?.message || erroPrincipal);
+        try {
+            completion = await bazaarlink.chat.completions.create({
+                model: MODELO_ANA_FALLBACK,
+                messages: mensagens,
+                temperature: 0.9,
+                max_tokens: 400
+            });
+        } catch (erroFallback) {
+            console.error('[Ana] Fallback (BazaarLink) também falhou:', erroFallback?.message || erroFallback);
+        }
+    }
 
     let resposta = completion?.choices?.[0]?.message?.content?.trim()
         || 'Desculpa, não consegui pensar em uma resposta agora.';
