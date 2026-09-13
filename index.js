@@ -16,7 +16,7 @@ const path = require("path");
 const os = require('os');
 const crypto = require('crypto');
 
-const { comandos, montarPainelBotCall, registrarPainelBotCall, montarPainelPD, obterPrimeirasDamas, montarPainelMuteInicial, montarPainelMuteTimeout, montarPainelMuteCargo } = require('./commands');
+const { comandos, montarPainelBotCall, registrarPainelBotCall, montarPainelPD, obterPrimeirasDamas, montarPainelMuteInicial, montarPainelMuteTimeout, montarPainelMuteCargo, emojisDraftDB, montarPainelEmojisBot } = require('./commands');
 const { botCallDB, botCallPaineis, confirmacaoModeracaoDB, msgCriadorDB, sorteioDraftDB, muteDraftDB } = require('./state');
 
 const {
@@ -82,7 +82,7 @@ const {
     DOMINIOS_CONVITE, EXTENSOES_IMAGEM,
     CACHE_MEMBROS_MS,
     INTERVALO_LIMPEZA_INVITES_MS,
-    CATEGORIA_STATUS_SORTEIO, CARGOS_BOOST, CARGO_MUTADO, CANAL_LOGS_BANS, CANAL_LOGS_MEMBROS, CANAL_LOGS_CARGOS, CANAL_LOGS_CALLTEMP, CARGO_BLOQUEADO_MODERACAO
+    CATEGORIA_STATUS_SORTEIO, CARGOS_BOOST, CARGO_MUTADO, CANAL_LOGS_BANS, CANAL_LOGS_MEMBROS, CANAL_LOGS_CARGOS, CANAL_LOGS_CALLTEMP, CARGO_BLOQUEADO_MODERACAO, CARGO_RESTRITO_UNICO
 } = require('./constants');
 
 // ============ LET ============
@@ -1166,7 +1166,8 @@ async function montarPainelGRoles(guild, draft, adminId) {
 
 for (const cargo of fatia) {
     const possui = alvoMembro.roles.cache.has(cargo.id);
-    const semPermissao = adminEhLimitado && CARGOS_RESTRITOS_GERENCIADOR_LIMITADO.includes(cargo.id);
+    const semPermissao = (adminEhLimitado && CARGOS_RESTRITOS_GERENCIADOR_LIMITADO.includes(cargo.id)) ||
+        (cargo.id === CARGO_RESTRITO_UNICO && !(adminMembro?.roles.cache.has(CARGO_RESTRITO_UNICO)));
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
         `<@&${cargo.id}>\n<:21571:1546008424737677422> **${cargo.members.size}** membro(s)\n<:21573:1546008443456983140> **Permissões:** ${montarPermissoesTextoGRoles(cargo)}`
     ));
@@ -8396,6 +8397,11 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}addcargo`)) {
         return message.reply('Não é possível gerenciar o cargo `@everyone`!')
             .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
     }
+    
+    if (cargo.id === CARGO_RESTRITO_UNICO && !message.member.roles.cache.has(CARGO_RESTRITO_UNICO)) {
+        return message.reply('Você não tem permissão para gerenciar esse cargo!')
+            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
+    }
 
     const cargoBotMaisAlto = message.guild.members.me.roles.highest;
     if (cargo.position >= cargoBotMaisAlto.position) {
@@ -8468,6 +8474,11 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}remcargo`)) {
 
     if (cargo.id === message.guild.id) {
         return message.reply('Não é possível gerenciar o cargo `@everyone`!')
+            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
+    }
+    
+    if (cargo.id === CARGO_RESTRITO_UNICO && !message.member.roles.cache.has(CARGO_RESTRITO_UNICO)) {
+        return message.reply('Você não tem permissão para gerenciar esse cargo!')
             .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
     }
 
@@ -8675,6 +8686,22 @@ if (message.content.toLowerCase() === `${PREFIXO}tickets`) {
 
 
 client.on('interactionCreate', async (interaction) => {
+
+if (interaction.isButton() && (interaction.customId === 'listaremojis_voltar' || interaction.customId === 'listaremojis_avancar')) {
+    const draft = emojisDraftDB.get(interaction.message.id);
+    if (!draft) return interaction.reply({ content: 'Esse painel expirou.', flags: [MessageFlags.Ephemeral] });
+    if (interaction.user.id !== draft.autorId) {
+        return interaction.reply({ content: 'Esse painel não pertence a você!', flags: [MessageFlags.Ephemeral] });
+    }
+
+    draft.pagina += interaction.customId === 'listaremojis_voltar' ? -1 : 1;
+
+    await interaction.deferUpdate();
+    return interaction.editReply({
+        components: [montarPainelEmojisBot(draft.emojisArray, draft.pagina)],
+        flags: [MessageFlags.IsComponentsV2]
+    });
+}
 
 
 // ============ PAINEL STAFF DO TICKET ============
@@ -9259,6 +9286,10 @@ if (interaction.isButton() && interaction.customId.startsWith('groles_toggle_'))
     const cargo = interaction.guild.roles.cache.get(cargoId);
     if (!cargo) return interaction.reply({ content: 'Esse cargo não existe mais.', flags: [MessageFlags.Ephemeral] });
     if (!cargo.editable) return interaction.reply({ content: 'Não consigo mais gerenciar esse cargo (hierarquia).', flags: [MessageFlags.Ephemeral] });
+    
+    if (cargo.id === CARGO_RESTRITO_UNICO && !interaction.member.roles.cache.has(CARGO_RESTRITO_UNICO)) {
+        return interaction.reply({ content: 'Você não tem permissão para gerenciar esse cargo!', flags: [MessageFlags.Ephemeral] });
+    }
 
     if (interaction.member.roles.cache.has(CARGO_GERENCIADOR_LIMITADO) && CARGOS_RESTRITOS_GERENCIADOR_LIMITADO.includes(cargo.id)) {
         return interaction.reply({ content: 'Você não tem permissão para gerenciar esse cargo!', flags: [MessageFlags.Ephemeral] });
