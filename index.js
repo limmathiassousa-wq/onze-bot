@@ -10294,12 +10294,13 @@ if (draft.tipo === 'ban') {
         }
 
         await logarBanimento({
-            verificarBanEmMassaStaff(interaction.guild, interaction.user).catch(err => console.error('--- Erro no Anti-Abuso (comando /ban) ---', err));
             guild: interaction.guild, tipo: 'Banimento',
             alvo: `<@${draft.alvoId}> (${draft.alvoTag})`,
             alvoUser: alvoUserFetch,
            autor: interaction.user, motivo: draft.motivo
        });
+
+        verificarBanEmMassaStaff(interaction.guild, interaction.user).catch(err => console.error('--- Erro no Anti-Abuso (comando /ban) ---', err));
 
         avisoSucessoModeracao(interaction.channel, `<:21444:1545643785675874420> · <@${draft.alvoId}> foi banido com sucesso!`);
 
