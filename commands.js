@@ -407,7 +407,7 @@ registrar(
                 guild: interaction.guild, alvoUser: alvo, motivo, canalId: CANAL_LOGS_KICKS
         });
 
-        avisoSucessoModeracao(interaction.channel, `<:21444:1545643785675874420> · ${alvo} foi expulso com sucesso!`);
+        avisoSucessoModeracao(interaction.channel, `<:check:1548558822711365702> · ${alvo} foi expulso com sucesso!`);
 
         return interaction.reply({ content: `${alvo.tag} foi expulso com sucesso!`, flags: [MessageFlags.Ephemeral] });
     }
@@ -472,7 +472,7 @@ registrar(
                  guild: interaction.guild, alvoUser: alvo, motivo
         });
 
-        avisoSucessoModeracao(interaction.channel, `<:21444:1545643785675874420> · ${alvo} foi desmutado com sucesso!`);
+        avisoSucessoModeracao(interaction.channel, `<:check:1548558822711365702> · ${alvo} foi desmutado com sucesso!`);
 
         return interaction.reply({ content: `O silenciamento de ${alvo.tag} foi removido!`, flags: [MessageFlags.Ephemeral] });
     }
@@ -512,7 +512,7 @@ registrar(
             .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Mensagens:** \`${mensagens}\``));
 
         const botoes = [
-            new ButtonBuilder().setCustomId(`carteira_atualizar_${interaction.user.id}_${alvo.id}`).setEmoji('1526757661142679653').setStyle(ButtonStyle.Secondary)
+            new ButtonBuilder().setCustomId(`carteira_atualizar_${interaction.user.id}_${alvo.id}`).setEmoji('1548555551514951801').setStyle(ButtonStyle.Secondary)
         ];
         if (ehPropriaCarteira) {
             botoes.push(new ButtonBuilder().setCustomId(`daily_${interaction.user.id}`).setLabel('Daily').setStyle(ButtonStyle.Success));
@@ -575,8 +575,8 @@ registrar(
                 .setAccentColor(0x000000)
                 .addTextDisplayComponents(new TextDisplayBuilder().setContent(
                     finalizado
-                        ? '### <:21444:1545643785675874420> Limpeza concluída'
-                        : '### <a:21355:1545539464984535100> Limpando canal...'
+                        ? '### <:check:1548558822711365702> Limpeza concluída'
+                        : '### <a:cerregando2:1548558592133824562> Limpando canal...'
                 ))
                 .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
                 .addTextDisplayComponents(new TextDisplayBuilder().setContent(
