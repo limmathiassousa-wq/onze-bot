@@ -195,6 +195,81 @@ function montarPainelPD(guild, damas) {
 
 const comandos = new Collection();
 
+// ============ LISTAR EMOJIS DO BOT (TEMPORÁRIO) ============
+const emojisDraftDB = new Map();
+const EMOJIS_POR_PAGINA = 5;
+
+function montarPainelEmojisBot(emojisArray, pagina = 0) {
+    const totalPaginas = Math.max(1, Math.ceil(emojisArray.length / EMOJIS_POR_PAGINA));
+    const paginaAtual = Math.max(0, Math.min(pagina, totalPaginas - 1));
+    const inicio = paginaAtual * EMOJIS_POR_PAGINA;
+    const fatia = emojisArray.slice(inicio, inicio + EMOJIS_POR_PAGINA);
+
+    const container = new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            `## Emojis do bot\nTotal: **${emojisArray.length}** emoji(s) · Página ${paginaAtual + 1}/${totalPaginas}`
+        ))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+
+    if (!fatia.length) {
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent('Nenhum emoji encontrado.'));
+    }
+
+    for (const emoji of fatia) {
+        const url = emoji.imageURL({ extension: emoji.animated ? 'gif' : 'png', size: 256 });
+
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            `${emoji.toString()} \`:${emoji.name}:\` — \`${emoji.id}\``
+        ));
+        container.addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setLabel('Ver no navegador').setStyle(ButtonStyle.Link).setURL(url)
+            )
+        );
+    }
+
+    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+    container.addActionRowComponents(
+        new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('listaremojis_voltar').setLabel('Voltar').setStyle(ButtonStyle.Secondary).setDisabled(paginaAtual === 0),
+            new ButtonBuilder().setCustomId('listaremojis_pagina_atual').setLabel(`${paginaAtual + 1}/${totalPaginas}`).setStyle(ButtonStyle.Secondary).setDisabled(true),
+            new ButtonBuilder().setCustomId('listaremojis_avancar').setLabel('Avançar').setStyle(ButtonStyle.Secondary).setDisabled(paginaAtual >= totalPaginas - 1)
+        )
+    );
+
+    return container;
+}
+
+registrar(
+    new SlashCommandBuilder().setName('listaremojis').setDescription('[Temporário] Lista todos os emojis do bot para download'),
+    async (interaction) => {
+        if (interaction.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) {
+            return interaction.reply({ content: 'Você não tem permissão para utilizar este comando!', flags: [MessageFlags.Ephemeral] });
+        }
+        const temPermissao = interaction.member.permissions.has('Administrator') || interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
+        if (!temPermissao) {
+            return interaction.reply({ content: 'Você não tem permissão para utilizar este comando!', flags: [MessageFlags.Ephemeral] });
+        }
+
+        await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
+
+        const emojisApp = await interaction.client.application.emojis.fetch().catch(() => null);
+        if (!emojisApp) {
+            return interaction.editReply({ content: 'Não foi possível buscar os emojis do bot.' });
+        }
+
+        const emojisArray = [...emojisApp.values()];
+
+        const msgPainel = await interaction.editReply({
+            components: [montarPainelEmojisBot(emojisArray, 0)],
+            flags: [MessageFlags.IsComponentsV2]
+        });
+
+        emojisDraftDB.set(msgPainel.id, { emojisArray, pagina: 0, autorId: interaction.user.id });
+        setTimeout(() => emojisDraftDB.delete(msgPainel.id), 10 * 60 * 1000);
+    }
+);
+
 function registrar(data, execute) {
     comandos.set(data.name, { data, execute });
 }
@@ -668,4 +743,4 @@ registrar(
     }
 );
 
-module.exports = { comandos, montarPainelBotCall, registrarPainelBotCall, montarPainelPD, obterPrimeirasDamas, montarPainelMuteInicial, montarPainelMuteTimeout, montarPainelMuteCargo };
+module.exports = { comandos, montarPainelBotCall, registrarPainelBotCall, montarPainelPD, obterPrimeirasDamas, montarPainelMuteInicial, montarPainelMuteTimeout, montarPainelMuteCargo, emojisDraftDB, montarPainelEmojisBot };
