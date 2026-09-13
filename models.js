@@ -370,11 +370,11 @@ const conversaAnaSchema = new mongoose.Schema({
     _id: { type: String }, // userId
     historico: [{
         role: String, // 'user' | 'assistant'
-        content: String
+        content: String,
+        _id: false          // ← adiciona essa linha
     }],
-    atualizadoEm: { type: Date, default: Date.now, expires: 60 * 60 * 24 * 2 } // esquece após 2 dias sem falar com a IA
+    atualizadoEm: { type: Date, default: Date.now, expires: 60 * 60 * 24 * 2 }
 });
-const ConversaAna = mongoose.model('ConversaAna', conversaAnaSchema);
 
 module.exports = {
     ServerBackup,
