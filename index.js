@@ -7472,7 +7472,7 @@ client.on('messageDelete', async (message) => {
 client.on('messageCreate', async (message) => {
     try {
         if (message.author.bot) return;
-        if (message.channel.id !== CANAL_VOZ_ANA) return;
+        if (!CANAIS_VOZ_ANA.includes(message.channel.id)) return;
 
         const foiMencionada = message.mentions.users.has(client.user.id);
 
