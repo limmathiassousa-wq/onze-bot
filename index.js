@@ -28,6 +28,9 @@ const {
 
 const { logar, enviarLogModeracao, logarBanimento, logarMembro, logarCargo, logarCallTemp, logarExpulsao, logarMute, logarAntiLink, logarAntiSpam, logarAntiBot, logarMensagemApagada, logarMensagemEditada, logarVoz, logarCastigo, logarCargoServidor, logarCanalServidor, logarPunicaoCargosStaff } = require('./logger');
 
+const { anaResponderComAudio } = require('./ana_voz');
+const CANAL_VOZ_ANA = '1548489854038581308';
+
 
 // ============ BOT ============
 const TOKEN = process.env.DISCORD_TOKEN;
@@ -7463,6 +7466,41 @@ client.on('messageDelete', async (message) => {
         });
     } catch (err) {
         console.error('--- Erro ao processar log de mensagem apagada ---', err);
+    }
+});
+
+client.on('messageCreate', async (message) => {
+    try {
+        if (message.author.bot) return;
+        if (message.channel.id !== CANAL_VOZ_ANA) return;
+
+        const foiMencionada = message.mentions.users.has(client.user.id);
+
+        let respondendoAudioDaAna = false;
+        if (message.reference?.messageId) {
+            const msgReferenciada = await message.channel.messages.fetch(message.reference.messageId).catch(() => null);
+            respondendoAudioDaAna = !!(
+                msgReferenciada &&
+                msgReferenciada.author.id === client.user.id &&
+                msgReferenciada.flags?.has(MessageFlags.IsVoiceMessage)
+            );
+        }
+
+        if (!foiMencionada && !respondendoAudioDaAna) return;
+
+        const conteudoLimpo = message.content.replace(/<@!?\d+>/g, '').trim();
+        const textoUsuario = conteudoLimpo || '(o usuário só te mencionou, sem escrever nada — cumprimente ele)';
+
+        await message.channel.sendTyping().catch(() => null);
+
+        await anaResponderComAudio({
+            canalId: message.channel.id,
+            autorId: message.author.id,
+            textoUsuario,
+            replyToMessageId: message.id
+        });
+    } catch (err) {
+        console.error('--- Erro no sistema de voz da Ana ---', err);
     }
 });
 
