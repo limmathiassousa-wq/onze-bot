@@ -57,7 +57,8 @@ const {
     ConviteMembro, Sorteio, TellonymPost, InstaPost,
     HistoricoUsername, HistoricoAvatar, HistoricoBanner,
     Daily, Afk, TellonymPendente,
-    MapaPersistenteEntry, HistoricoBio, MuteCargo, TranscriptModel, TranscriptMedia
+    MapaPersistenteEntry, HistoricoBio, MuteCargo, TranscriptModel, TranscriptMedia,
+    MensagemCriador
 } = require('./models');
 
 
@@ -4930,32 +4931,30 @@ function parseBlocosTexto(textoBruto) {
 }
 
 function montarPainelMsgCriadorInicial(draft) {
-    const tipoTexto = draft.tipo === 'v2' ? 'Components V2' : draft.tipo === 'embed' ? 'Embed' : draft.tipo === 'texto' ? 'Texto normal (sem embeds)' : 'nenhum selecionado';
+    const tipoTexto = draft.tipo === 'v2' ? 'Components V2'
+        : draft.tipo === 'embed' ? 'Embed'
+        : draft.tipo === 'texto' ? 'Texto normal'
+        : draft.tipo === 'editar' ? 'Editar mensagem existente'
+        : 'nenhum selecionado';
     const canalTexto = draft.canalId ? `<#${draft.canalId}>` : 'nenhum selecionado';
 
     return new ContainerBuilder()
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **CRIADOR DE MENSAGENS**'))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            'Esse painel permite montar e enviar uma mensagem personalizada em qualquer canal de texto do servidor.\n\n' +
-            '**Components V2:** visual mais elaborado, com texto formatado, separadores e imagem.\n' +
-            '**Texto normal:** envia apenas texto puro, sem nenhum componente ou embed.\n\n' +
-            'Selecione o tipo da mensagem e o canal de destino abaixo. Depois clique em **Criar** para montar o conteúdo.'
+            `**Tipo:** \`${tipoTexto}\`\n**Canal:** ${canalTexto}`
         ))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            `**Tipo selecionado:** \`${tipoTexto}\`\n**Canal selecionado:** ${canalTexto}`
-        ))
         .addActionRowComponents(
             new ActionRowBuilder().addComponents(
                 new StringSelectMenuBuilder()
                     .setCustomId('msgcriador_tipo')
                     .setPlaceholder('Selecione o tipo da mensagem')
                     .addOptions(
-                        { label: 'Components V2', value: 'v2', description: 'Mensagem com visual elaborado', default: draft.tipo === 'v2' },
-
-                       { label: 'Embed', value: 'embed', description: 'Embed tradicional com título, descrição e botões', default: draft.tipo === 'embed' },
-                        { label: 'Texto normal (sem embeds)', value: 'texto', description: 'Mensagem apenas com texto puro', default: draft.tipo === 'texto' }
+                        { label: 'Components V2', value: 'v2', description: 'Visual elaborado, com texto e imagem', default: draft.tipo === 'v2' },
+                        { label: 'Embed', value: 'embed', description: 'Embed tradicional com título e descrição', default: draft.tipo === 'embed' },
+                        { label: 'Texto normal', value: 'texto', description: 'Mensagem apenas com texto puro', default: draft.tipo === 'texto' },
+                        { label: 'Editar mensagem existente', value: 'editar', description: 'Editar uma mensagem já enviada por este painel' }
                     )
             )
         )
@@ -4967,7 +4966,6 @@ function montarPainelMsgCriadorInicial(draft) {
                     .setChannelTypes(ChannelType.GuildText)
             )
         )
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addActionRowComponents(
             new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
@@ -5243,7 +5241,9 @@ if (draft.tipo === 'v2' || draft.tipo === 'embed') {
 }
 
 opcoesMsgCriador.push(
-    { label: 'Enviar', value: 'enviar', description: 'Enviar a mensagem para o canal selecionado' }
+    draft.editando
+        ? { label: 'Salvar edição', value: 'enviar', description: 'Salvar as alterações na mensagem existente' }
+        : { label: 'Enviar', value: 'enviar', description: 'Enviar a mensagem para o canal selecionado' }
 );
 
 container.addActionRowComponents(
@@ -6882,6 +6882,67 @@ client.on('roleDelete', async (role) => {
         });
     } catch (err) {
         console.error('--- Erro ao logar exclusão de cargo ---', err);
+    }
+});
+
+client.on('roleUpdate', async (cargoAntigo, cargoNovo) => {
+    try {
+        const mudancas = [];
+
+        if (cargoAntigo.name !== cargoNovo.name) {
+            mudancas.push(`**Nome:** \`${cargoAntigo.name}\` → \`${cargoNovo.name}\``);
+        }
+
+        if (cargoAntigo.hexColor !== cargoNovo.hexColor) {
+            mudancas.push(`**Cor:** \`${cargoAntigo.hexColor}\` → \`${cargoNovo.hexColor}\``);
+        }
+
+        if (cargoAntigo.position !== cargoNovo.position) {
+            mudancas.push(`**Posição:** \`${cargoAntigo.position}\` → \`${cargoNovo.position}\``);
+        }
+
+        if (cargoAntigo.hoist !== cargoNovo.hoist) {
+            mudancas.push(`**Destacado (separado na lista):** \`${cargoAntigo.hoist ? 'Sim' : 'Não'}\` → \`${cargoNovo.hoist ? 'Sim' : 'Não'}\``);
+        }
+
+        if (cargoAntigo.mentionable !== cargoNovo.mentionable) {
+            mudancas.push(`**Mencionável:** \`${cargoAntigo.mentionable ? 'Sim' : 'Não'}\` → \`${cargoNovo.mentionable ? 'Sim' : 'Não'}\``);
+        }
+
+        if (cargoAntigo.icon !== cargoNovo.icon || cargoAntigo.unicodeEmoji !== cargoNovo.unicodeEmoji) {
+            mudancas.push(`**Ícone do cargo:** alterado`);
+        }
+
+        if (!cargoAntigo.permissions.equals(cargoNovo.permissions)) {
+            const antigas = cargoAntigo.permissions.toArray();
+            const novas = cargoNovo.permissions.toArray();
+            const adicionadas = novas.filter(p => !antigas.includes(p));
+            const removidas = antigas.filter(p => !novas.includes(p));
+
+            let textoPermissoes = '**Permissões alteradas:**\n';
+            if (adicionadas.length) textoPermissoes += `+ Adicionadas: \`${adicionadas.join('`, `')}\`\n`;
+            if (removidas.length) textoPermissoes += `- Removidas: \`${removidas.join('`, `')}\`\n`;
+            mudancas.push(textoPermissoes.trim());
+        }
+
+        if (mudancas.length === 0) return;
+
+        const entries = await buscarAuditLogsComCache(cargoNovo.guild, AuditLogEvent.RoleUpdate);
+        const entrada = entries.find(e => (Date.now() - e.createdTimestamp) < 15000 && e.target?.id === cargoNovo.id);
+        const executor = entrada?.executor ?? null;
+
+        await logarCargoServidor({
+            guild: cargoNovo.guild,
+            tipo: 'Cargo Editado',
+            cargo: `${cargoNovo} — \`${cargoNovo.name}\``,
+            executor: executor
+                ? (executor.id === client.user.id ? 'Sistema' : `${executor} — \`${executor.tag ?? executor.username}\``)
+                : 'Não identificado',
+            motivo: entrada?.reason || null,
+            extra: mudancas.join('\n')
+        });
+    } catch (err) {
+        console.error('--- Erro ao logar edição de cargo ---', err);
     }
 });
 
@@ -12835,7 +12896,57 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_tip
     if (!draft || draft.autorId !== interaction.user.id) {
         return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
     }
-    draft.tipo = interaction.values[0];
+
+    const valorSelecionado = interaction.values[0];
+
+    if (valorSelecionado === 'editar') {
+        draft.tipo = 'editar';
+        await interaction.update({ components: [montarPainelMsgCriadorInicial(draft)], flags: [MessageFlags.IsComponentsV2] });
+
+        const registros = await MensagemCriador.find({ autorId: interaction.user.id, guildId: interaction.guild.id })
+            .sort({ criadoEm: -1 })
+            .limit(25)
+            .catch(() => []);
+
+        if (!registros.length) {
+            return interaction.followUp({
+                components: containerTexto('Você ainda não criou nenhuma mensagem com este painel neste servidor.'),
+                flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
+            });
+        }
+
+        const tipoLabel = { v2: 'Components V2', embed: 'Embed', texto: 'Texto normal' };
+
+        const containerSelecao = new ContainerBuilder()
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **EDITAR MENSAGEM EXISTENTE**'))
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+                'Selecione abaixo qual mensagem enviada por você deseja editar.'
+            ))
+            .addActionRowComponents(
+                new ActionRowBuilder().addComponents(
+                    new StringSelectMenuBuilder()
+                        .setCustomId('msgcriador_editar_select')
+                        .setPlaceholder('Selecione a mensagem')
+                        .addOptions(registros.map(r => {
+                            const canal = interaction.guild.channels.cache.get(r.canalId);
+                            const data = new Date(r.criadoEm).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+                            return {
+                                label: `${tipoLabel[r.tipo] ?? r.tipo} — ${canal ? `#${canal.name}` : 'canal apagado'}`.slice(0, 100),
+                                value: r._id,
+                                description: `Criada em ${data}`.slice(0, 100)
+                            };
+                        }))
+                )
+            );
+
+        return interaction.followUp({
+            components: [containerSelecao],
+            flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
+        });
+    }
+
+    draft.tipo = valorSelecionado;
     return interaction.update({ components: [montarPainelMsgCriadorInicial(draft)], flags: [MessageFlags.IsComponentsV2] });
 }
 
@@ -12846,6 +12957,40 @@ if (interaction.isChannelSelectMenu() && interaction.customId === 'msgcriador_ca
     }
     draft.canalId = interaction.values[0];
     return interaction.update({ components: [montarPainelMsgCriadorInicial(draft)], flags: [MessageFlags.IsComponentsV2] });
+}
+
+if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_editar_select') {
+    const messageId = interaction.values[0];
+
+    const registro = await MensagemCriador.findById(messageId).catch(() => null);
+    if (!registro || registro.autorId !== interaction.user.id) {
+        return interaction.update({
+            components: containerTexto('Essa mensagem não foi encontrada ou não pertence a você.'),
+            flags: [MessageFlags.IsComponentsV2]
+        });
+    }
+
+    const draft = {
+        autorId: interaction.user.id,
+        tipo: registro.tipo,
+        canalId: registro.canalId,
+        opcaoAtual: null,
+        textoBruto: registro.textoBruto || '',
+        embedTitulo: registro.embedTitulo || '',
+        embedDescricao: registro.embedDescricao || '',
+        embedFooter: registro.embedFooter || '',
+        imagemUrl: registro.imagemUrl || null,
+        cor: registro.cor || null,
+        botoes: registro.botoes || [],
+        editando: { messageId: registro._id, canalId: registro.canalId }
+    };
+
+    msgCriadorDB.set(interaction.message.id, draft);
+
+    return interaction.update({
+        components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
+        flags: [MessageFlags.IsComponentsV2]
+    });
 }
 
 if (interaction.isButton() && interaction.customId === 'msgcriador_iniciar') {
@@ -12908,10 +13053,62 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_opc
             });
         }
 
-await interaction.deferUpdate();
+        await interaction.deferUpdate();
 
         const payload = await montarPayloadFinalMsgCriador(draft);
 
+        // ---- Modo edição: dá edit() na mensagem existente ----
+        if (draft.editando) {
+            const msgAlvo = await canalDestino.messages.fetch(draft.editando.messageId).catch(() => null);
+            if (!msgAlvo) {
+                return interaction.followUp({
+                    components: containerTexto('Não encontrei mais essa mensagem no canal (pode ter sido apagada).'),
+                    flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
+                });
+            }
+
+            try {
+                await msgAlvo.edit(payload);
+            } catch (err) {
+                console.error('--- Erro ao editar mensagem do criador ---', err);
+                return interaction.followUp({
+                    components: containerTexto('Ocorreu um erro ao editar a mensagem. Verifique minhas permissões nesse canal.'),
+                    flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
+                });
+            }
+
+            await MensagemCriador.findByIdAndUpdate(draft.editando.messageId, {
+                tipo: draft.tipo,
+                textoBruto: draft.textoBruto,
+                embedTitulo: draft.embedTitulo,
+                embedDescricao: draft.embedDescricao,
+                embedFooter: draft.embedFooter,
+                imagemUrl: draft.imagemUrl,
+                cor: draft.cor,
+                botoes: draft.botoes,
+                atualizadoEm: Date.now()
+            }).catch(err => console.error('--- Erro ao atualizar registro da mensagem editada ---', err));
+
+            if (draft.botoes?.length) {
+                for (const botao of draft.botoes) {
+                    if (botao.resposta && !botao.url && botao.id) {
+                        await respostasBotoesMsg.definir(`${msgAlvo.id}_${botao.id}`, {
+                            texto: botao.resposta,
+                            tipo: botao.respostaTipo || 'texto'
+                        });
+                    }
+                }
+            }
+
+            msgCriadorDB.delete(interaction.message.id);
+
+            return interaction.editReply({
+                components: containerTexto(`Mensagem editada com sucesso em ${canalDestino}!`),
+                flags: [MessageFlags.IsComponentsV2]
+            });
+        }
+
+        // ---- Modo normal: envia mensagem nova ----
         let msgEnviada;
         try {
             msgEnviada = await canalDestino.send(payload);
@@ -12923,7 +13120,22 @@ await interaction.deferUpdate();
             });
         }
 
-if (draft.botoes?.length) {
+        await MensagemCriador.create({
+            _id: msgEnviada.id,
+            guildId: interaction.guild.id,
+            canalId: canalDestino.id,
+            autorId: draft.autorId,
+            tipo: draft.tipo,
+            textoBruto: draft.textoBruto,
+            embedTitulo: draft.embedTitulo,
+            embedDescricao: draft.embedDescricao,
+            embedFooter: draft.embedFooter,
+            imagemUrl: draft.imagemUrl,
+            cor: draft.cor,
+            botoes: draft.botoes
+        }).catch(err => console.error('--- Erro ao salvar registro da mensagem criada ---', err));
+
+        if (draft.botoes?.length) {
             for (const botao of draft.botoes) {
                 if (botao.resposta && !botao.url && botao.id) {
                     await respostasBotoesMsg.definir(`${msgEnviada.id}_${botao.id}`, {
@@ -12941,13 +13153,6 @@ if (draft.botoes?.length) {
             flags: [MessageFlags.IsComponentsV2]
         });
     }
-
-    draft.opcaoAtual = opcao;
-    return interaction.update({
-    components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
-    flags: [MessageFlags.IsComponentsV2]
-});
-}
 
 // ---- Texto ----
 if (interaction.isButton() && interaction.customId === 'msgcriador_texto_editar') {
@@ -14135,4 +14340,4 @@ client.login(TOKEN)
     .catch((err) => {
         console.error('[DISCORD] FALHA AO CONECTAR:', err);
         process.exit(1);
-        }); 
+   }); 
