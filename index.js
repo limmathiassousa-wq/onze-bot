@@ -7474,19 +7474,24 @@ client.on('messageCreate', async (message) => {
         if (message.author.bot) return;
         if (!CANAIS_VOZ_ANA.includes(message.channel.id)) return;
 
-        const foiMencionada = message.mentions.users.has(client.user.id);
-
+        const ehReply = !!message.reference?.messageId;
         let respondendoAudioDaAna = false;
-        if (message.reference?.messageId) {
+
+        if (ehReply) {
             const msgReferenciada = await message.channel.messages.fetch(message.reference.messageId).catch(() => null);
             respondendoAudioDaAna = !!(
                 msgReferenciada &&
                 msgReferenciada.author.id === client.user.id &&
                 msgReferenciada.flags?.has(MessageFlags.IsVoiceMessage)
             );
-        }
 
-        if (!foiMencionada && !respondendoAudioDaAna) return;
+            // É reply a alguma outra coisa dela (embed, comando, etc) -> ignora
+            if (!respondendoAudioDaAna) return;
+        } else {
+            // Não é reply -> só responde se foi mencionada diretamente
+            const foiMencionada = message.mentions.users.has(client.user.id);
+            if (!foiMencionada) return;
+        }
 
         const conteudoLimpo = message.content.replace(/<@!?\d+>/g, '').trim();
         const textoUsuario = conteudoLimpo || '(o usuário só te mencionou, sem escrever nada — cumprimente ele)';
