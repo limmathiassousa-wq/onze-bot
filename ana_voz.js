@@ -8,12 +8,12 @@ const execFileAsync = util.promisify(execFile);
 
 const ffmpegPath = require('ffmpeg-static');
 const ffprobePath = require('ffprobe-static').path;
-const Groq = require('groq-sdk'); // o SDK da Groq é compatível com a API da OpenAI/OpenRouter
+const OpenAI = require('openai');
 
 const { ConversaAna } = require('./models');
 
 // ============ OPENROUTER (no lugar da Groq) ============
-const openrouter = new Groq({
+const openrouter = new OpenAI({
     apiKey: process.env.OPENROUTER_API_KEY,
     baseURL: 'https://openrouter.ai/api/v1',
     defaultHeaders: {
