@@ -400,10 +400,66 @@ async function logarCargoServidor({ guild, tipo, cargo, executor, motivo, extra,
     }
 }
 
+// ============ CANAL DO SERVIDOR CRIADO / EXCLUÍDO / EDITADO ============
+async function logarCanalServidor({ guild, tipo, canal, tipoCanal, categoria, executor, extra, canalId }) {
+    try {
+        const canalLogs = await guild.channels.fetch(canalId || CANAL_LOGS_MOD).catch(() => null);
+        if (!canalLogs) return;
+
+        const agora = new Date();
+        const horaFormatada = agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Sao_Paulo' });
+        const dataFormatada = agora.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+
+        const container = new ContainerBuilder()
+            .setAccentColor(0xFFFFFF)
+            .addTextDisplayComponents(
+                new TextDisplayBuilder().setContent(`### ${tipo} — ${guild.name}`),
+                new TextDisplayBuilder().setContent(`**Canal:** ${canal}`),
+                ...(tipoCanal ? [new TextDisplayBuilder().setContent(`**Tipo:** ${tipoCanal}`)] : []),
+                ...(categoria ? [new TextDisplayBuilder().setContent(`**Categoria:** ${categoria}`)] : []),
+                new TextDisplayBuilder().setContent(`**Executado por:** ${executor}`)
+            )
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+
+        if (extra) {
+            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(extra));
+            container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+        }
+
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
+
+        await canalLogs.send({
+            components: [container],
+            flags: [MessageFlags.IsComponentsV2],
+            allowedMentions: { parse: [] }
+        });
+    } catch (err) {
+        console.error('--- Erro ao enviar log de canal do servidor ---', err);
+    }
+}
+
+// ============ REMOÇÃO/DEVOLUÇÃO TEMPORÁRIA DE CARGOS (ANTI-ABUSO: BAN EM MASSA POR STAFF) ============
+async function logarPunicaoCargosStaff({ guild, tipo, membro, cargos, extra, canalId }) {
+    const linhaCargos = cargos && cargos.length ? `**Cargos afetados:** ${cargos.join(', ')}` : null;
+    const extraFinal = [linhaCargos, extra].filter(Boolean).join('\n') || null;
+
+    return enviarLogModeracao({
+        guild,
+        tipo,
+        alvo: `${membro} (${membro.user?.tag ?? membro.tag ?? membro.id})`,
+        alvoUser: membro.user ?? membro,
+        autor: 'Sistema (Anti-Abuso)',
+        motivo: null,
+        extra: extraFinal,
+        canalId: canalId || CANAL_LOGS_MOD
+    });
+}
+
 module.exports = {
     enviarLogModeracao, logar,
     logarBanimento, logarMembro, logarCargo, logarCallTemp, logarExpulsao, logarMute,
     logarAntiLink, logarAntiSpam, logarAntiBot,
     logarMensagemApagada, logarMensagemEditada,
-    logarVoz, logarCastigo, logarCargoServidor
+    logarVoz, logarCastigo, logarCargoServidor,
+    logarCanalServidor, logarPunicaoCargosStaff
 };
