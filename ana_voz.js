@@ -57,8 +57,6 @@ async function gerarRespostaAna(userId, textoUsuario) {
         max_tokens: 150
     });
 
-    console.log('[Ana debug]', JSON.stringify(completion, null, 2));
-
     let resposta = completion?.choices?.[0]?.message?.content?.trim()
         || 'Desculpa, não consegui pensar em uma resposta agora.';
 
@@ -143,34 +141,49 @@ async function converterParaVoiceMessage(mp3Path) {
 async function enviarMensagemDeVoz({ canalId, caminhoOgg, duracaoSegundos, waveformBase64, replyToMessageId }) {
     const bufferAudio = fs.readFileSync(caminhoOgg);
 
-    const form = new FormData();
-    form.append('files[0]', new Blob([bufferAudio], { type: 'audio/ogg' }), 'voice-message.ogg');
+    async function tentarEnviar(comReply) {
+        const form = new FormData();
+        form.append('files[0]', new Blob([bufferAudio], { type: 'audio/ogg' }), 'voice-message.ogg');
 
-    const payload = {
-        flags: 1 << 13, // IS_VOICE_MESSAGE
-        attachments: [{
-            id: '0',
-            filename: 'voice-message.ogg',
-            duration_secs: duracaoSegundos,
-            waveform: waveformBase64
-        }]
-    };
+        const payload = {
+            flags: 1 << 13, // IS_VOICE_MESSAGE
+            attachments: [{
+                id: '0',
+                filename: 'voice-message.ogg',
+                duration_secs: duracaoSegundos,
+                waveform: waveformBase64
+            }]
+        };
 
-    if (replyToMessageId) {
-        payload.message_reference = { message_id: replyToMessageId };
+        if (comReply && replyToMessageId) {
+            payload.message_reference = { message_id: replyToMessageId };
+        }
+
+        form.append('payload_json', JSON.stringify(payload));
+
+        return fetch(`https://discord.com/api/v10/channels/${canalId}/messages`, {
+            method: 'POST',
+            headers: { Authorization: `Bot ${process.env.DISCORD_TOKEN}` },
+            body: form
+        });
     }
 
-    form.append('payload_json', JSON.stringify(payload));
-
-    const resposta = await fetch(`https://discord.com/api/v10/channels/${canalId}/messages`, {
-        method: 'POST',
-        headers: { Authorization: `Bot ${process.env.DISCORD_TOKEN}` },
-        body: form
-    });
+    let resposta = await tentarEnviar(true);
 
     if (!resposta.ok) {
         const erroTxt = await resposta.text().catch(() => '');
-        throw new Error(`Discord retornou ${resposta.status} ao enviar áudio: ${erroTxt}`);
+        const referenciaInvalida = resposta.status === 400 && erroTxt.includes('MESSAGE_REFERENCE_UNKNOWN_MESSAGE');
+
+        if (referenciaInvalida) {
+            // A mensagem original sumiu (apagada/expirada) — manda de novo sem o reply
+            resposta = await tentarEnviar(false);
+            if (!resposta.ok) {
+                const erroTxt2 = await resposta.text().catch(() => '');
+                throw new Error(`Discord retornou ${resposta.status} ao enviar áudio (retry sem reply): ${erroTxt2}`);
+            }
+        } else {
+            throw new Error(`Discord retornou ${resposta.status} ao enviar áudio: ${erroTxt}`);
+        }
     }
 
     return resposta.json();
