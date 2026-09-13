@@ -6,7 +6,7 @@ app.listen(process.env.PORT || 3000, () => console.log('Servidor web do bot inic
 
 
 const { Client, GatewayIntentBits, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, MediaGalleryBuilder, MediaGalleryItemBuilder, ThumbnailBuilder, SectionBuilder, ChannelType, ActivityType, AttachmentBuilder, EmbedBuilder, SlashCommandBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, UserSelectMenuBuilder, ChannelSelectMenuBuilder, LabelBuilder, FileUploadBuilder, RoleSelectMenuBuilder, Events, Routes, AuditLogEvent,
-ContextMenuCommandBuilder, ApplicationCommandType, StickerFormatType, PermissionFlagsBits } = require('discord.js');
+ContextMenuCommandBuilder, ApplicationCommandType, StickerFormatType, PermissionFlagsBits, OverwriteType } = require('discord.js');
 const { joinVoiceChannel, getVoiceConnection, VoiceConnectionStatus, entersState } = require('@discordjs/voice');
 const { createCanvas, loadImage, GlobalFonts } = require("@napi-rs/canvas");
 const { getUserBio, getUserPerfil } = require('./bio_fetcher.js');
@@ -8794,19 +8794,23 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'ticket_painels
         const overwrites = [
             {
                 id: guild.id,
+                type: OverwriteType.Role,
                 allow: [PermissionFlagsBits.ViewChannel],
                 deny: [PermissionFlagsBits.Connect, PermissionFlagsBits.SendMessages]
             },
             {
                 id: dados.autorId,
+                type: OverwriteType.Member,
                 allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.SendMessages]
             },
             {
                 id: client.user.id,
+                type: OverwriteType.Member,
                 allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.SendMessages]
             },
             ...CARGOS_ATENDENTE.map(cargoId => ({
                 id: cargoId,
+                type: OverwriteType.Role,
                 allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.SendMessages]
             }))
         ];
@@ -8948,13 +8952,9 @@ if (interaction.isModalSubmit() && interaction.customId === 'ticket_staffpainel_
         return interaction.editReply({ content: 'Não foi possível localizar o autor desse ticket.' });
     }
 
-    const mencaoAutorNotificacao = new TextDisplayBuilder().setContent(`<@${dados.autorId}>`);
-    const containerMensagemStaff = new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(mensagemNotificacao));
-
     await thread.send({
-        components: [mencaoAutorNotificacao, containerMensagemStaff],
-        flags: [MessageFlags.IsComponentsV2]
+        content: `-# **Uma mensagem da administração** <@${dados.autorId}>\n${mensagemNotificacao}`,
+        allowedMentions: { parse: ['users'] }
     }).catch(err => console.error('--- Erro ao notificar autor do ticket ---', err));
 
     return interaction.editReply({ content: 'Autor notificado com sucesso!' });
