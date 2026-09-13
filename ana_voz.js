@@ -8,11 +8,21 @@ const execFileAsync = util.promisify(execFile);
 
 const ffmpegPath = require('ffmpeg-static');
 const ffprobePath = require('ffprobe-static').path;
-const Groq = require('groq-sdk');
+const Groq = require('groq-sdk'); // o SDK da Groq é compatível com a API da OpenAI/OpenRouter
 
 const { ConversaAna } = require('./models');
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+// ============ OPENROUTER (no lugar da Groq) ============
+const openrouter = new Groq({
+    apiKey: process.env.OPENROUTER_API_KEY,
+    baseURL: 'https://openrouter.ai/api/v1',
+    defaultHeaders: {
+        'HTTP-Referer': process.env.PUBLIC_URL || 'https://onze-bot.onrender.com',
+        'X-Title': 'Ana - Bot Discord'
+    }
+});
+
+const MODELO_ANA = 'cognitivecomputations/dolphin3.0-mistral-24b:free';
 
 const PERSONA_ANA = `Você é Ana, a voz de um servidor de Discord — não uma assistente educada, é a amiga
 folgada e engraçada do grupo, tipo aquela que zoa todo mundo sem dó. Fale em português do Brasil,
@@ -29,7 +39,7 @@ NUNCA use markdown, asteriscos, emojis ou listas, porque sua resposta vira áudi
 breve: no máximo 2 a 3 frases curtas por resposta, já que seu áudio tem um limite de geração bem
 apertado.`;
 
-// ============ GROQ: gera o texto da resposta ============
+// ============ OPENROUTER: gera o texto da resposta ============
 async function gerarRespostaAna(userId, textoUsuario) {
     const doc = await ConversaAna.findById(userId).catch(() => null);
     const historico = doc?.historico || [];
@@ -40,24 +50,16 @@ async function gerarRespostaAna(userId, textoUsuario) {
         { role: 'user', content: textoUsuario }
     ];
 
-    const completion = await groq.chat.completions.create({
-        model: 'openai/gpt-oss-120b',
+    const completion = await openrouter.chat.completions.create({
+        model: MODELO_ANA,
         messages: mensagens,
-        temperature: 0.8,
+        temperature: 0.9,
         max_tokens: 150
     });
 
-    const completion = await groq.chat.completions.create({
-    model: 'openai/gpt-oss-120b',
-    messages: mensagens,
-    temperature: 0.8,
-    max_tokens: 150
-});
+    let resposta = completion.choices[0]?.message?.content?.trim()
+        || 'Desculpa, não consegui pensar em uma resposta agora.';
 
-console.log('[Ana debug]', JSON.stringify(completion.choices[0], null, 2));
-
-let resposta = completion.choices[0]?.message?.content?.trim()
-    || 'Desculpa, não consegui pensar em uma resposta agora.';
     // Trava de segurança pro crédito do ElevenLabs não estourar numa resposta gigante
     if (resposta.length > 400) resposta = resposta.slice(0, 400);
 
