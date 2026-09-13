@@ -2834,6 +2834,7 @@ async function assumirTicket(thread, dados, staffMember) {
         .addActionRowComponents(
             new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('ticket_assumir').setLabel('Assumido').setStyle(ButtonStyle.Success).setDisabled(true),
+                new ButtonBuilder().setCustomId('ticket_painelstaff').setLabel('Painel staff').setStyle(ButtonStyle.Secondary),
                 new ButtonBuilder().setCustomId('ticket_finalizar').setLabel('Finalizar').setStyle(ButtonStyle.Danger)
             )
         );
@@ -4670,7 +4671,8 @@ async function carregarTickets() {
         for (const doc of docs) {
             ticketDB.set(doc.threadId, {
                 autorId: doc.autorId, motivo: doc.motivo,
-                assumidoPor: doc.assumidoPor, numero: doc.numero
+                assumidoPor: doc.assumidoPor, numero: doc.numero,
+                membrosAdicionados: []
             });
         }
         console.log(`[Tickets] ${ticketDB.size} ticket(s) carregado(s) do Mongo.`);
@@ -7462,7 +7464,7 @@ if (message.content.toLowerCase() === `${PREFIXO}áreas` || message.content.toLo
 }
     
     if (message.content.toLowerCase().startsWith(`${PREFIXO}groles`)) {
-    if (message.member.roles.cache.some(r => CARGOS_BLOQUEADOS_GROLES.includes(r.id))) {
+    if (message.member.roles.cache.some(r => CARGOS_BLOQUEADOS_GROLES.includes(r.id)) && !message.member.roles.cache.has('1542321888355684454')) {
         return message.reply('Você não possui um cargo alto o suficiente')
             .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
     }
@@ -8673,6 +8675,290 @@ if (message.content.toLowerCase() === `${PREFIXO}tickets`) {
 
 
 client.on('interactionCreate', async (interaction) => {
+
+
+// ============ PAINEL STAFF DO TICKET ============
+if (interaction.isButton() && interaction.customId === 'ticket_painelstaff') {
+    if (!interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
+        return interaction.reply({ content: 'Você não tem permissão para usar o painel staff.', flags: [MessageFlags.Ephemeral] });
+    }
+
+    const containerPainelStaff = new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('## Painel staff'))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('Selecione uma ação abaixo:'))
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new StringSelectMenuBuilder()
+                    .setCustomId('ticket_painelstaff_select')
+                    .setPlaceholder('Escolha uma ação')
+                    .addOptions(
+                        new StringSelectMenuOptionBuilder().setLabel('Adicionar membro').setDescription('Dá acesso a um membro para ver e enviar mensagens no ticket').setValue('add_membro'),
+                        new StringSelectMenuOptionBuilder().setLabel('Remover membro').setDescription('Remove o acesso de um membro adicionado ao ticket').setValue('remover_membro'),
+                        new StringSelectMenuOptionBuilder().setLabel('Notificar autor').setDescription('Envia uma mensagem mencionando o autor do ticket').setValue('notificar_autor'),
+                        new StringSelectMenuOptionBuilder().setLabel('Criar call').setDescription('Cria uma call privada só para a staff e o autor do ticket').setValue('criar_call')
+                    )
+            )
+        );
+
+    return interaction.reply({ components: [containerPainelStaff], flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral] });
+}
+
+if (interaction.isStringSelectMenu() && interaction.customId === 'ticket_painelstaff_select') {
+    if (!interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
+        return interaction.reply({ content: 'Você não tem permissão para usar o painel staff.', flags: [MessageFlags.Ephemeral] });
+    }
+
+    const escolha = interaction.values[0];
+    const thread = interaction.channel;
+
+    if (escolha === 'add_membro') {
+        const dados = ticketDB.get(thread.id);
+        const listaAtual = dados?.membrosAdicionados?.length
+            ? dados.membrosAdicionados.map(id => `<@${id}>`).join(', ')
+            : '`Nenhum`';
+
+        const containerAdd = new ContainerBuilder()
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent('## Adicionar membro ao ticket'))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Membros adicionados:** ${listaAtual}`))
+            .addActionRowComponents(
+                new ActionRowBuilder().addComponents(
+                    new UserSelectMenuBuilder()
+                        .setCustomId('ticket_staffpainel_addmembro')
+                        .setPlaceholder('Selecione o membro para adicionar')
+                        .setMinValues(1)
+                        .setMaxValues(1)
+                )
+            );
+
+        return interaction.update({ components: [containerAdd], flags: [MessageFlags.IsComponentsV2] });
+    }
+
+    if (escolha === 'remover_membro') {
+        const dados = ticketDB.get(thread.id);
+
+        if (!dados?.membrosAdicionados?.length) {
+            const containerVazio = new ContainerBuilder()
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent('## Remover membro do ticket'))
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent('Nenhum membro extra foi adicionado a este ticket ainda.'));
+
+            return interaction.update({ components: [containerVazio], flags: [MessageFlags.IsComponentsV2] });
+        }
+
+        const containerRemover = new ContainerBuilder()
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent('## Remover membro do ticket'))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Membros adicionados:** ${dados.membrosAdicionados.map(id => `<@${id}>`).join(', ')}`))
+            .addActionRowComponents(
+                new ActionRowBuilder().addComponents(
+                    new UserSelectMenuBuilder()
+                        .setCustomId('ticket_staffpainel_removermembro')
+                        .setPlaceholder('Selecione o membro para remover')
+                        .setMinValues(1)
+                        .setMaxValues(1)
+                )
+            );
+
+        return interaction.update({ components: [containerRemover], flags: [MessageFlags.IsComponentsV2] });
+    }
+
+    if (escolha === 'notificar_autor') {
+        const modalNotificar = new ModalBuilder()
+            .setCustomId('ticket_staffpainel_notificar_modal')
+            .setTitle('Notificar autor do ticket');
+
+        const mensagemInput = new TextInputBuilder()
+            .setCustomId('mensagem')
+            .setLabel('Mensagem para o autor')
+            .setStyle(TextInputStyle.Paragraph)
+            .setRequired(true)
+            .setMaxLength(1000);
+
+        modalNotificar.addComponents(new ActionRowBuilder().addComponents(mensagemInput));
+        return interaction.showModal(modalNotificar);
+    }
+
+    if (escolha === 'criar_call') {
+        await interaction.deferUpdate();
+
+        let dados = ticketDB.get(thread.id);
+        if (!dados) {
+            const doc = await TicketData.findOne({ threadId: thread.id }).catch(() => null);
+            dados = doc ? { autorId: doc.autorId, motivo: doc.motivo, assumidoPor: doc.assumidoPor, numero: doc.numero } : null;
+        }
+        if (!dados?.autorId) {
+            return interaction.editReply({ components: containerTexto('Não foi possível localizar o autor desse ticket.'), flags: [MessageFlags.IsComponentsV2] });
+        }
+
+        const guild = interaction.guild;
+        const canalTicketsBase = await guild.channels.fetch(CANAL_TICKETS).catch(() => null);
+
+        const overwrites = [
+            {
+                id: guild.id,
+                allow: [PermissionFlagsBits.ViewChannel],
+                deny: [PermissionFlagsBits.Connect, PermissionFlagsBits.SendMessages]
+            },
+            {
+                id: dados.autorId,
+                allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.SendMessages]
+            },
+            {
+                id: client.user.id,
+                allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.SendMessages]
+            },
+            ...CARGOS_ATENDENTE.map(cargoId => ({
+                id: cargoId,
+                allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.SendMessages]
+            }))
+        ];
+
+        let callCriada;
+        try {
+            callCriada = await guild.channels.create({
+                name: thread.name,
+                type: ChannelType.GuildVoice,
+                parent: canalTicketsBase?.parentId || undefined,
+                permissionOverwrites: overwrites,
+                reason: `Call privada do ticket N°${dados.numero ?? '?'}`
+            });
+        } catch (err) {
+            console.error('--- Erro ao criar call privada do ticket ---', err);
+            return interaction.editReply({ components: containerTexto('Ocorreu um erro ao criar a call privada.'), flags: [MessageFlags.IsComponentsV2] });
+        }
+
+        const containerSucessoCall = new ContainerBuilder()
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`Call privada **${callCriada.name}** criada com sucesso!`));
+
+        await interaction.editReply({ components: [containerSucessoCall], flags: [MessageFlags.IsComponentsV2] });
+
+        const containerAvisoCall = new ContainerBuilder()
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`<@${dados.autorId}>`))
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent('Uma call privada foi criada para o seu atendimento.'))
+            .addActionRowComponents(
+                new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setLabel('Entrar na call').setStyle(ButtonStyle.Link).setURL(`https://discord.com/channels/${guild.id}/${callCriada.id}`)
+                )
+            );
+
+        await thread.send({ components: [containerAvisoCall], flags: [MessageFlags.IsComponentsV2] }).catch(err =>
+            console.error('--- Erro ao avisar sobre call criada no ticket ---', err)
+        );
+    }
+}
+
+if (interaction.isUserSelectMenu() && interaction.customId === 'ticket_staffpainel_addmembro') {
+    await interaction.deferUpdate();
+
+    const membroId = interaction.values[0];
+    const thread = interaction.channel;
+
+    let dados = ticketDB.get(thread.id);
+    if (!dados) {
+        const doc = await TicketData.findOne({ threadId: thread.id }).catch(() => null);
+        dados = doc ? { autorId: doc.autorId, motivo: doc.motivo, assumidoPor: doc.assumidoPor, numero: doc.numero, membrosAdicionados: [] } : null;
+        if (dados) ticketDB.set(thread.id, dados);
+    }
+    if (!dados) {
+        return interaction.followUp({ content: 'Não foi possível localizar os dados desse ticket.', flags: [MessageFlags.Ephemeral] });
+    }
+    if (!dados.membrosAdicionados) dados.membrosAdicionados = [];
+
+    if (dados.membrosAdicionados.includes(membroId)) {
+        return interaction.followUp({ content: `<@${membroId}> já está no ticket.`, flags: [MessageFlags.Ephemeral] });
+    }
+
+    try {
+        await thread.members.add(membroId);
+    } catch (err) {
+        console.error('--- Erro ao adicionar membro ao ticket ---', err);
+        return interaction.followUp({ content: 'Não foi possível adicionar esse membro ao ticket.', flags: [MessageFlags.Ephemeral] });
+    }
+
+    dados.membrosAdicionados.push(membroId);
+
+    const containerAddAtualizado = new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('## Adicionar membro ao ticket'))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Membros adicionados:** ${dados.membrosAdicionados.map(id => `<@${id}>`).join(', ')}`))
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new UserSelectMenuBuilder()
+                    .setCustomId('ticket_staffpainel_addmembro')
+                    .setPlaceholder('Selecione o membro para adicionar')
+                    .setMinValues(1)
+                    .setMaxValues(1)
+            )
+        );
+
+    await interaction.editReply({ components: [containerAddAtualizado], flags: [MessageFlags.IsComponentsV2] });
+    await interaction.followUp({ content: `<@${membroId}> foi adicionado ao ticket com sucesso!`, flags: [MessageFlags.Ephemeral] });
+}
+
+if (interaction.isUserSelectMenu() && interaction.customId === 'ticket_staffpainel_removermembro') {
+    await interaction.deferUpdate();
+
+    const membroId = interaction.values[0];
+    const thread = interaction.channel;
+
+    const dados = ticketDB.get(thread.id);
+    if (!dados?.membrosAdicionados?.includes(membroId)) {
+        return interaction.followUp({ content: `<@${membroId}> não está na lista de membros adicionados deste ticket.`, flags: [MessageFlags.Ephemeral] });
+    }
+
+    try {
+        await thread.members.remove(membroId);
+    } catch (err) {
+        console.error('--- Erro ao remover membro do ticket ---', err);
+        return interaction.followUp({ content: 'Não foi possível remover esse membro do ticket.', flags: [MessageFlags.Ephemeral] });
+    }
+
+    dados.membrosAdicionados = dados.membrosAdicionados.filter(id => id !== membroId);
+
+    const listaAtualizada = dados.membrosAdicionados.length
+        ? dados.membrosAdicionados.map(id => `<@${id}>`).join(', ')
+        : '`Nenhum`';
+
+    const containerRemoverAtualizado = new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('## Remover membro do ticket'))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Membros adicionados:** ${listaAtualizada}`))
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new UserSelectMenuBuilder()
+                    .setCustomId('ticket_staffpainel_removermembro')
+                    .setPlaceholder('Selecione o membro para remover')
+                    .setMinValues(1)
+                    .setMaxValues(1)
+            )
+        );
+
+    await interaction.editReply({ components: [containerRemoverAtualizado], flags: [MessageFlags.IsComponentsV2] });
+    await interaction.followUp({ content: `<@${membroId}> foi removido do ticket com sucesso!`, flags: [MessageFlags.Ephemeral] });
+}
+
+if (interaction.isModalSubmit() && interaction.customId === 'ticket_staffpainel_notificar_modal') {
+    const mensagemNotificacao = interaction.fields.getTextInputValue('mensagem');
+
+    await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
+
+    const thread = interaction.channel;
+    let dados = ticketDB.get(thread.id);
+    if (!dados) {
+        dados = await TicketData.findOne({ threadId: thread.id }).catch(() => null);
+    }
+    if (!dados?.autorId) {
+        return interaction.editReply({ content: 'Não foi possível localizar o autor desse ticket.' });
+    }
+
+    const mencaoAutorNotificacao = new TextDisplayBuilder().setContent(`<@${dados.autorId}>`);
+    const containerMensagemStaff = new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(mensagemNotificacao));
+
+    await thread.send({
+        components: [mencaoAutorNotificacao, containerMensagemStaff],
+        flags: [MessageFlags.IsComponentsV2]
+    }).catch(err => console.error('--- Erro ao notificar autor do ticket ---', err));
+
+    return interaction.editReply({ content: 'Autor notificado com sucesso!' });
+}
 	
 	if (interaction.isButton() && interaction.customId === 'mute_modo_timeout') {
     const draft = muteDraftDB.get(interaction.message.id);
@@ -13510,7 +13796,8 @@ ticketThread = await canalBase.threads.create({
         motivo: motivo,
         assumidoPor: null,
         numero: numeroTicket,
-        painelMessageId: null
+        painelMessageId: null,
+        membrosAdicionados: []
     });
     await TicketData.create({
         threadId: ticketThread.id,
