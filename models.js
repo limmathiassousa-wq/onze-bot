@@ -369,12 +369,13 @@ const MensagemCriador = mongoose.model('MensagemCriador', mensagemCriadorSchema)
 const conversaAnaSchema = new mongoose.Schema({
     _id: { type: String }, // userId
     historico: [{
-        role: String, // 'user' | 'assistant'
+        role: String,
         content: String,
-        _id: false          // ← adiciona essa linha
+        _id: false
     }],
     atualizadoEm: { type: Date, default: Date.now, expires: 60 * 60 * 24 * 2 }
 });
+const ConversaAna = mongoose.model('ConversaAna', conversaAnaSchema);   // ← essa linha precisa estar aqui
 
 module.exports = {
     ServerBackup,
