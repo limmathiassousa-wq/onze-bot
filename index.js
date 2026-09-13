@@ -13154,6 +13154,14 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_opc
         });
     }
 
+    draft.opcaoAtual = opcao;
+    return interaction.update({
+        components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
+        flags: [MessageFlags.IsComponentsV2]
+    });
+}
+
+
 // ---- Texto ----
 if (interaction.isButton() && interaction.customId === 'msgcriador_texto_editar') {
     const draft = msgCriadorDB.get(interaction.message.id);
