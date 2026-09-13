@@ -7405,8 +7405,9 @@ client.on('messageDelete', async (message) => {
     }
 });
 
-client.on('messageCreate', async (message) => {
-    if (message.author.bot || !message.guild || !message.channel) return;
+client.on(Events.MessageCreate, async (message) => {
+    if (!message.guild || !message.channel) return; 
+    if (message.author.bot) return;
 
 if (ticketDB.has(message.channel.id)) {
         const dadosTicket = ticketDB.get(message.channel.id);
@@ -7510,7 +7511,7 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}moedaseditar`)) {
     const quantidade = parseInt(args[3]);
 
     if (!['adicionar', 'remover'].includes(funcao) || !alvo || isNaN(quantidade) || quantidade <= 0) {
-        return message.reply(`Uso correto: \`${PREFIXO}moedaseditar <adicionar|remover> <@usuário> <quantidade>\``)
+        return message.channel.send(`Uso correto: \`${PREFIXO}moedaseditar <adicionar|remover> <@usuário> <quantidade>\``)
             .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
     }
 
@@ -7638,7 +7639,7 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}ban `) || message.conten
 
     const alvo = message.mentions.users.first();
     if (!alvo) {
-        return message.reply(`Uso correto: \`${PREFIXO}ban @usuário [motivo]\``)
+        return message.channel.send(`Uso correto: \`${PREFIXO}ban @usuário [motivo]\``)
             .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
     }
     if (alvo.id === message.author.id) {
@@ -7683,7 +7684,7 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}unban `) || message.cont
     const motivo = args.slice(2).join(' ') || null;
 
     if (!usuarioId || !/^\d{15,25}$/.test(usuarioId)) {
-        return message.reply(`Uso correto: \`${PREFIXO}unban <id> [motivo]\``)
+        return message.channel.send(`Uso correto: \`${PREFIXO}unban <id> [motivo]\``)
             .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
     }
 
@@ -7709,7 +7710,7 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}unban `) || message.cont
 
     const regexTikTok = /https?:\/\/(www\.|vm\.|vt\.)?tiktok\.com\/\S+/i;
     if (!link || !regexTikTok.test(link)) {
-        return message.reply(`Uso correto: \`${PREFIXO}tikv <link do tiktok>\``)
+        return message.channel.send(`Uso correto: \`${PREFIXO}tikv <link do tiktok>\``)
             .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
     }
 
@@ -7982,7 +7983,7 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}xpeditar`)) {
     const quantidade = parseInt(args[3]);
 
     if (!['adicionar', 'remover'].includes(funcao) || !alvo || isNaN(quantidade) || quantidade <= 0) {
-        return message.reply(`Uso correto: \`${PREFIXO}xped <adicionar|remover> <@usuário> <quantidade>\``)
+        return message.channel.send(`Uso correto: \`${PREFIXO}xped <adicionar|remover> <@usuário> <quantidade>\``)
             .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
     }
 
@@ -8389,7 +8390,7 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}addcargo`)) {
     const alvo = message.mentions.members.first();
 
     if (!cargo || !alvo) {
-        return message.reply(`Uso correto: \`${PREFIXO}addcargo @cargo @usuário\``)
+        return message.channel.send(`Uso correto: \`${PREFIXO}addcargo @cargo @usuário\``)
             .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
     }
 
@@ -8468,7 +8469,7 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}remcargo`)) {
     const alvo = message.mentions.members.first();
 
     if (!cargo || !alvo) {
-        return message.reply(`Uso correto: \`${PREFIXO}remcargo @cargo @usuário\``)
+        return message.channel.send(`Uso correto: \`${PREFIXO}remcargo @cargo @usuário\``)
             .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
     }
 
@@ -8548,7 +8549,7 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}limpar`)) {
         const quantidade = parseInt(args[1]);
 
         if (!quantidade || isNaN(quantidade) || quantidade < 1 || quantidade > 300) {
-            return message.reply(`Uso correto: \`${PREFIXO}limpar <quantidade de 1 a 300>\``)
+            return message.channel.send(`Uso correto: \`${PREFIXO}limpar <quantidade de 1 a 300>\``)
                 .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
         }
 
