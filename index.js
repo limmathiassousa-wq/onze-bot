@@ -7391,31 +7391,30 @@ if (newState.channelId === CANAL_GERADOR_ID) {
 }
 
 
-    // ============ TRACKING DE ATIVIDADE DE VOZ ============
-    if (membroVoice && !membroVoice.user.bot) {
-        const guildAtividade = newState.guild ?? oldState.guild;
-        registrarAtividadeVoz(guildAtividade, membroVoice, oldState, newState).catch(err =>
-            console.error('--- Erro ao registrar atividade de voz ---', err)
-        );
-    }
-    
-    // ============ TRACKING DE CALL PARA SORTEIOS ============
-    const membroVoice = newState.member ?? oldState.member;
-    if (membroVoice && !membroVoice.user.bot) {
-        const guild = newState.guild ?? oldState.guild;
-        const antigoCanal = oldState.channelId;
-        const novoCanal = newState.channelId;
+// ============ TRACKING DE CALL PARA SORTEIOS ============
+const membroVoice = newState.member ?? oldState.member;
+if (membroVoice && !membroVoice.user.bot) {
+    const guild = newState.guild ?? oldState.guild;
+    const antigoCanal = oldState.channelId;
+    const novoCanal = newState.channelId;
 
-        const estavaEmCallValida = antigoCanal && antigoCanal !== guild.afkChannelId;
-        const estaEmCallValida = novoCanal && novoCanal !== guild.afkChannelId;
+    const estavaEmCallValida = antigoCanal && antigoCanal !== guild.afkChannelId;
+    const estaEmCallValida = novoCanal && novoCanal !== guild.afkChannelId;
 
-        if (!estavaEmCallValida && estaEmCallValida) {
-            iniciarSessaoVoiceSorteio(guild.id, membroVoice.id);
-        } else if (estavaEmCallValida && !estaEmCallValida) {
-            await finalizarSessaoVoiceSorteio(guild.id, membroVoice.id).catch(() => null);
-        }
-        // se saiu de um canal válido pra outro canal válido (trocou de call), a sessão continua normalmente
+    if (!estavaEmCallValida && estaEmCallValida) {
+        iniciarSessaoVoiceSorteio(guild.id, membroVoice.id);
+    } else if (estavaEmCallValida && !estaEmCallValida) {
+        await finalizarSessaoVoiceSorteio(guild.id, membroVoice.id).catch(() => null);
     }
+}
+
+// ============ TRACKING DE ATIVIDADE DE VOZ ============
+if (membroVoice && !membroVoice.user.bot) {
+    const guildAtividade = newState.guild ?? oldState.guild;
+    registrarAtividadeVoz(guildAtividade, membroVoice, oldState, newState).catch(err =>
+        console.error('--- Erro ao registrar atividade de voz ---', err)
+    );
+}
 
     if (newState.channelId === CANAL_GERADOR_ID) {
         const guild = newState.guild;
