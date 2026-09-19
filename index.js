@@ -2363,7 +2363,7 @@ function montarPainelSorteioConfig(draft) {
     return container;
 }
 
-function montarEmbedSorteioCanal(sorteio) {
+function montarEmbedSorteioCanal(sorteio, desativado = false) {
     const container = new ContainerBuilder();
 
     if (sorteio.imagemUrl) {
@@ -2391,8 +2391,8 @@ function montarEmbedSorteioCanal(sorteio) {
 
     container.addActionRowComponents(
         new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`sorteio_participar_${sorteio._id}`).setLabel('Participar').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId(`sorteio_participantes_${sorteio._id}`).setLabel('Participantes').setStyle(ButtonStyle.Secondary)
+            new ButtonBuilder().setCustomId(`sorteio_participar_${sorteio._id}`).setLabel('Participar').setStyle(ButtonStyle.Success).setDisabled(desativado),
+            new ButtonBuilder().setCustomId(`sorteio_participantes_${sorteio._id}`).setLabel('Participantes').setStyle(ButtonStyle.Secondary).setDisabled(desativado)
         )
     );
 
@@ -2505,7 +2505,9 @@ async function encerrarSorteio(sorteioId) {
         const canal = await client.channels.fetch(sorteio.canalId).catch(() => null);
         if (canal && sorteio.mensagemId) {
             const msg = await canal.messages.fetch(sorteio.mensagemId).catch(() => null);
-            if (msg) await msg.delete().catch(() => null);
+            if (msg) {
+                await msg.edit({ components: [montarEmbedSorteioCanal(sorteio, true)], flags: [MessageFlags.IsComponentsV2] }).catch(() => null);
+            }
         }
 if (canal) {
     let statusTexto;
@@ -2600,21 +2602,28 @@ async function obterTop3CallSorteio(guildId) {
 
 function formatarTop3Texto(ranking, guild) {
     const posicoes = ['1º', '2º', '3º'];
+    const EMOJI_COROA_SORTEIO = '<:crown:1542328746147713094>';
 
     const partes = ranking.map(([userId, ms], i) => {
         const membro = guild.members.cache.get(userId);
         const nome = membro ? membro.displayName : 'Usuário';
-        return `${posicoes[i]} ${nome} ${formatarTempoCurto(ms)}`;
+        const prefixo = i === 0 ? `${EMOJI_COROA_SORTEIO} ` : '';
+        return `${prefixo}${posicoes[i]} ${nome} ${formatarTempoCurto(ms)}`;
     });
 
     return partes.join(' · ');
 }
 
+// Último status que o bot definiu em cada canal (evita reenviar o mesmo status / remover status já vazio a cada tick)
+const statusCanalAplicado = new Map();
+
 async function definirStatusCanal(canal, texto) {
+    const novoStatus = texto || '';
     try {
         await client.rest.put(`/channels/${canal.id}/voice-status`, {
-            body: { status: texto || '' }
+            body: { status: novoStatus }
         });
+        statusCanalAplicado.set(canal.id, novoStatus);
     } catch (err) {
         console.error(`--- Erro ao setar status do canal ${canal.id} (REST) ---`, err);
     }
@@ -2624,7 +2633,7 @@ async function atualizarStatusCallsSorteio() {
     for (const guild of client.guilds.cache.values()) {
         try {
             const top3 = await obterTop3CallSorteio(guild.id);
-            const textoStatus = top3 ? formatarTop3Texto(top3, guild) : null;
+            const textoStatus = top3 ? formatarTop3Texto(top3, guild) : '';
 
             const canaisDaCategoria = guild.channels.cache
                 .filter(c =>
@@ -2636,10 +2645,14 @@ async function atualizarStatusCallsSorteio() {
             const primeiroCanal = canaisDaCategoria.first();
 
             for (const canal of canaisDaCategoria.values()) {
-                const deveTerStatus = canal.id === primeiroCanal?.id;
-                const textoAlvo = deveTerStatus ? textoStatus : null;
+                const textoAlvo = canal.id === primeiroCanal?.id ? textoStatus : '';
 
-                if (canal.status === textoAlvo) continue;
+                // o que o canal tem agora: o que o bot aplicou por último, ou (se ainda não aplicou nada) o status do cache
+                const atual = statusCanalAplicado.has(canal.id)
+                    ? statusCanalAplicado.get(canal.id)
+                    : (canal.status || '');
+
+                if (atual === textoAlvo) continue;
                 await definirStatusCanal(canal, textoAlvo);
             }
         } catch (err) {
@@ -5998,56 +6011,197 @@ async function montarPainelBanners(alvoUser, autorId, indice = 0, expiraEm = 0) 
 
 const HELP_POR_PAGINA = 6;
 
-const COMANDOS_SLASH = [
-    { cmd: '/ban', desc: 'Bane usuários do servidor', categoria: 'Moderação' },
-    { cmd: '/unban', desc: 'Retira o banimento de usuários', categoria: 'Moderação' },
-    { cmd: '/kick', desc: 'Expulsa usuários do servidor', categoria: 'Moderação' },
-    { cmd: '/mute', desc: 'Silencia usuários temporariamente', categoria: 'Moderação' },
-    { cmd: '/unmute', desc: 'Remove o silenciamento de usuários', categoria: 'Moderação' },
-    { cmd: '/limpar', desc: 'Apaga mensagens do canal', categoria: 'Moderação' },
-    { cmd: '/addemoji', desc: 'Adiciona um emoji ao servidor', categoria: 'Administração' },
-    { cmd: '/pd', desc: 'Painel de Primeira Dama', categoria: 'Diversão' },
-    { cmd: '/sorteio', desc: 'Cria e gerencia sorteios do servidor', categoria: 'Utilidades' },
-    { cmd: '/carteira', desc: 'Mostra sua carteira de moedas', categoria: 'Economia' },
-    { cmd: '/pix', desc: 'Transfere moedas', categoria: 'Economia' },
-    { cmd: '/convite', desc: 'Mostra estatísticas de convites de um usuário', categoria: 'Utilidades' },
-    { cmd: '/afk', desc: 'Marca você como ausente', categoria: 'Utilidades' },
-    { cmd: '/botcall', desc: 'Envia o painel de controle da call do bot', categoria: 'Utilidades' },
-    { cmd: '/avatar', desc: 'Mostra o avatar de um usuário', categoria: 'Utilidades' },
-    { cmd: '/ui', desc: 'Mostra informações detalhadas de um usuário', categoria: 'Utilidades' },
-    { cmd: '/help', desc: 'Lista de comandos', categoria: 'Ajuda' }
-];
+// ---------- HELP DINÂMICO ----------
+// A lista do /help é montada sozinha:
+//  - Slash: lê tudo o que está registrado no Discord (LISTA_DE_COMANDOS + pasta de comandos).
+//  - Prefixo: lê os .js do projeto procurando os comandos tratados em message.content.
+// INFO_COMANDOS é opcional: se o comando tiver entrada lá, o texto manual sobrescreve o automático.
 
-const COMANDOS_PREFIXO = [
-    { cmd: `${PREFIXO}regras`, desc: 'Painel de regras', categoria: 'Administração' },
-    { cmd: `${PREFIXO}tickets`, desc: 'Painel de atendimento', categoria: 'Administração' },
-    { cmd: `${PREFIXO}painelcall`, desc: 'Painel de calls temporárias', categoria: 'Utilidades' },
-    { cmd: `${PREFIXO}tellonym`, desc: 'Painel tellonym', categoria: 'Diversão' },
-    { cmd: `${PREFIXO}loja`, desc: 'Painel da loja de cargos e convertor', categoria: 'Economia' },
-    { cmd: `${PREFIXO}botcall`, desc: 'Envia o painel de controle da call do bot', categoria: 'Utilidades' },
-    { cmd: `${PREFIXO}moedastp`, desc: 'Painel de controle do evento de moedas', categoria: 'Economia' },
-    { cmd: `${PREFIXO}xpeditar`, desc: 'Edita XP de um usuário', categoria: 'Administração' },
-    { cmd: `${PREFIXO}moedaseditar`, desc: 'Edita moedas de um usuário', categoria: 'Economia' },
-    { cmd: `${PREFIXO}addcargo`, desc: 'Adiciona um cargo a um usuário', categoria: 'Administração' },
-    { cmd: `${PREFIXO}remcargo`, desc: 'Remove um cargo de um usuário', categoria: 'Administração' },
-    { cmd: `${PREFIXO}groles`, desc: 'Gerencia os cargos de um usuário (adicionar/remover pelo painel)', categoria: 'Administração' },
-    { cmd: `${PREFIXO}roleall`, desc: 'Aplica um cargo em massa para todos os membros', categoria: 'Administração' },
-    { cmd: `${PREFIXO}nuke`, desc: 'Reseta o canal', categoria: 'Moderação' },
-    { cmd: `${PREFIXO}painelps`, desc: 'Painel de proteção do servidor', categoria: 'Moderação' },
-    { cmd: `${PREFIXO}ban`, desc: 'Bane um usuário com confirmação', categoria: 'Moderação' },
-    { cmd: `${PREFIXO}unban`, desc: 'Desbane um usuário pelo ID com confirmação', categoria: 'Moderação' },
-    { cmd: `${PREFIXO}painelurl`, desc: 'Painel de verificação de link na bio', categoria: 'Administração' },
-    { cmd: `${PREFIXO}info`, desc: 'Painel de hierarquia de cargos', categoria: 'Utilidades' },
-    { cmd: `${PREFIXO}userinfo`, desc: 'Mostra informações detalhadas de um usuário', categoria: 'Utilidades' },
-    { cmd: `${PREFIXO}tiktok`, desc: 'Baixa vídeos do TikTok sem marca d\'água', categoria: 'Diversão' },
-    { cmd: `${PREFIXO}msg`, desc: 'Cria e envia uma mensagem personalizada em um canal', categoria: 'Utilidades' },
-    { cmd: 'cl', desc: 'Apaga mensagens do autor do comando', categoria: 'Moderação' },
-    { cmd: `${PREFIXO}limpar`, desc: 'Apaga mensagens do canal', categoria: 'Moderação' }
-];
+const HELP_OCULTOS = new Set([]);            // nomes (sem "/" e sem prefixo) que não devem aparecer no help
+const HELP_PREFIXO_EXTRAS = ['painelcall'];  // comandos de prefixo tratados fora dos .js lidos (se houver)
+
+const HELP_DESCRICAO_PADRAO = 'Comando de prefixo do servidor.'; // usado por comando de prefixo novo, sem descrição
+
+// Descrição curta de cada comando de prefixo (chave = nome sem prefixo e sem acento)
+const HELP_PREFIXO_DESCRICOES = {
+    regras: 'Painel de regras',
+    tickets: 'Painel de atendimento',
+    painelcall: 'Painel de calls temporárias',
+    tellonym: 'Painel tellonym',
+    loja: 'Painel da loja de cargos e convertor',
+    botcall: 'Envia o painel de controle da call do bot',
+    moedastp: 'Painel de controle do evento de moedas',
+    xpeditar: 'Edita XP de um usuário',
+    moedaseditar: 'Edita moedas de um usuário',
+    addcargo: 'Adiciona um cargo a um usuário',
+    remcargo: 'Remove um cargo de um usuário',
+    groles: 'Gerencia os cargos de um usuário (adicionar/remover pelo painel)',
+    roleall: 'Aplica um cargo em massa para todos os membros',
+    nuke: 'Reseta o canal',
+    painelps: 'Painel de proteção do servidor',
+    ban: 'Bane um usuário com confirmação',
+    unban: 'Desbane um usuário pelo ID com confirmação',
+    painelurl: 'Painel de verificação de link na bio',
+    info: 'Painel de hierarquia de cargos',
+    userinfo: 'Mostra informações detalhadas de um usuário',
+    tiktok: 'Baixa vídeos do TikTok sem marca d\'água',
+    msg: 'Cria e envia uma mensagem personalizada em um canal',
+    cl: 'Apaga mensagens do autor do comando',
+    limpar: 'Apaga mensagens do canal',
+    areas: 'Mostra as áreas disponíveis da equipe'
+};
+
+// Só pra preencher o "Ajuda › Categoria › comando". Comando fora daqui cai em "Geral".
+const HELP_CATEGORIAS = {
+    'Moderação': ['ban', 'unban', 'kick', 'mute', 'unmute', 'limpar', 'nuke', 'painelps', 'cl'],
+    'Administração': ['addemoji', 'regras', 'tickets', 'xpeditar', 'addcargo', 'remcargo', 'groles', 'roleall', 'painelurl'],
+    'Economia': ['carteira', 'pix', 'loja', 'moedastp', 'moedaseditar'],
+    'Diversão': ['pd', 'tellonym', 'tiktok'],
+    'Utilidades': ['sorteio', 'convite', 'afk', 'botcall', 'avatar', 'ui', 'painelcall', 'info', 'userinfo', 'msg'],
+    'Ajuda': ['help']
+};
+const HELP_CATEGORIA_POR_NOME = new Map(
+    Object.entries(HELP_CATEGORIAS).flatMap(([categoria, nomes]) => nomes.map(nome => [nome, categoria]))
+);
+
+const HELP_TIPOS_OPCAO = { 3: 'texto', 4: 'número', 5: 'sim/não', 6: '@usuário', 7: '#canal', 8: '@cargo', 9: '@menção', 10: 'número', 11: 'anexo' };
+const RE_HELP_PREFIXO = /(?:startsWith\(\s*|={2,3}\s*)`\$\{PREFIXO\}([\p{L}\d_-]+)/giu;
+const RE_HELP_SEM_PREFIXO = /content\.toLowerCase\(\)(?:\.trim\(\))?\s*===?\s*'([\p{L}\d_-]+)'/giu;
+
+const helpSemAcento = texto => String(texto).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+function helpPrimeiraFrase(texto) {
+    const frase = String(texto || '').split(/(?<=[.!?])\s/)[0].trim();
+    return frase.length > 110 ? `${frase.slice(0, 107)}...` : frase;
+}
+
+function helpPermissaoSlash(permissoes) {
+    if (permissoes === undefined || permissoes === null) return 'Nenhuma';
+    const bits = BigInt(permissoes);
+    if (bits === 0n) return 'Somente administradores';
+    const nomes = Object.entries(PermissionFlagsBits)
+        .filter(([nome, bit]) => nome !== 'ManageEmojisAndStickers' && (bits & bit) === bit)
+        .map(([nome]) => PERM_LABELS_GROLES[nome] || nome);
+    return nomes.join(', ') || 'Nenhuma';
+}
+
+function helpUsoOpcoes(opcoes = []) {
+    return opcoes
+        .filter(o => o.type > 2)
+        .map(o => {
+            const tipo = HELP_TIPOS_OPCAO[o.type] || 'valor';
+            return o.required ? `${o.name}:<${tipo}>` : `${o.name}:[${tipo}]`;
+        })
+        .join(' ');
+}
+
+function coletarComandosSlashHelp() {
+    const builders = [...LISTA_DE_COMANDOS, ...[...comandos.values()].map(c => c.data)];
+    const vistos = new Set();
+    const itens = [];
+
+    for (const builder of builders) {
+        const json = typeof builder?.toJSON === 'function' ? builder.toJSON() : builder;
+        if (!json?.name || (json.type && json.type !== 1) || vistos.has(json.name)) continue; // ignora menus de contexto
+        vistos.add(json.name);
+        if (HELP_OCULTOS.has(json.name)) continue;
+
+        const cmd = `/${json.name}`;
+        const opcoes = json.options || [];
+        const descCurta = json.description || 'Sem descrição';
+
+        // subcomandos e grupos de subcomandos, achatados ("grupo sub")
+        const subs = opcoes.flatMap(o => {
+            if (o.type === 1) return [{ nome: o.name, desc: o.description }];
+            if (o.type === 2) return (o.options || []).map(s => ({ nome: `${o.name} ${s.name}`, desc: s.description }));
+            return [];
+        });
+
+        let descricao = descCurta;
+        let comoUsar;
+        if (subs.length) {
+            comoUsar = `${cmd} <${subs.map(s => s.nome).join(' | ')}>`;
+            descricao += `\n\n**Subcomandos**\n${subs.map(s => `\`${s.nome}\` — ${s.desc}`).join('\n')}`;
+        } else {
+            comoUsar = `${cmd} ${helpUsoOpcoes(opcoes)}`.trim();
+        }
+
+        itens.push({
+            cmd,
+            desc: descCurta,
+            categoria: HELP_CATEGORIA_POR_NOME.get(json.name) || 'Geral',
+            documentado: true,
+            info: { descricao, comoUsar, permissao: helpPermissaoSlash(json.default_member_permissions) },
+            ordem: helpSemAcento(json.name)
+        });
+    }
+    return itens;
+}
+
+function coletarComandosPrefixoHelp() {
+    const encontrados = new Map(); // chave sem acento -> { nome, prefixado }
+    const adicionar = (nome, prefixado = true) => {
+        const chave = helpSemAcento(nome);
+        if (!encontrados.has(chave)) encontrados.set(chave, { nome: nome.toLowerCase(), prefixado });
+    };
+
+    let arquivos = [];
+    try { arquivos = fs.readdirSync(__dirname).filter(f => f.endsWith('.js')); } catch (err) {
+        console.error('--- [Help] Não consegui listar os arquivos do projeto ---', err);
+    }
+    for (const arquivo of arquivos) {
+        let codigo;
+        try { codigo = fs.readFileSync(path.join(__dirname, arquivo), 'utf8'); } catch { continue; }
+        for (const m of codigo.matchAll(RE_HELP_PREFIXO)) adicionar(m[1]);
+        // comandos sem prefixo (ex.: "cl") só entram se estiverem documentados em INFO_COMANDOS
+        for (const m of codigo.matchAll(RE_HELP_SEM_PREFIXO)) {
+            if (INFO_COMANDOS[m[1].toLowerCase()]) adicionar(m[1], false);
+        }
+    }
+    HELP_PREFIXO_EXTRAS.forEach(nome => adicionar(nome));
+
+    return [...encontrados.entries()]
+        .filter(([chave]) => !HELP_OCULTOS.has(chave))
+        .map(([chave, { nome, prefixado }]) => {
+            const cmd = prefixado ? `${PREFIXO}${nome}` : nome;
+            const doc = INFO_COMANDOS[cmd];
+            const desc = HELP_PREFIXO_DESCRICOES[chave] || (doc ? helpPrimeiraFrase(doc.descricao) : HELP_DESCRICAO_PADRAO);
+            return {
+                cmd,
+                desc,
+                categoria: HELP_CATEGORIA_POR_NOME.get(chave) || 'Geral',
+                documentado: !!doc,
+                info: doc || { descricao: desc, comoUsar: cmd, permissao: 'Não informada' },
+                ordem: chave
+            };
+        });
+}
+
+let cacheListasHelp = null;
+
+function gerarListasHelp(recarregar = false) {
+    if (cacheListasHelp && !recarregar) return cacheListasHelp;
+
+    const ordenar = (a, b) => a.ordem.localeCompare(b.ordem);
+    const slash = coletarComandosSlashHelp().sort(ordenar);
+    const prefixo = coletarComandosPrefixoHelp().sort(ordenar);
+
+    // deixa o painel de "Detalhes" achar o texto automático (o manual de INFO_COMANDOS sempre tem prioridade)
+    for (const item of [...slash, ...prefixo]) {
+        if (!INFO_COMANDOS[item.cmd]) INFO_COMANDOS[item.cmd] = item.info;
+    }
+
+    const semDescricao = prefixo.filter(i => !i.documentado).map(i => i.cmd);
+    console.log(`[Help] ${slash.length} slash e ${prefixo.length} de prefixo carregados.`);
+    if (semDescricao.length) console.log(`[Help] Sem descrição em INFO_COMANDOS: ${semDescricao.join(', ')}`);
+
+    cacheListasHelp = { slash, prefixo };
+    return cacheListasHelp;
+}
 
 const CATEGORIAS_HELP = {
-    slash: { label: 'Comandos Slash', lista: COMANDOS_SLASH },
-    prefixo: { label: 'Comandos com Prefixo', lista: COMANDOS_PREFIXO }
+    slash: { label: 'Comandos Slash', get lista() { return gerarListasHelp().slash; } },
+    prefixo: { label: 'Comandos com Prefixo', get lista() { return gerarListasHelp().prefixo; } }
 };
 
 const INFO_COMANDOS = {
@@ -6092,7 +6246,7 @@ const INFO_COMANDOS = {
     [`${PREFIXO}nuke`]: { descricao: 'Apaga o canal e cria uma cópia idêntica — limpa o histórico inteiro sem perder permissões.', comoUsar: `${PREFIXO}nuke`, exemplo: `${PREFIXO}nuke`, permissao: 'Equipe' },
     [`${PREFIXO}painelps`]: { descricao: 'Envia o painel de proteção do servidor, com Anti-Spam, Anti-Link e Anti-Conta Nova configuráveis.', comoUsar: `${PREFIXO}painelps`, exemplo: `${PREFIXO}painelps`, permissao: 'Administrador ou Equipe' },
     'cl': { descricao: 'Apaga rapidamente as últimas mensagens enviadas por você mesmo no canal atual.', comoUsar: 'cl', exemplo: 'cl', permissao: 'Cargo de Limpar, Booster ou Equipe' },
-    [`${PREFIXO}clear`]: { descricao: 'Apaga uma quantidade de mensagens do canal atual, mostrando o progresso em tempo real.', comoUsar: `${PREFIXO}clear <quantidade de 1 a 300>`, exemplo: `${PREFIXO}clear 50`, permissao: 'Gerenciar Mensagens ou cargo de Limpar' }
+    [`${PREFIXO}limpar`]: { descricao: 'Apaga uma quantidade de mensagens do canal atual, mostrando o progresso em tempo real.', comoUsar: `${PREFIXO}limpar <quantidade de 1 a 300>`, exemplo: `${PREFIXO}limpar 50`, permissao: 'Gerenciar Mensagens ou cargo de Limpar' }
 };
 
 function montarPainelHelp(categoria = 'slash', pagina = 0) {
@@ -7672,18 +7826,27 @@ if (message.content.toLowerCase() === `${PREFIXO}msg`) {
 }
 
 if (message.content.toLowerCase() === `${PREFIXO}áreas` || message.content.toLowerCase() === `${PREFIXO}areas`) {
-    const texto =
-        `# Áreas disponíveis⬇\n\n` +
-        `### <:barra:1548558939115757688> **Sup**\n` +
-        `-# <:pontored:1548558637507678268> Atende tickets e ajuda os membros da comunidade\n` +
-        `### <:barra:1548558939115757688> **Mod**\n` +
-        `-# <:pontored:1548558637507678268> Modera o servidor de forma controlada com permissão para banir, mutar e expulsar\n` +
-        `### <:barra:1548558939115757688> **Verify TELLONYM**\n` +
-        `-# <:pontored:1548558637507678268> Verifica tellonyms enviados para avaliação, ele decide se o tellonym vai ser enviado pro canal, ou não\n` +
-        `### <:barra:1548558939115757688> **Verify INSTAGRAM**\n` +
-        `-# <:pontored:1548558637507678268> Verifica imagens enviadas para avaliação em tickets para cargo de instagram, ele decide se o usuário vai poder enviar o post pro canal ou não`;
+    const areas = [
+        ['Sup', 'Atende tickets e ajuda os membros da comunidade'],
+        ['Mod', 'Modera o servidor de forma controlada com permissão para banir, mutar e expulsar'],
+        ['Verify TELLONYM', 'Verifica tellonyms enviados para avaliação, ele decide se o tellonym vai ser enviado pro canal, ou não'],
+        ['Verify INSTAGRAM', 'Verifica imagens enviadas para avaliação em tickets para cargo de instagram, ele decide se o usuário vai poder enviar o post pro canal ou não']
+    ];
 
-    return message.channel.send({ content: texto });
+    const container = new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('# Áreas disponíveis⬇'))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+
+    areas.forEach(([nome, descricao]) => {
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            `### <:barra:1548558939115757688> **${nome}**\n-# <:pontored:1548558637507678268> ${descricao}`
+        ));
+    });
+
+    return message.channel.send({
+        components: [container],
+        flags: [MessageFlags.IsComponentsV2]
+    });
 }
     
     if (message.content.toLowerCase().startsWith(`${PREFIXO}groles`)) {
@@ -8425,7 +8588,7 @@ if (message.content.toLowerCase() === `${PREFIXO}nuke`) {
         const horaFormatada = agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Sao_Paulo' });
 
         const container = new ContainerBuilder()
-           .addTextDisplayComponents(new TextDisplayBuilder().setContent('-# <:martelo:1548558794320257046> **Canal nukado**'))
+           .addTextDisplayComponents(new TextDisplayBuilder().setContent('-# <:martelo:1548558794320257046> **Canal Resetado**'))
            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`Canal **nukado** por ${autor} as **${horaFormatada}**`));
 
@@ -11364,15 +11527,17 @@ if (interaction.isButton() && interaction.customId === 'sorteio_resortear') {
         return interaction.followUp({ components: containerTexto('Esse sorteio não foi encontrado.'), flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral] });
     }
 
-    // Reseta participantes e progresso — recomeça do zero
+// Reseta participantes e progresso — recomeça do zero
     sorteioDoc.participantes = [];
     sorteioDoc.progressoMensagens = {};
     sorteioDoc.progressoCallMs = {};
     sorteioDoc.progressoInvites = {};
     sorteioDoc.vencedorId = null;
+    sorteioDoc.status = 'ativo'; // <-- estava faltando, por isso o Participar dava "não está mais ativo"
 
     const novoEncerraEm = Date.now() + sorteioDoc.duracaoMs;
     sorteioDoc.encerraEm = novoEncerraEm;
+
 
     const canal = await client.channels.fetch(sorteioDoc.canalId).catch(() => null);
 
@@ -11417,15 +11582,14 @@ if (interaction.isButton() && interaction.customId === 'sorteio_deletar') {
     if (draft.id) {
         const sorteioDoc = await Sorteio.findById(draft.id).catch(() => null);
         if (sorteioDoc) {
-            if (sorteioDoc.status === 'ativo') {
-                try {
-                    const canal = await client.channels.fetch(sorteioDoc.canalId).catch(() => null);
-                    if (canal && sorteioDoc.mensagemId) {
-                        const msg = await canal.messages.fetch(sorteioDoc.mensagemId).catch(() => null);
-                        if (msg) await msg.delete().catch(() => null);
-                    }
-                } catch (err) { console.error('--- Erro ao apagar embed do sorteio deletado ---', err); }
-            }
+            try {
+                const canal = await client.channels.fetch(sorteioDoc.canalId).catch(() => null);
+                if (canal && sorteioDoc.mensagemId) {
+                    const msg = await canal.messages.fetch(sorteioDoc.mensagemId).catch(() => null);
+                    if (msg) await msg.delete().catch(() => null);
+                }
+            } catch (err) { console.error('--- Erro ao apagar embed do sorteio deletado ---', err); }
+
             const timeoutId = sorteioTimeouts.get(String(sorteioDoc._id));
             if (timeoutId) { clearTimeout(timeoutId); sorteioTimeouts.delete(String(sorteioDoc._id)); }
             await Sorteio.deleteOne({ _id: sorteioDoc._id }).catch(() => null);
