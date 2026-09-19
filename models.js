@@ -377,6 +377,27 @@ const conversaAnaSchema = new mongoose.Schema({
 });
 const ConversaAna = mongoose.model('ConversaAna', conversaAnaSchema);   // ← essa linha precisa estar aqui
 
+const LogAtividadeUsuarioSchema = new mongoose.Schema({
+    guildId: { type: String, required: true },
+    userId: { type: String, required: true },
+    mensagens: [{
+        messageId: String,
+        channelId: String,
+        conteudo: String,
+        criadoEm: Number
+    }],
+    calls: [{
+        channelId: String,
+        entrouEm: Number,
+        saiuEm: Number,
+        camera: Boolean,
+        stream: Boolean
+    }]
+});
+LogAtividadeUsuarioSchema.index({ guildId: 1, userId: 1 }, { unique: true });
+
+const LogAtividadeUsuario = mongoose.model('LogAtividadeUsuario', LogAtividadeUsuarioSchema);
+
 module.exports = {
     ServerBackup,
     Carteira,
@@ -412,5 +433,6 @@ module.exports = {
     TranscriptModel,
     TranscriptMedia,
     MensagemCriador,
-    ConversaAna
+    ConversaAna,
+    LogAtividadeUsuario
 };
