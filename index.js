@@ -54,7 +54,7 @@ const mongoConectado = mongoose.connect(MONGO_URI)
 const redis = require('./redis');
 
 const {
-    ServerBackup, BeijoStreak, Carteira, XP, Mensagens, ConfigMoedas, EventoMoedasState,
+    ServerBackup, Carteira, XP, Mensagens, ConfigMoedas, EventoMoedasState,
     CargoLoja, VoiceState, BotCallPainel, ContadorTicket, TicketData,
     ProtecaoConfigModel, PrimeiraDama, ConviteStats,
     ConviteMembro, Sorteio, TellonymPost, InstaPost,
@@ -68,7 +68,6 @@ const {
 const { 
     EMOJI_ATIVADO, EMOJI_DESATIVADO,
     CANAL_TELLONYM_MOD, CANAL_TELLONYM, CANAL_TICKETS,
-    GIFS_BEIJO,
     CANAL_LOGS_MOD, CANAL_LOGS_TICKETS, CATEGORIA_MOEDAS_BOASVINDAS, CANAL_LOGS_AUTOMOD,
     CANAIS_INSTA, CANAL_GERADOR_ID,
     REACOES_ANEXO, INTERVALO_TICK_CALL_SORTEIO_MS, CORES_MSG_CRIADOR,
@@ -2151,133 +2150,6 @@ function limitarCache(map, tamanhoMax) {
     for (let i = 0; i < excesso; i++) {
         map.delete(chaves[i]);
     }
-}
-
-function chaveBeijoStreak(guildId, userAId, userBId) {
-    const [menor, maior] = [userAId, userBId].sort();
-    return { id: `${guildId}_${menor}_${maior}`, menor, maior };
-}
-
-async function obterBeijoStreak(guildId, userAId, userBId) {
-    const { id, menor, maior } = chaveBeijoStreak(guildId, userAId, userBId);
-    const doc = await BeijoStreak.findById(id).catch(() => null);
-    return doc?.streak ?? 0;
-}
-
-const LIMITE_RESET_STREAK_MS = 24 * 60 * 60 * 1000; // 24 horas sem beijar = reseta
-
-async function incrementarBeijoStreak(guildId, userAId, userBId) {
-    const { id, menor, maior } = chaveBeijoStreak(guildId, userAId, userBId);
-    const agora = Date.now();
-
-    try {
-        const docAtual = await BeijoStreak.findById(id);
-
-        const passouMuitoTempo = docAtual?.ultimoBeijoEm
-            ? (agora - docAtual.ultimoBeijoEm) > LIMITE_RESET_STREAK_MS
-            : false;
-
-        const novoStreak = (!docAtual || passouMuitoTempo) ? 1 : docAtual.streak + 1;
-
-        const doc = await BeijoStreak.findByIdAndUpdate(
-            id,
-            { $set: { guildId, userA: menor, userB: maior, streak: novoStreak, ultimoBeijoEm: agora } },
-            { upsert: true, new: true }
-        );
-
-        return doc?.streak ?? 1;
-    } catch (err) {
-        console.error('--- Erro ao incrementar streak de beijo ---', err);
-        return 1;
-    }
-}
-
-const XP_POR_BEIJO = 10;
-const LIMITE_RETRIBUIR_MS = 5 * 60 * 1000
-
-const TEXTOS_BEIJO = [
-    { min: 0, max: 2, variantes: [
-        'Só um selinho de leve, mas já conta.',
-        'Começou tímido, mas começou.',
-        'O primeiro sempre é o mais estranho.',
-        'Ainda sem graça, mas o clima já mudou.',
-        'Passo inicial dado, o resto é história.',
-        'Cara de quem não esperava, mas gostou.',
-        'Quebrou o gelo, faltam só uns 500 pra virar casal oficial.',
-        'Deu tudo certo, ninguém tropeçou nos dentes dessa vez.'
-    ]},
-    { min: 3, max: 4, variantes: [
-        'Já tá pegando gosto pela coisa, hein.',
-        'Repetindo o feito, cada vez mais soltos.',
-        'A química tá evoluindo rapidinho.',
-        'Terceira vez já não é coincidência.',
-        'Tá virando hábito e ninguém tá reclamando.',
-        'Confiança nas alturas, dá pra ver de longe.',
-        'Cada beijo mais natural que o outro.',
-        'Já sabem até a hora certa de fechar o olho.'
-    ]},
-    { min: 5, max: 9, variantes: [
-        'Já virou rotina esses dois aqui.',
-        'Tá esquentando de verdade agora.',
-        'Ninguém mais separa esse casal.',
-        'Cinco pra cima e o clima só cresce.',
-        'Já tem gente shippando no chat.',
-        'Rotina de beijo estabelecida, respeitem.',
-        'A cada beijo, menos vergonha e mais sincronia.',
-        'Tá osso pra qualquer um competir com essa dupla.'
-    ]},
-    { min: 10, max: 19, variantes: [
-        'Combo de 10+! Já pode até pedir música no fantástico.',
-        'Dois dígitos de beijo, oficialmente inseparáveis.',
-        'A essa altura já são praticamente namorados.',
-        'Beijo de profissional, sem hesitação nenhuma.',
-        'Já viraram case de estudo de compatibilidade.',
-        'Se fosse Big Brother, já tavam de aliança.',
-        'A dupla mais consistente do servidor até agora.',
-        'Quem apostava que ia durar 3 beijos perdeu feio.'
-    ]},
-    { min: 20, max: Infinity, variantes: [
-        'Recorde histórico de beijos por aqui!',
-        'Vira lenda do servidor com essa quantidade de beijo.',
-        'Isso aqui já é documentário de tanto beijo.',
-        'Nível lendário: já merece estátua no servidor.',
-        'A essa altura, já deveriam pedir a mão em casamento.',
-        'Streak absurdo, ninguém nem tenta mais competir.',
-        'Já é oficialmente o casal mais fiel do Discord.',
-        'Recorde batido e reescrito toda hora por esses dois.'
-    ]}
-];
-
-function montarTextoBeijo(streak) {
-    const faixa = TEXTOS_BEIJO.find(f => streak >= f.min && streak <= f.max) ?? TEXTOS_BEIJO[0];
-    return faixa.variantes[Math.floor(Math.random() * faixa.variantes.length)];
-}
-
-function montarEmbedBeijo(autorUser, alvoUser, streak, retribuicao = false) {
-    const gifUrl = GIFS_BEIJO[Math.floor(Math.random() * GIFS_BEIJO.length)];
-    const textoFlavor = montarTextoBeijo(streak);
-
-    const textoAcao = retribuicao
-        ? `<@${autorUser.id}> retribuiu o beijo de <@${alvoUser.id}>!`
-        : `<@${autorUser.id}> beijou <@${alvoUser.id}>.`;
-
-    return new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent('## Beijo'))
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(textoAcao))
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            `Streak **${streak}x** · +${XP_POR_BEIJO} XP para cada um\n${textoFlavor}`
-        ))
-        .addMediaGalleryComponents(
-            new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(gifUrl))
-        )
-        .addActionRowComponents(
-            new ActionRowBuilder().addComponents(
-                new ButtonBuilder()
-                    .setCustomId(`beijar_retribuir_${autorUser.id}_${alvoUser.id}_${Date.now()}`)
-                    .setLabel('Retribuir')
-                    .setStyle(ButtonStyle.Secondary)
-            )
-        );
 }
 
 async function incrementarConviteStats(guildId, userId, campo, valor = 1) {
@@ -6135,7 +6007,6 @@ const COMANDOS_SLASH = [
     { cmd: '/limpar', desc: 'Apaga mensagens do canal', categoria: 'Moderação' },
     { cmd: '/addemoji', desc: 'Adiciona um emoji ao servidor', categoria: 'Administração' },
     { cmd: '/pd', desc: 'Painel de Primeira Dama', categoria: 'Diversão' },
-    { cmd: '/beijar', desc: 'Beija um usuário', categoria: 'Diversão' },
     { cmd: '/sorteio', desc: 'Cria e gerencia sorteios do servidor', categoria: 'Utilidades' },
     { cmd: '/carteira', desc: 'Mostra sua carteira de moedas', categoria: 'Economia' },
     { cmd: '/pix', desc: 'Transfere moedas', categoria: 'Economia' },
@@ -6196,7 +6067,6 @@ const INFO_COMANDOS = {
     '/botcall': { descricao: 'Envia o painel de controle da call fixa do bot, permitindo conectar, trocar ou desconectar de um canal de voz.', comoUsar: '/botcall', exemplo: '/botcall', permissao: 'Equipe' },
     '/avatar': { descricao: 'Mostra o avatar em alta resolução de você ou de outro usuário, com link direto pra abrir no navegador.', comoUsar: '/avatar usuario:[opcional]', exemplo: '/avatar usuario:@Fulano', permissao: 'Nenhuma' },
     '/help': { descricao: 'Mostra a lista completa de comandos disponíveis, separados entre slash e prefixo.', comoUsar: '/help', exemplo: '/help', permissao: 'Nenhuma' },
-    '/beijar': { descricao: 'Beija um usuário do servidor. Beijos consecutivos entre a mesma dupla acumulam um streak e ambos ganham XP.', comoUsar: '/beijar usuario:@usuário', exemplo: '/beijar usuario:@Fulano', permissao: 'Nenhuma' },
     '/ui': { descricao: 'Mostra informações detalhadas de você ou de outro usuário: bio, conexões, cargos, emblemas, histórico de nomes/avatares/banners.', comoUsar: '/ui usuario:[opcional]', exemplo: '/ui usuario:@Fulano', permissao: 'Nenhuma' },
     [`${PREFIXO}msg`]: { descricao: 'Abre um painel interativo pra montar uma mensagem personalizada (com texto, imagem e botões) e enviá-la em qualquer canal de texto do servidor. O painel expira e é apagado após 20 minutos.', comoUsar: `${PREFIXO}msg`, exemplo: `${PREFIXO}msg`, permissao: 'Equipe' },
     [`${PREFIXO}ban`]: { descricao: 'Bane um usuário mencionado do servidor, com uma etapa de confirmação antes de executar.', comoUsar: `${PREFIXO}ban @usuário [motivo]`, exemplo: `${PREFIXO}ban @Fulano Spam`, permissao: 'Banir Membros ou Equipe' },
@@ -6406,14 +6276,6 @@ const client = new Client({
 // ============ COMANDOS SLASH ============
 
 const LISTA_DE_COMANDOS = [
-new SlashCommandBuilder()
-    .setName('beijar')
-    .setDescription('Beija um usuário')
-    .addUserOption(o =>
-        o.setName('usuario')
-            .setDescription('Usuário que você quer beijar')
-            .setRequired(true)
-    ),
 new SlashCommandBuilder()
     .setName('sorteio')
     .setDescription('Abre o painel de gerenciamento de sorteios'),
@@ -11012,59 +10874,6 @@ if (interaction.isButton() && interaction.customId === 'moderacao_cancelar') {
     return interaction.update({ components: containerTexto('Ação cancelada.'), flags: [MessageFlags.IsComponentsV2] });
 }
 
-	if (interaction.isChatInputCommand() && interaction.commandName === 'beijar') {
-    const alvo = interaction.options.getUser('usuario');
-
-    if (alvo.id === interaction.user.id) {
-        return interaction.reply({ content: 'Você não pode se beijar sozinho(a)!', flags: [MessageFlags.Ephemeral] });
-    }
-    if (alvo.bot) {
-        return interaction.reply({ content: 'Você não pode beijar um bot!', flags: [MessageFlags.Ephemeral] });
-    }
-
-    const [streakAtual] = await Promise.all([
-        incrementarBeijoStreak(interaction.guild.id, interaction.user.id, alvo.id),
-        somarSaldo(interaction.user.id, XP_POR_BEIJO).catch(() => null),
-        somarSaldo(alvo.id, XP_POR_BEIJO).catch(() => null)
-    ]);
-
-    return interaction.reply({
-        components: [montarEmbedBeijo(interaction.user, alvo, streakAtual)],
-        flags: [MessageFlags.IsComponentsV2]
-    });
-}
-
-if (interaction.isButton() && interaction.customId.startsWith('beijar_retribuir_')) {
-    const [, , autorOriginalId, alvoOriginalId, timestampTexto] = interaction.customId.split('_');
-
-    if (interaction.user.id !== alvoOriginalId) {
-        return interaction.reply({ content: 'Só quem recebeu o beijo pode retribuir!', flags: [MessageFlags.Ephemeral] });
-    }
-
-    const timestampCriacao = parseInt(timestampTexto);
-    if (isNaN(timestampCriacao) || (Date.now() - timestampCriacao) > LIMITE_RETRIBUIR_MS) {
-        return interaction.reply({
-            components: containerTexto('Essa interação **expirou**! seu boboca'),
-            flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
-        });
-    }
-
-    const autorOriginal = await interaction.client.users.fetch(autorOriginalId).catch(() => null);
-    if (!autorOriginal) {
-        return interaction.reply({ content: 'Não foi possível encontrar esse usuário.', flags: [MessageFlags.Ephemeral] });
-    }
-
-    const [streakAtual] = await Promise.all([
-        incrementarBeijoStreak(interaction.guild.id, interaction.user.id, autorOriginal.id),
-        somarSaldo(interaction.user.id, XP_POR_BEIJO).catch(() => null),
-        somarSaldo(autorOriginal.id, XP_POR_BEIJO).catch(() => null)
-    ]);
-
-    return interaction.reply({
-        components: [montarEmbedBeijo(interaction.user, autorOriginal, streakAtual, true)],
-        flags: [MessageFlags.IsComponentsV2]
-    });
-}
 	
 if (interaction.isChatInputCommand() && interaction.commandName === 'ui') {
     try {
