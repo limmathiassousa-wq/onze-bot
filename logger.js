@@ -99,10 +99,17 @@ async function logarBanimento({ guild, tipo, alvo, alvoUser, autor, motivo, extr
 
 // ============ ENTRADA / SAÍDA DE MEMBROS ============
 async function logarMembro({ guild, tipo, membro, extra }) {
+    const mencao = membro?.id ? `<@${membro.id}>` : '`desconhecido`';
+    const tag = membro?.tag
+        ?? (membro?.discriminator && membro.discriminator !== '0'
+            ? `${membro.username}#${membro.discriminator}`
+            : membro?.username)
+        ?? '?';
+
     return enviarLogModeracao({
         guild,
         tipo,
-        alvo: `${membro} (${membro.tag})`,
+        alvo: `${mencao} (${tag})`,
         alvoUser: membro,
         autor: 'Sistema',
         motivo: null,
