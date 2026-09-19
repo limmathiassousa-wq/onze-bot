@@ -8497,7 +8497,7 @@ if (message.content.toLowerCase() === `${PREFIXO}loja`) {
     const container = new ContainerBuilder()
         .addMediaGalleryComponents(
             new MediaGalleryBuilder().addItems(
-                new MediaGalleryItemBuilder().setURL('https://i.supaimg.com/001f5659-bb07-44c4-a79d-4338b59c3c1a/0f7d5033-7ffa-4e4a-be02-24a3d7b4cae9.png')
+                new MediaGalleryItemBuilder().setURL('https://i.supaimg.com/001f5659-bb07-44c4-a79d-4338b59c3c1a/6b621b9b-fdf2-4f4e-a913-6ca022e839bc.png')
             )
         )
         .addActionRowComponents(
@@ -8530,7 +8530,7 @@ if (message.content.toLowerCase() === `${PREFIXO}tellonym`) {
     const container = new ContainerBuilder()
         .addMediaGalleryComponents(
             new MediaGalleryBuilder().addItems(
-                new MediaGalleryItemBuilder().setURL('https://i.supaimg.com/001f5659-bb07-44c4-a79d-4338b59c3c1a/7749f165-5c7e-4c19-9c64-d88dcdab4808.png')
+                new MediaGalleryItemBuilder().setURL('https://i.supaimg.com/001f5659-bb07-44c4-a79d-4338b59c3c1a/6b621b9b-fdf2-4f4e-a913-6ca022e839bc.png')
             )
         )
         .addActionRowComponents(
