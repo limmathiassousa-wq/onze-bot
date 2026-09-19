@@ -61,7 +61,7 @@ const {
     HistoricoUsername, HistoricoAvatar, HistoricoBanner,
     Daily, Afk, TellonymPendente,
     MapaPersistenteEntry, HistoricoBio, MuteCargo, TranscriptModel, TranscriptMedia,
-    MensagemCriador
+    MensagemCriador, LogAtividadeUsuario
 } = require('./models');
 
 
@@ -659,6 +659,29 @@ module.exports = {
 };
 
 // ============ FUNCTIONS/ACTIONS============
+
+const msgCriadorTimeouts = new Map();
+
+function agendarExpiracaoMsgCriador(painelId, channelId) {
+    const antigo = msgCriadorTimeouts.get(painelId);
+    if (antigo) clearTimeout(antigo);
+
+    const timeoutId = setTimeout(async () => {
+        msgCriadorDB.delete(painelId);
+        msgCriadorTimeouts.delete(painelId);
+
+        try {
+            const canal = await client.channels.fetch(channelId).catch(() => null);
+            if (!canal) return;
+            const msg = await canal.messages.fetch(painelId).catch(() => null);
+            if (msg) await msg.delete().catch(() => null);
+        } catch (err) {
+            console.error('--- Erro ao expirar painel do criador de mensagens por inatividade ---', err);
+        }
+    }, 20 * 60 * 1000);
+
+    msgCriadorTimeouts.set(painelId, timeoutId);
+}
 
 async function aguardarEBuscarAuditLog(guild, tipoEvento, delayMs = 1200) {
     await new Promise(resolve => setTimeout(resolve, delayMs));
@@ -4851,12 +4874,12 @@ async function enviarEventoMoedas() {
             await eventoMoedas.mensagem.delete().catch(() => null);
         }
 
-        const embed = new EmbedBuilder()
-            .setColor('#FFFFFF')
-            .setDescription(`# <:crow:${EMOJI_CROW}> Tropa da **Onze**\n Digite \`sacar\` e tente sua sorte!\n* Utilize \`/carteira\` e visualize seu saldo`)
-            .setImage(IMG_MOEDAS);
+        const container = new ContainerBuilder()
+            .setAccentColor(0xFFFFFF)
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`# <:crow:${EMOJI_CROW}> Tropa da **Onze**\n Digite \`sacar\` e tente sua sorte!\n* Utilize \`/carteira\` e visualize seu saldo`))
+            .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(IMG_MOEDAS)));
 
-        const msg = await canal.send({ embeds: [embed] });
+        const msg = await canal.send({ components: [container], flags: [MessageFlags.IsComponentsV2] });
 
         eventoMoedas.ativo = true;
         eventoMoedas.mensagem = msg;
@@ -4884,11 +4907,12 @@ async function enviarEventoMoedas() {
 
 // ============ CRIADOR DE MENSAGENS ============
 
-function montarButtonRows(botoes, modo = 'final') {
+function montarButtonRows(botoes, modo = 'final', empilhado = false) {
     const rows = [];
+    const tamanhoGrupo = empilhado ? 1 : 5;
 
-    for (let i = 0; i < botoes.length; i += 5) {
-        const grupo = botoes.slice(i, i + 5);
+    for (let i = 0; i < botoes.length; i += tamanhoGrupo) {
+        const grupo = botoes.slice(i, i + tamanhoGrupo);
 
         const row = new ActionRowBuilder().addComponents(
             grupo.map((b) => {
@@ -4993,7 +5017,8 @@ function montarPreviewMsgCriador(draft) {
     const botoesCima = botoes.filter(b => b.posicao === 'cima');
     const botoesEntre = botoes.filter(b => b.posicao === 'entre');
     const botoesFora = botoes.filter(b => b.posicao === 'fora');
-    const botoesAbaixo = botoes.filter(b => !['cima', 'entre', 'fora'].includes(b.posicao));
+    const botoesEmpilhados = botoes.filter(b => b.posicao === 'empilhados');
+    const botoesAbaixo = botoes.filter(b => !['cima', 'entre', 'fora', 'empilhados'].includes(b.posicao));
 
     if (botoesCima.length) {
         montarButtonRows(botoesCima, 'preview').forEach(row => container.addActionRowComponents(row));
@@ -5027,6 +5052,10 @@ function montarPreviewMsgCriador(draft) {
 
     if (botoesAbaixo.length) {
         montarButtonRows(botoesAbaixo, 'preview').forEach(row => container.addActionRowComponents(row));
+    }
+
+    if (botoesEmpilhados.length) {
+        montarButtonRows(botoesEmpilhados, 'preview', true).forEach(row => container.addActionRowComponents(row));
     }
 
     const componentesFinais = [header, container];
@@ -5410,7 +5439,8 @@ if (draft.tipo === 'v2') {
     const botoesCima = botoes.filter(b => b.posicao === 'cima');
     const botoesEntre = botoes.filter(b => b.posicao === 'entre');
     const botoesFora = botoes.filter(b => b.posicao === 'fora');
-    const botoesAbaixo = botoes.filter(b => !['cima', 'entre', 'fora'].includes(b.posicao));
+    const botoesEmpilhados = botoes.filter(b => b.posicao === 'empilhados');
+    const botoesAbaixo = botoes.filter(b => !['cima', 'entre', 'fora', 'empilhados'].includes(b.posicao));
 
     if (botoesCima.length) {
         montarButtonRows(botoesCima).forEach(row => container.addActionRowComponents(row));
@@ -5439,6 +5469,10 @@ if (draft.tipo === 'v2') {
 
     if (botoesAbaixo.length) {
         montarButtonRows(botoesAbaixo).forEach(row => container.addActionRowComponents(row));
+    }
+
+    if (botoesEmpilhados.length) {
+        montarButtonRows(botoesEmpilhados, 'final', true).forEach(row => container.addActionRowComponents(row));
     }
 
     const componentesFinais = [container];
@@ -5649,6 +5683,80 @@ async function garantirHistoricoInicial(user) {
     }
 }
 
+const LIMITE_MENSAGENS_ATIVIDADE = 40;
+const LIMITE_CALLS_ATIVIDADE = 40;
+
+async function registrarMensagemAtividade(message) {
+    if (!message.guild || message.author.bot) return;
+
+    const conteudo = (message.content || '').slice(0, 300)
+        || (message.attachments.size ? '[anexo sem texto]' : '[mensagem sem texto]');
+
+    await LogAtividadeUsuario.findOneAndUpdate(
+        { guildId: message.guild.id, userId: message.author.id },
+        {
+            $push: {
+                mensagens: {
+                    $each: [{
+                        messageId: message.id,
+                        channelId: message.channel.id,
+                        conteudo,
+                        criadoEm: Date.now()
+                    }],
+                    $slice: -LIMITE_MENSAGENS_ATIVIDADE
+                }
+            }
+        },
+        { upsert: true }
+    );
+}
+
+// controla sessões de voz abertas em memória: chave `${guildId}_${userId}`
+const sessoesVozAtividade = new Map();
+
+async function registrarAtividadeVoz(guild, membro, oldState, newState) {
+    if (!guild || !membro) return;
+    const chave = `${guild.id}_${membro.id}`;
+    const antigoCanal = oldState.channelId;
+    const novoCanal = newState.channelId;
+    if (antigoCanal === novoCanal) return; // só trocou câmera/mute etc, ignora aqui
+
+    // fecha a sessão anterior, se existia
+    if (antigoCanal && sessoesVozAtividade.has(chave)) {
+        const sessao = sessoesVozAtividade.get(chave);
+        sessoesVozAtividade.delete(chave);
+
+        await LogAtividadeUsuario.findOneAndUpdate(
+            { guildId: guild.id, userId: membro.id },
+            {
+                $push: {
+                    calls: {
+                        $each: [{
+                            channelId: sessao.canalId,
+                            entrouEm: sessao.entrouEm,
+                            saiuEm: Date.now(),
+                            camera: sessao.camera,
+                            stream: sessao.stream
+                        }],
+                        $slice: -LIMITE_CALLS_ATIVIDADE
+                    }
+                }
+            },
+            { upsert: true }
+        ).catch(err => console.error('--- Erro ao salvar sessão de call (atividade) ---', err));
+    }
+
+    // abre uma sessão nova, se entrou em algum canal
+    if (novoCanal) {
+        sessoesVozAtividade.set(chave, {
+            canalId: novoCanal,
+            entrouEm: Date.now(),
+            camera: !!newState.selfVideo,
+            stream: !!newState.streaming
+        });
+    }
+}
+
 function montarSelectUserInfo(alvoId, autorId, atual, expiraEm = 0) {
     return new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
@@ -5659,7 +5767,9 @@ function montarSelectUserInfo(alvoId, autorId, atual, expiraEm = 0) {
                 { label: 'Biografias anteriores', value: 'bios', description: 'Ver biografias anteriores', default: atual === 'bios' },
                 { label: 'Usernames antigos', value: 'usernames', description: 'Ver nomes de usuário anteriores', default: atual === 'usernames' },
                 { label: 'Avatares usados', value: 'avatares', description: 'Ver avatares anteriores', default: atual === 'avatares' },
-                { label: 'Banners', value: 'banners', description: 'Ver banners anteriores', default: atual === 'banners' }
+                { label: 'Banners', value: 'banners', description: 'Ver banners anteriores', default: atual === 'banners' },
+                { label: 'Mensagens', value: 'mensagens', description: 'Suas mensagens neste servidor (só você vê)', default: atual === 'mensagens' },
+                { label: 'Calls', value: 'calls', description: 'Suas calls neste servidor (só você vê)', default: atual === 'calls' }
             )
     );
 }
@@ -5826,6 +5936,109 @@ async function montarPainelAvatares(alvoUser, autorId, indice = 0, expiraEm = 0)
     return rodapeExpiracao(container, expiraEm);
 }
 
+function montarUrlMensagem(guildId, channelId, messageId) {
+    return `https://discord.com/channels/${guildId}/${channelId}/${messageId}`;
+}
+
+async function montarPainelMensagensUsuario(guild, alvoUser, autorId, pagina = 0, expiraEm = 0) {
+    const doc = await LogAtividadeUsuario.findOne({ guildId: guild.id, userId: alvoUser.id }).catch(() => null);
+    const registros = (doc?.mensagens || []).slice().reverse();
+
+    const porPagina = 5;
+    const totalPaginas = Math.max(1, Math.ceil(registros.length / porPagina));
+    const paginaAtual = Math.min(Math.max(pagina, 0), totalPaginas - 1);
+    const fatia = registros.slice(paginaAtual * porPagina, paginaAtual * porPagina + porPagina);
+
+    const container = new ContainerBuilder()
+        .addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+                    `### Suas mensagens neste servidor\n-# ${alvoUser.username} · visível só pra você`
+                ))
+                .setThumbnailAccessory(new ThumbnailBuilder().setURL(alvoUser.displayAvatarURL({ extension: 'png', size: 256 })))
+        )
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+
+    if (!fatia.length) {
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent('Nenhum registro por aqui ainda.'));
+    } else {
+        const linhas = fatia.map((m, i) => {
+            const indice = paginaAtual * porPagina + i + 1;
+            return `**${String(indice).padStart(2, '0')}.** <#${m.channelId}> · ${formatarTempoRelativo(m.criadoEm)}\n> ${m.conteudo}`;
+        }).join('\n\n');
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(linhas));
+
+        const botoesLink = fatia.map((m, i) =>
+            new ButtonBuilder()
+                .setStyle(ButtonStyle.Link)
+                .setURL(montarUrlMensagem(guild.id, m.channelId, m.messageId))
+                .setLabel(String(paginaAtual * porPagina + i + 1).padStart(2, '0'))
+        );
+        container.addActionRowComponents(new ActionRowBuilder().addComponents(botoesLink));
+    }
+
+    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
+        `-# Página ${paginaAtual + 1} de ${totalPaginas} · ${registros.length} registro(s)`
+    ));
+
+    container.addActionRowComponents(new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`userinfo_msgs_pagina_${alvoUser.id}_${autorId}_${paginaAtual - 1}_${expiraEm}`).setLabel('Anterior').setStyle(ButtonStyle.Secondary).setDisabled(paginaAtual <= 0),
+        new ButtonBuilder().setCustomId('userinfo_msgs_pagina_atual').setLabel(`${paginaAtual + 1}/${totalPaginas}`).setStyle(ButtonStyle.Secondary).setDisabled(true),
+        new ButtonBuilder().setCustomId(`userinfo_msgs_pagina_${alvoUser.id}_${autorId}_${paginaAtual + 1}_${expiraEm}`).setLabel('Próxima').setStyle(ButtonStyle.Secondary).setDisabled(paginaAtual >= totalPaginas - 1)
+    ));
+
+    container.addActionRowComponents(montarSelectUserInfo(alvoUser.id, autorId, 'mensagens', expiraEm));
+    return rodapeExpiracao(container, expiraEm);
+}
+
+async function montarPainelCallsUsuario(guild, alvoUser, autorId, pagina = 0, expiraEm = 0) {
+    const doc = await LogAtividadeUsuario.findOne({ guildId: guild.id, userId: alvoUser.id }).catch(() => null);
+    const registros = (doc?.calls || []).slice().reverse();
+
+    const porPagina = 5;
+    const totalPaginas = Math.max(1, Math.ceil(registros.length / porPagina));
+    const paginaAtual = Math.min(Math.max(pagina, 0), totalPaginas - 1);
+    const fatia = registros.slice(paginaAtual * porPagina, paginaAtual * porPagina + porPagina);
+
+    const container = new ContainerBuilder()
+        .addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+                    `### Suas calls neste servidor\n-# ${alvoUser.username} · visível só pra você`
+                ))
+                .setThumbnailAccessory(new ThumbnailBuilder().setURL(alvoUser.displayAvatarURL({ extension: 'png', size: 256 })))
+        )
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+
+    if (!fatia.length) {
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent('Nenhum registro por aqui ainda.'));
+    } else {
+        const linhas = fatia.map((c, i) => {
+            const indice = paginaAtual * porPagina + i + 1;
+            const duracao = formatarDuracaoMs((c.saiuEm || Date.now()) - c.entrouEm);
+            const status = c.saiuEm ? `saiu ${formatarTempoRelativo(c.saiuEm)}` : 'ainda conectado';
+            const recursos = [c.camera ? 'câmera' : null, c.stream ? 'transmissão' : null].filter(Boolean).join(' · ') || 'sem câmera/transmissão';
+            return `**${String(indice).padStart(2, '0')}.** <#${c.channelId}>\nentrou ${formatarTempoRelativo(c.entrouEm)} · ${status} · ficou ${duracao}\n${recursos}`;
+        }).join('\n\n');
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(linhas));
+    }
+
+    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
+        `-# Página ${paginaAtual + 1} de ${totalPaginas} · ${registros.length} registro(s)`
+    ));
+
+    container.addActionRowComponents(new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`userinfo_calls_pagina_${alvoUser.id}_${autorId}_${paginaAtual - 1}_${expiraEm}`).setLabel('Anterior').setStyle(ButtonStyle.Secondary).setDisabled(paginaAtual <= 0),
+        new ButtonBuilder().setCustomId('userinfo_calls_pagina_atual').setLabel(`${paginaAtual + 1}/${totalPaginas}`).setStyle(ButtonStyle.Secondary).setDisabled(true),
+        new ButtonBuilder().setCustomId(`userinfo_calls_pagina_${alvoUser.id}_${autorId}_${paginaAtual + 1}_${expiraEm}`).setLabel('Próxima').setStyle(ButtonStyle.Secondary).setDisabled(paginaAtual >= totalPaginas - 1)
+    ));
+
+    container.addActionRowComponents(montarSelectUserInfo(alvoUser.id, autorId, 'calls', expiraEm));
+    return rodapeExpiracao(container, expiraEm);
+}
+
 async function montarPainelBanners(alvoUser, autorId, indice = 0, expiraEm = 0) {
 
     const usuarioCompleto = await alvoUser.fetch(true).catch(() => null);
@@ -5920,7 +6133,6 @@ const COMANDOS_SLASH = [
     { cmd: '/mute', desc: 'Silencia usuários temporariamente', categoria: 'Moderação' },
     { cmd: '/unmute', desc: 'Remove o silenciamento de usuários', categoria: 'Moderação' },
     { cmd: '/limpar', desc: 'Apaga mensagens do canal', categoria: 'Moderação' },
-    { cmd: '/msg', desc: 'Envia mensagens personalizadas em um canal', categoria: 'Utilidades' },
     { cmd: '/addemoji', desc: 'Adiciona um emoji ao servidor', categoria: 'Administração' },
     { cmd: '/pd', desc: 'Painel de Primeira Dama', categoria: 'Diversão' },
     { cmd: '/beijar', desc: 'Beija um usuário', categoria: 'Diversão' },
@@ -5957,6 +6169,7 @@ const COMANDOS_PREFIXO = [
     { cmd: `${PREFIXO}info`, desc: 'Painel de hierarquia de cargos', categoria: 'Utilidades' },
     { cmd: `${PREFIXO}userinfo`, desc: 'Mostra informações detalhadas de um usuário', categoria: 'Utilidades' },
     { cmd: `${PREFIXO}tiktok`, desc: 'Baixa vídeos do TikTok sem marca d\'água', categoria: 'Diversão' },
+    { cmd: `${PREFIXO}msg`, desc: 'Cria e envia uma mensagem personalizada em um canal', categoria: 'Utilidades' },
     { cmd: 'cl', desc: 'Apaga mensagens do autor do comando', categoria: 'Moderação' },
     { cmd: `${PREFIXO}limpar`, desc: 'Apaga mensagens do canal', categoria: 'Moderação' }
 ];
@@ -5973,7 +6186,6 @@ const INFO_COMANDOS = {
     '/mute': { descricao: 'Aplica um timeout no usuário, impedindo-o de enviar mensagens ou falar em call durante o tempo definido.', comoUsar: '/mute usuario:@usuário duracao:<minutos> motivo:[opcional]', exemplo: '/mute usuario:@Fulano duracao:60 motivo:Flood', permissao: 'Silenciar Membros' },
     '/unmute': { descricao: 'Remove o timeout de um usuário antes do tempo original acabar.', comoUsar: '/unmute usuario:@usuário motivo:[opcional]', exemplo: '/unmute usuario:@Fulano', permissao: 'Silenciar Membros' },
     '/limpar': { descricao: 'Apaga uma quantidade de mensagens do canal atual, mostrando o progresso em tempo real.', comoUsar: '/limpar quantidade:<número de 1 a 300>', exemplo: '/limpar quantidade:50', permissao: 'Gerenciar Mensagens' },
-    '/msg': { descricao: 'Abre um painel interativo pra montar uma mensagem personalizada (com texto, imagem e botões) e enviá-la em qualquer canal de texto do servidor.', comoUsar: '/msg', exemplo: '/msg', permissao: 'Equipe' },
     '/addemoji': { descricao: 'Adiciona um emoji de outro servidor ao seu, colando o emoji ou apenas o ID numérico dele.', comoUsar: '/addemoji emoji:<emoji ou ID> nome:[opcional]', exemplo: '/addemoji emoji:<:exemplo:123456789012345678>', permissao: 'Administrador ou Equipe' },
     '/pd': { descricao: 'Abre o painel pra escolher e gerenciar suas Primeiras Damas no servidor, com limite configurado.', comoUsar: '/pd', exemplo: '/pd', permissao: 'Cargo específico' },
     '/sorteio': { descricao: 'Abre o painel de criação e gerenciamento de sorteios, permitindo configurar prêmio, duração, requisitos e canal de destino.', comoUsar: '/sorteio', exemplo: '/sorteio', permissao: 'Equipe' },
@@ -5986,13 +6198,14 @@ const INFO_COMANDOS = {
     '/help': { descricao: 'Mostra a lista completa de comandos disponíveis, separados entre slash e prefixo.', comoUsar: '/help', exemplo: '/help', permissao: 'Nenhuma' },
     '/beijar': { descricao: 'Beija um usuário do servidor. Beijos consecutivos entre a mesma dupla acumulam um streak e ambos ganham XP.', comoUsar: '/beijar usuario:@usuário', exemplo: '/beijar usuario:@Fulano', permissao: 'Nenhuma' },
     '/ui': { descricao: 'Mostra informações detalhadas de você ou de outro usuário: bio, conexões, cargos, emblemas, histórico de nomes/avatares/banners.', comoUsar: '/ui usuario:[opcional]', exemplo: '/ui usuario:@Fulano', permissao: 'Nenhuma' },
-
+    [`${PREFIXO}msg`]: { descricao: 'Abre um painel interativo pra montar uma mensagem personalizada (com texto, imagem e botões) e enviá-la em qualquer canal de texto do servidor. O painel expira e é apagado após 20 minutos.', comoUsar: `${PREFIXO}msg`, exemplo: `${PREFIXO}msg`, permissao: 'Equipe' },
     [`${PREFIXO}ban`]: { descricao: 'Bane um usuário mencionado do servidor, com uma etapa de confirmação antes de executar.', comoUsar: `${PREFIXO}ban @usuário [motivo]`, exemplo: `${PREFIXO}ban @Fulano Spam`, permissao: 'Banir Membros ou Equipe' },
     [`${PREFIXO}unban`]: { descricao: 'Remove o banimento de um usuário pelo ID, com uma etapa de confirmação antes de executar.', comoUsar: `${PREFIXO}unban <id> [motivo]`, exemplo: `${PREFIXO}unban 123456789012345678`, permissao: 'Banir Membros ou Equipe' },
     [`${PREFIXO}painelurl`]: { descricao: 'Envia um painel para o usuário verificar se colocou o link do servidor na bio ou nos pronomes, e recebe um cargo automaticamente se encontrado.', comoUsar: `${PREFIXO}painelurl`, exemplo: `${PREFIXO}painelurl`, permissao: 'Equipe' },
     [`${PREFIXO}info`]: { descricao: 'Envia o painel de hierarquia de cargos, permitindo consultar quem possui cada cargo do servidor.', comoUsar: `${PREFIXO}info`, exemplo: `${PREFIXO}info`, permissao: 'Nenhuma' },
     [`${PREFIXO}userinfo`]: { descricao: 'Mostra informações detalhadas de você ou de um usuário mencionado: bio, conexões, cargos, emblemas e históricos. Painel expira em 7 minutos.', comoUsar: `${PREFIXO}userinfo [@usuário]`, exemplo: `${PREFIXO}userinfo @Fulano`, permissao: 'Nenhuma' },
     [`${PREFIXO}tiktok`]: { descricao: 'Baixa e envia um vídeo do TikTok sem marca d\'água a partir do link enviado.', comoUsar: `${PREFIXO}tiktok <link do tiktok>`, exemplo: `${PREFIXO}tiktok https://www.tiktok.com/@usuario/video/123`, permissao: 'Nenhuma' },
+    [`${PREFIXO}msg`]: { descricao: 'Abre um painel interativo pra montar uma mensagem personalizada (com texto, imagem e botões) e enviá-la em qualquer canal de texto do servidor. O painel expira e é apagado após 20 minutos.', comoUsar: `${PREFIXO}msg`, exemplo: `${PREFIXO}msg`, permissao: 'Equipe' },
     [`${PREFIXO}regras`]: { descricao: 'Envia o painel de regras do servidor no canal atual.', comoUsar: `${PREFIXO}regras`, exemplo: `${PREFIXO}regras`, permissao: 'Equipe' },
     [`${PREFIXO}tickets`]: { descricao: 'Envia o painel de abertura de atendimento (tickets) no canal atual.', comoUsar: `${PREFIXO}tickets`, exemplo: `${PREFIXO}tickets`, permissao: 'Equipe' },
     [`${PREFIXO}painelcall`]: { descricao: 'Envia o painel de gerenciamento das calls temporárias (privar, expulsar, banir, renomear etc).', comoUsar: `${PREFIXO}painelcall`, exemplo: `${PREFIXO}painelcall`, permissao: 'Equipe' },
@@ -6204,9 +6417,6 @@ new SlashCommandBuilder()
 new SlashCommandBuilder()
     .setName('sorteio')
     .setDescription('Abre o painel de gerenciamento de sorteios'),
-    new SlashCommandBuilder()
-        .setName('msg')
-        .setDescription('Cria e envia uma mensagem personalizada em um canal'),
     new SlashCommandBuilder()
         .setName('help')
         .setDescription('Mostra a lista de comandos do bot'),
@@ -7180,6 +7390,15 @@ if (newState.channelId === CANAL_GERADOR_ID) {
     }
 }
 
+
+    // ============ TRACKING DE ATIVIDADE DE VOZ ============
+    if (membroVoice && !membroVoice.user.bot) {
+        const guildAtividade = newState.guild ?? oldState.guild;
+        registrarAtividadeVoz(guildAtividade, membroVoice, oldState, newState).catch(err =>
+            console.error('--- Erro ao registrar atividade de voz ---', err)
+        );
+    }
+    
     // ============ TRACKING DE CALL PARA SORTEIOS ============
     const membroVoice = newState.member ?? oldState.member;
     if (membroVoice && !membroVoice.user.bot) {
@@ -7512,6 +7731,10 @@ client.on('messageCreate', async (message) => {
 client.on(Events.MessageCreate, async (message) => {
     if (!message.guild || !message.channel) return; 
     if (message.author.bot) return;
+    
+    registrarMensagemAtividade(message).catch(err =>
+        console.error('--- Erro ao registrar mensagem de atividade ---', err)
+    );
 
 if (ticketDB.has(message.channel.id)) {
         const dadosTicket = ticketDB.get(message.channel.id);
@@ -7551,6 +7774,39 @@ if (ticketDB.has(message.channel.id)) {
         extra: '**Duração:** `5 minutos`'
     });
 
+    return;
+}
+
+if (message.content.toLowerCase() === `${PREFIXO}msg`) {
+    const temPermissao = message.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
+    if (!temPermissao) {
+        return message.reply('Você não tem permissão para utilizar este comando!')
+            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
+    }
+
+    await message.delete().catch(() => null);
+
+    const draft = {
+        autorId: message.author.id,
+        tipo: null,
+        canalId: null,
+        opcaoAtual: null,
+        textoBruto: '',
+        embedTitulo: '',
+        embedDescricao: '',
+        embedFooter: '',
+        imagemUrl: null,
+        cor: null,
+        botoes: []
+    };
+
+    const msgPainel = await message.channel.send({
+        components: [montarPainelMsgCriadorInicial(draft)],
+        flags: [MessageFlags.IsComponentsV2]
+    });
+
+    msgCriadorDB.set(msgPainel.id, draft);
+    agendarExpiracaoMsgCriador(msgPainel.id, msgPainel.channel.id);
     return;
 }
 
@@ -8215,7 +8471,6 @@ if (message.content.toLowerCase() === `${PREFIXO}loja`) {
     }
 
     const container = new ContainerBuilder()
-        .setAccentColor(0xFFFFFF)
         .addMediaGalleryComponents(
             new MediaGalleryBuilder().addItems(
                 new MediaGalleryItemBuilder().setURL('https://i.supaimg.com/001f5659-bb07-44c4-a79d-4338b59c3c1a/0f7d5033-7ffa-4e4a-be02-24a3d7b4cae9.png')
@@ -8249,7 +8504,6 @@ if (message.content.toLowerCase() === `${PREFIXO}tellonym`) {
     await message.delete().catch(() => null);
 
     const container = new ContainerBuilder()
-        .setAccentColor(0xFFFFFF)
         .addMediaGalleryComponents(
             new MediaGalleryBuilder().addItems(
                 new MediaGalleryItemBuilder().setURL('https://i.supaimg.com/001f5659-bb07-44c4-a79d-4338b59c3c1a/7749f165-5c7e-4c19-9c64-d88dcdab4808.png')
@@ -8767,7 +9021,6 @@ if (message.content.toLowerCase() === `${PREFIXO}tickets`) {
         await message.delete().catch(() => null);
 
         const container = new ContainerBuilder()
-            .setAccentColor(0xFFFFFF)
             .addMediaGalleryComponents(
                 new MediaGalleryBuilder().addItems(
                     new MediaGalleryItemBuilder().setURL('https://i.supaimg.com/001f5659-bb07-44c4-a79d-4338b59c3c1a/d7777c87-2c72-4294-a8bd-55071744ba1e.png')
@@ -10844,6 +11097,28 @@ if (interaction.isStringSelectMenu() && interaction.customId.startsWith('userinf
         if (!alvoUser) return interaction.reply({ content: 'Não foi possível encontrar esse usuário.', flags: [MessageFlags.Ephemeral] });
 
         const opcao = interaction.values[0];
+
+        // Mensagens e Calls: só o dono dos dados pode ver, e sempre numa resposta efêmera própria
+        // (importante pro t!userinfo, que manda o painel principal público no canal)
+        if (opcao === 'mensagens' || opcao === 'calls') {
+            if (interaction.user.id !== alvoId) {
+                return interaction.reply({
+                    content: `Só <@${alvoId}> pode ver essas informações.`,
+                    flags: [MessageFlags.Ephemeral]
+                });
+            }
+
+            const painelPrivado = opcao === 'mensagens'
+                ? await montarPainelMensagensUsuario(interaction.guild, alvoUser, autorId, 0, expiraEm)
+                : await montarPainelCallsUsuario(interaction.guild, alvoUser, autorId, 0, expiraEm);
+
+            return interaction.reply({
+                components: [painelPrivado],
+                flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral],
+                allowedMentions: { parse: ['users'] }
+            });
+        }
+
         let painel;
         if (opcao === 'perfil') painel = await montarPainelUserInfo(interaction.guild, alvoUser, autorId, expiraEm);
         else if (opcao === 'bios') painel = await montarPainelBios(interaction.guild, alvoUser, autorId, expiraEm);
@@ -10905,6 +11180,46 @@ if (interaction.isButton() && interaction.customId.startsWith('userinfo_banner_'
     } catch (err) {
         console.error('--- Erro no botão de banners do userinfo ---', err);
         return interaction.reply({ content: 'Ocorreu um erro ao navegar pelos banners.', flags: [MessageFlags.Ephemeral] }).catch(() => null);
+    }
+}
+
+if (interaction.isButton() && interaction.customId.startsWith('userinfo_msgs_pagina_') && interaction.customId !== 'userinfo_msgs_pagina_atual') {
+    try {
+        const [alvoId, autorId, paginaTexto, expiraTexto] = interaction.customId.replace('userinfo_msgs_pagina_', '').split('_');
+        const pagina = parseInt(paginaTexto) || 0;
+        const expiraEm = parseInt(expiraTexto) || 0;
+
+        if (interaction.user.id !== alvoId) {
+            return interaction.reply({ content: `Só <@${alvoId}> pode ver essas informações.`, flags: [MessageFlags.Ephemeral] });
+        }
+
+        const alvoUser = await interaction.client.users.fetch(alvoId, { force: true }).catch(() => null);
+        if (!alvoUser) return interaction.reply({ content: 'Não foi possível encontrar esse usuário.', flags: [MessageFlags.Ephemeral] });
+
+        const painel = await montarPainelMensagensUsuario(interaction.guild, alvoUser, autorId, pagina, expiraEm);
+        return interaction.update({ components: [painel], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: ['users'] } });
+    } catch (err) {
+        console.error('--- Erro na paginação de mensagens do userinfo ---', err);
+    }
+}
+
+if (interaction.isButton() && interaction.customId.startsWith('userinfo_calls_pagina_') && interaction.customId !== 'userinfo_calls_pagina_atual') {
+    try {
+        const [alvoId, autorId, paginaTexto, expiraTexto] = interaction.customId.replace('userinfo_calls_pagina_', '').split('_');
+        const pagina = parseInt(paginaTexto) || 0;
+        const expiraEm = parseInt(expiraTexto) || 0;
+
+        if (interaction.user.id !== alvoId) {
+            return interaction.reply({ content: `Só <@${alvoId}> pode ver essas informações.`, flags: [MessageFlags.Ephemeral] });
+        }
+
+        const alvoUser = await interaction.client.users.fetch(alvoId, { force: true }).catch(() => null);
+        if (!alvoUser) return interaction.reply({ content: 'Não foi possível encontrar esse usuário.', flags: [MessageFlags.Ephemeral] });
+
+        const painel = await montarPainelCallsUsuario(interaction.guild, alvoUser, autorId, pagina, expiraEm);
+        return interaction.update({ components: [painel], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: ['users'] } });
+    } catch (err) {
+        console.error('--- Erro na paginação de calls do userinfo ---', err);
     }
 }
 	
@@ -12812,35 +13127,6 @@ await enviarLogModeracao({
     });
 }
     
-    if (interaction.isChatInputCommand() && interaction.commandName === 'msg') {
-    const temPermissao = interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
-    if (!temPermissao) {
-        return interaction.reply({ content: 'Você não tem permissão para utilizar este comando!', flags: [MessageFlags.Ephemeral] });
-    }
-
-const draft = {
-    autorId: interaction.user.id,
-    tipo: null,
-    canalId: null,
-    opcaoAtual: null,
-    textoBruto: '',
-    embedTitulo: '',
-    embedDescricao: '',
-    embedFooter: '',
-    imagemUrl: null,
-    cor: null,
-    botoes: []
-};
-
-    const msgPainel = await interaction.reply({
-        components: [montarPainelMsgCriadorInicial(draft)],
-        flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral],
-        fetchReply: true
-    });
-
-    msgCriadorDB.set(msgPainel.id, draft);
-    return;
-}
 
 // ---- Botões: abrir modal ----
 if (interaction.isButton() && interaction.customId === 'msgcriador_botao_adicionar') {
@@ -13144,6 +13430,11 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_opc
             }
 
             msgCriadorDB.delete(interaction.message.id);
+            
+            msgCriadorDB.delete(interaction.message.id);
+            const timeoutAntigoEdit = msgCriadorTimeouts.get(interaction.message.id);
+            if (timeoutAntigoEdit) clearTimeout(timeoutAntigoEdit);
+            msgCriadorTimeouts.delete(interaction.message.id);
 
             return interaction.editReply({
                 components: containerTexto(`Mensagem editada com sucesso em ${canalDestino}!`),
@@ -13190,6 +13481,11 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_opc
         }
 
         msgCriadorDB.delete(interaction.message.id);
+        
+        msgCriadorDB.delete(interaction.message.id);
+        const timeoutAntigoEnvio = msgCriadorTimeouts.get(interaction.message.id);
+        if (timeoutAntigoEnvio) clearTimeout(timeoutAntigoEnvio);
+        msgCriadorTimeouts.delete(interaction.message.id);
 
         return interaction.editReply({
             components: containerTexto(`Mensagem enviada com sucesso em ${canalDestino}!`),
