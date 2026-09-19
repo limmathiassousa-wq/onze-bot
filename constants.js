@@ -45,7 +45,8 @@ const POSICOES_BOTAO = [
     { label: 'Acima de tudo', value: 'cima' },
     { label: 'Entre texto e imagem', value: 'entre' },
     { label: 'Abaixo da imagem (padrão)', value: 'abaixo', default: true },
-    { label: 'Fora do container', value: 'fora' }
+    { label: 'Fora do container', value: 'fora' },
+    { label: 'Empilhados', value: 'empilhados' }
 ];
 
 // ============ CARGOS ============
