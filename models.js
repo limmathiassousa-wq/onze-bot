@@ -236,15 +236,6 @@ const HistoricoBannerSchema = new mongoose.Schema({
 });
 const HistoricoBanner = mongoose.model('HistoricoBanner', HistoricoBannerSchema);
 
-const beijoStreakSchema = new mongoose.Schema({
-    _id: String, // formato: `${guildId}_${idMenor}_${idMaior}` (ordenado, pra não duplicar)
-    guildId: String,
-    userA: String,
-    userB: String,
-    streak: { type: Number, default: 0 }
-});
-const BeijoStreak = mongoose.model('BeijoStreak', beijoStreakSchema);
-
 const AfkSchema = new mongoose.Schema({ _id: String, motivo: String });
 const Afk = mongoose.model('Afk', AfkSchema);
 
@@ -422,7 +413,6 @@ module.exports = {
     HistoricoUsername,
     HistoricoAvatar,
     HistoricoBanner,
-    BeijoStreak,
     AntBan,
     Daily,
     Afk,
