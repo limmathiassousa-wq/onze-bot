@@ -13,19 +13,271 @@ const CANAL_LOGS_MENSAGENS_ID = CANAL_LOGS_MENSAGENS || '1548376183685783582';
 // (Recomendado: adicionar `CANAL_LOGS_VOZ: '1548380755804029090'` em constants.js)
 const CANAL_LOGS_VOZ_ID = CANAL_LOGS_VOZ || '1548380755804029090';
 
-// ============ MOTOR: monta o container e envia ============
+// ================================================================
+// UTILITÁRIOS — só formatação, NÃO montam embed. Usados por todas
+// as funções de log abaixo pra evitar duplicar essa lógica em cada
+// uma, mas cada log continua responsável pela sua própria embed.
+// ================================================================
+
+// Funciona tanto com um User/GuildMember do discord.js quanto com
+// um objeto bruto vindo direto do gateway (ex: pacotes 'raw').
+function obterAvatarUrl(usuario) {
+    if (!usuario) return IMG_DISCORD_LOGO;
+
+    if (typeof usuario.displayAvatarURL === 'function') {
+        return usuario.displayAvatarURL({ extension: 'png', size: 256 });
+    }
+
+    const id = usuario.id ?? null;
+    if (!id) return IMG_DISCORD_LOGO;
+
+    if (usuario.avatar) {
+        const ext = usuario.avatar.startsWith('a_') ? 'gif' : 'png';
+        return `https://cdn.discordapp.com/avatars/${id}/${usuario.avatar}.${ext}?size=256`;
+    }
+
+    // Avatar padrão do Discord (funciona pro sistema novo de username e pro antigo com discriminator)
+    try {
+        const indice = usuario.discriminator && usuario.discriminator !== '0'
+            ? Number(usuario.discriminator) % 5
+            : Number((BigInt(id) >> 22n) % 6n);
+        return `https://cdn.discordapp.com/embed/avatars/${indice}.png`;
+    } catch {
+        return IMG_DISCORD_LOGO;
+    }
+}
+
+// Tag "usuario#0000" ou "usuario" — funciona com User do discord.js ou objeto bruto.
+function obterTag(usuario) {
+    if (!usuario) return '?';
+    if (usuario.tag) return usuario.tag;
+    if (usuario.username) {
+        return (usuario.discriminator && usuario.discriminator !== '0')
+            ? `${usuario.username}#${usuario.discriminator}`
+            : usuario.username;
+    }
+    return '?';
+}
+
+// Menção "<@id>" — funciona com User do discord.js ou objeto bruto.
+function obterMencao(usuario) {
+    if (!usuario?.id) return '`desconhecido`';
+    return `<@${usuario.id}>`;
+}
+
+function obterDataHora() {
+    const agora = new Date();
+    return {
+        hora: agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Sao_Paulo' }),
+        data: agora.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+    };
+}
+
+// ================================================================
+// MOTOR GENÉRICO — mantido só pra chamadas avulsas espalhadas pelo
+// index.js que ainda usam enviarLogModeracao()/logar() diretamente
+// pra casos sem função própria. Os logs nomeados abaixo (ban, kick,
+// mute, cargo, etc) NÃO usam mais essa função — cada um monta e
+// envia sua própria embed de forma independente.
+// ================================================================
 async function enviarLogModeracao({ guild, tipo, alvo, alvoUser, autor, motivo, extra, canalId }) {
     try {
         const canal = await guild.channels.fetch(canalId || CANAL_LOGS_MOD).catch(() => null);
         if (!canal) return;
 
-        const agora = new Date();
-        const horaFormatada = agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Sao_Paulo' });
-        const dataFormatada = agora.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+        const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
+        const avatarUrl = obterAvatarUrl(alvoUser);
 
-        const avatarUrl = typeof alvoUser?.displayAvatarURL === 'function'
-            ? alvoUser.displayAvatarURL({ extension: 'png', size: 256 })
-            : IMG_DISCORD_LOGO;
+        const camposPrincipais = [
+            new TextDisplayBuilder().setContent(`### ${tipo} — ${guild.name}`),
+            new TextDisplayBuilder().setContent(`**Usuário:** ${alvo}`)
+        ];
+        if (autor) {
+            camposPrincipais.push(new TextDisplayBuilder().setContent(`**Executado por:** ${autor}`));
+        }
+
+        const container = new ContainerBuilder()
+            .setAccentColor(0xFFFFFF)
+            .addSectionComponents(
+                new SectionBuilder()
+                    .addTextDisplayComponents(...camposPrincipais)
+                    .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
+            )
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+
+        if (motivo) {
+            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Motivo:** ${motivo}`));
+        }
+
+        if (extra) {
+            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(extra));
+        }
+
+        if (motivo || extra) {
+            container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+        }
+
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(` ${dataFormatada} às ${horaFormatada}`));
+
+        await canal.send({
+            components: [container],
+            flags: [MessageFlags.IsComponentsV2],
+            allowedMentions: { parse: [] }
+        });
+    } catch (err) {
+        console.error('--- Erro ao enviar log de moderação (genérico) ---', err);
+    }
+}
+
+async function logar(tipo, alvo, autor, opcoes = {}) {
+    if (!opcoes.guild) {
+        console.error('--- logar() chamado sem "guild" nas opções ---', tipo);
+        return;
+    }
+
+    return enviarLogModeracao({
+        guild: opcoes.guild,
+        tipo,
+        alvo,
+        alvoUser: opcoes.alvoUser || null,
+        autor,
+        motivo: opcoes.motivo || null,
+        extra: opcoes.extra || null,
+        canalId: opcoes.canalId || null
+    });
+}
+
+// ============ BANIMENTO / UNBAN — EMBED PRÓPRIA ============
+async function logarBanimento({ guild, tipo, alvo, alvoUser, autor, motivo, extra, canalId }) {
+    try {
+        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_BANS).catch(() => null);
+        if (!canal) return;
+
+        const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
+        const avatarUrl = obterAvatarUrl(alvoUser);
+
+        const container = new ContainerBuilder()
+            .setAccentColor(0xFFFFFF)
+            .addSectionComponents(
+                new SectionBuilder()
+                    .addTextDisplayComponents(
+                        new TextDisplayBuilder().setContent(`### ${tipo} — ${guild.name}`),
+                        new TextDisplayBuilder().setContent(`**Usuário:** ${alvo}`),
+                        new TextDisplayBuilder().setContent(`**Executado por:** ${autor}`)
+                    )
+                    .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
+            )
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Motivo:** ${motivo || 'Não informado'}`));
+
+        if (extra) {
+            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(extra));
+        }
+
+        container
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
+
+        await canal.send({
+            components: [container],
+            flags: [MessageFlags.IsComponentsV2],
+            allowedMentions: { parse: [] }
+        });
+    } catch (err) {
+        console.error('--- Erro ao enviar log de banimento/unban ---', err);
+    }
+}
+
+// ============ ENTRADA / SAÍDA DE MEMBROS — EMBED PRÓPRIA (sem campo Executor) ============
+async function logarMembro({ guild, tipo, membro, extra, canalId }) {
+    try {
+        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_MEMBROS).catch(() => null);
+        if (!canal) return;
+
+        const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
+        const avatarUrl = obterAvatarUrl(membro);
+        const alvo = `${obterMencao(membro)} (${obterTag(membro)})`;
+
+        const container = new ContainerBuilder()
+            .setAccentColor(0xFFFFFF)
+            .addSectionComponents(
+                new SectionBuilder()
+                    .addTextDisplayComponents(
+                        new TextDisplayBuilder().setContent(`### ${tipo} — ${guild.name}`),
+                        new TextDisplayBuilder().setContent(`**Usuário:** ${alvo}`)
+                    )
+                    .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
+            )
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+
+        if (extra) {
+            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(extra));
+            container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+        }
+
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
+
+        await canal.send({
+            components: [container],
+            flags: [MessageFlags.IsComponentsV2],
+            allowedMentions: { parse: [] }
+        });
+    } catch (err) {
+        console.error('--- Erro ao enviar log de entrada/saída de membro ---', err);
+    }
+}
+
+// ============ EXPULSÃO (KICK) — EMBED PRÓPRIA ============
+async function logarExpulsao({ guild, tipo, alvo, alvoUser, autor, motivo, extra, canalId }) {
+    try {
+        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_KICKS).catch(() => null);
+        if (!canal) return;
+
+        const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
+        const avatarUrl = obterAvatarUrl(alvoUser);
+
+        const container = new ContainerBuilder()
+            .setAccentColor(0xFFFFFF)
+            .addSectionComponents(
+                new SectionBuilder()
+                    .addTextDisplayComponents(
+                        new TextDisplayBuilder().setContent(`### ${tipo || 'Expulsão (Kick)'} — ${guild.name}`),
+                        new TextDisplayBuilder().setContent(`**Usuário:** ${alvo}`),
+                        new TextDisplayBuilder().setContent(`**Executado por:** ${autor}`)
+                    )
+                    .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
+            )
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Motivo:** ${motivo || 'Não informado'}`));
+
+        if (extra) {
+            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(extra));
+        }
+
+        container
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
+
+        await canal.send({
+            components: [container],
+            flags: [MessageFlags.IsComponentsV2],
+            allowedMentions: { parse: [] }
+        });
+    } catch (err) {
+        console.error('--- Erro ao enviar log de expulsão ---', err);
+    }
+}
+
+// ============ MUTE / UNMUTE (TIMEOUT) — EMBED PRÓPRIA ============
+async function logarMute({ guild, tipo, alvo, alvoUser, autor, motivo, extra, canalId }) {
+    try {
+        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_MOD).catch(() => null);
+        if (!canal) return;
+
+        const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
+        const avatarUrl = obterAvatarUrl(alvoUser);
 
         const container = new ContainerBuilder()
             .setAccentColor(0xFFFFFF)
@@ -52,7 +304,7 @@ async function enviarLogModeracao({ guild, tipo, alvo, alvoUser, autor, motivo, 
             container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
         }
 
-        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(` ${dataFormatada} às ${horaFormatada}`));
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
 
         await canal.send({
             components: [container],
@@ -60,179 +312,214 @@ async function enviarLogModeracao({ guild, tipo, alvo, alvoUser, autor, motivo, 
             allowedMentions: { parse: [] }
         });
     } catch (err) {
-        console.error('--- Erro ao enviar log de moderação ---', err);
+        console.error('--- Erro ao enviar log de mute/unmute ---', err);
     }
 }
 
-// ============ ATALHO: usado por todos os comandos/sistemas ============
-async function logar(tipo, alvo, autor, opcoes = {}) {
-    if (!opcoes.guild) {
-        console.error('--- logar() chamado sem "guild" nas opções ---', tipo);
-        return;
+// ============ CARGOS (adicionado/removido de um membro) — EMBED PRÓPRIA ============
+async function logarCargo({ guild, tipo, alvo, alvoUser, autor, cargo, extra, canalId }) {
+    try {
+        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_CARGOS).catch(() => null);
+        if (!canal) return;
+
+        const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
+        const avatarUrl = obterAvatarUrl(alvoUser);
+
+        const container = new ContainerBuilder()
+            .setAccentColor(0xFFFFFF)
+            .addSectionComponents(
+                new SectionBuilder()
+                    .addTextDisplayComponents(
+                        new TextDisplayBuilder().setContent(`### ${tipo} — ${guild.name}`),
+                        new TextDisplayBuilder().setContent(`**Usuário:** ${alvo}`),
+                        new TextDisplayBuilder().setContent(`**Executado por:** ${autor}`)
+                    )
+                    .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
+            )
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+
+        if (cargo) {
+            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Cargo:** ${cargo}`));
+        }
+
+        if (extra) {
+            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(extra));
+        }
+
+        container
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
+
+        await canal.send({
+            components: [container],
+            flags: [MessageFlags.IsComponentsV2],
+            allowedMentions: { parse: [] }
+        });
+    } catch (err) {
+        console.error('--- Erro ao enviar log de cargo ---', err);
     }
-
-    return enviarLogModeracao({
-        guild: opcoes.guild,
-        tipo,
-        alvo,
-        alvoUser: opcoes.alvoUser || null,
-        autor,
-        motivo: opcoes.motivo || null,
-        extra: opcoes.extra || null,
-        canalId: opcoes.canalId || null
-    });
 }
 
-// ============ BANIMENTO / UNBAN ============
-async function logarBanimento({ guild, tipo, alvo, alvoUser, autor, motivo, extra }) {
-    return enviarLogModeracao({
-        guild,
-        tipo,
-        alvo,
-        alvoUser: alvoUser || null,
-        autor,
-        motivo: motivo || null,
-        extra: extra || null,
-        canalId: CANAL_LOGS_BANS
-    });
+// ============ CALL TEMPORÁRIA — EMBED PRÓPRIA ============
+async function logarCallTemp({ guild, acao, dono, canalVoz, alvo, extra, canalId }) {
+    try {
+        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_CALLTEMP).catch(() => null);
+        if (!canal) return;
+
+        const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
+        const avatarUrl = obterAvatarUrl(dono);
+
+        const container = new ContainerBuilder()
+            .setAccentColor(0xFFFFFF)
+            .addSectionComponents(
+                new SectionBuilder()
+                    .addTextDisplayComponents(
+                        new TextDisplayBuilder().setContent(`### Call Temp — ${acao} — ${guild.name}`),
+                        new TextDisplayBuilder().setContent(`**Usuário:** ${dono} (${obterTag(dono)})`),
+                        new TextDisplayBuilder().setContent(`**Canal:** ${canalVoz}`)
+                    )
+                    .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
+            )
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+
+        if (alvo) {
+            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Alvo:** ${alvo}`));
+        }
+
+        if (extra) {
+            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(extra));
+        }
+
+        container
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
+
+        await canal.send({
+            components: [container],
+            flags: [MessageFlags.IsComponentsV2],
+            allowedMentions: { parse: [] }
+        });
+    } catch (err) {
+        console.error('--- Erro ao enviar log de call temporária ---', err);
+    }
 }
 
-// ============ ENTRADA / SAÍDA DE MEMBROS ============
-async function logarMembro({ guild, tipo, membro, extra }) {
-    const mencao = membro?.id ? `<@${membro.id}>` : '`desconhecido`';
-    const tag = membro?.tag
-        ?? (membro?.discriminator && membro.discriminator !== '0'
-            ? `${membro.username}#${membro.discriminator}`
-            : membro?.username)
-        ?? '?';
+// ============ ANTI-LINK — EMBED PRÓPRIA ============
+async function logarAntiLink({ guild, usuario, motivo, link, canal: canalOrigem, canalId }) {
+    try {
+        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_AUTOMOD).catch(() => null);
+        if (!canal) return;
 
-    return enviarLogModeracao({
-        guild,
-        tipo,
-        alvo: `${mencao} (${tag})`,
-        alvoUser: membro,
-        autor: 'Sistema',
-        motivo: null,
-        extra: extra || null,
-        canalId: CANAL_LOGS_MEMBROS
-    });
+        const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
+        const avatarUrl = obterAvatarUrl(usuario);
+
+        const container = new ContainerBuilder()
+            .setAccentColor(0xFFFFFF)
+            .addSectionComponents(
+                new SectionBuilder()
+                    .addTextDisplayComponents(
+                        new TextDisplayBuilder().setContent(`### Anti-Link — ${guild.name}`),
+                        new TextDisplayBuilder().setContent(`**Usuário:** ${usuario} — \`${obterTag(usuario)}\` (\`${usuario?.id ?? '?'}\`)`),
+                        new TextDisplayBuilder().setContent('**Executado por:** Sistema Automático')
+                    )
+                    .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
+            )
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Motivo:** ${motivo}`))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Canal:** ${canalOrigem}\n**Link:** \`\`\`${link}\`\`\``))
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
+
+        await canal.send({
+            components: [container],
+            flags: [MessageFlags.IsComponentsV2],
+            allowedMentions: { parse: [] }
+        });
+    } catch (err) {
+        console.error('--- Erro ao enviar log de anti-link ---', err);
+    }
 }
 
-// ============ EXPULSÃO (KICK) ============
-async function logarExpulsao({ guild, tipo, alvo, alvoUser, autor, motivo, extra }) {
-    return enviarLogModeracao({
-        guild,
-        tipo: tipo || 'Expulsão (Kick)',
-        alvo,
-        alvoUser: alvoUser || null,
-        autor,
-        motivo: motivo || null,
-        extra: extra || null,
-        canalId: CANAL_LOGS_KICKS
-    });
+// ============ ANTI-SPAM — EMBED PRÓPRIA ============
+async function logarAntiSpam({ guild, usuario, motivo, canal: canalOrigem, muteMinutos, canalId }) {
+    try {
+        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_AUTOMOD).catch(() => null);
+        if (!canal) return;
+
+        const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
+        const avatarUrl = obterAvatarUrl(usuario);
+
+        const container = new ContainerBuilder()
+            .setAccentColor(0xFFFFFF)
+            .addSectionComponents(
+                new SectionBuilder()
+                    .addTextDisplayComponents(
+                        new TextDisplayBuilder().setContent(`### Anti-Spam — ${guild.name}`),
+                        new TextDisplayBuilder().setContent(`**Usuário:** ${usuario} — \`${obterTag(usuario)}\` (\`${usuario?.id ?? '?'}\`)`),
+                        new TextDisplayBuilder().setContent('**Executado por:** Sistema Automático')
+                    )
+                    .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
+            )
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Motivo:** ${motivo}`))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Canal:** ${canalOrigem}\n**Ação:** Mensagens apagadas + timeout de \`${muteMinutos}\` minuto(s)`))
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
+
+        await canal.send({
+            components: [container],
+            flags: [MessageFlags.IsComponentsV2],
+            allowedMentions: { parse: [] }
+        });
+    } catch (err) {
+        console.error('--- Erro ao enviar log de anti-spam ---', err);
+    }
 }
 
-// ============ MUTE / UNMUTE (TIMEOUT) ============
-async function logarMute({ guild, tipo, alvo, alvoUser, autor, motivo, extra, canalId }) {
-    return enviarLogModeracao({
-        guild,
-        tipo,
-        alvo,
-        alvoUser: alvoUser || null,
-        autor,
-        motivo: motivo || null,
-        extra: extra || null,
-        canalId: canalId || CANAL_LOGS_MOD
-    });
+// ============ ANTI-BOT — EMBED PRÓPRIA ============
+async function logarAntiBot({ guild, bot, acao, canalId }) {
+    try {
+        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_AUTOMOD).catch(() => null);
+        if (!canal) return;
+
+        const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
+        const avatarUrl = obterAvatarUrl(bot);
+
+        const container = new ContainerBuilder()
+            .setAccentColor(0xFFFFFF)
+            .addSectionComponents(
+                new SectionBuilder()
+                    .addTextDisplayComponents(
+                        new TextDisplayBuilder().setContent(`### Anti-Bot — ${guild.name}`),
+                        new TextDisplayBuilder().setContent(`**Usuário:** ${bot} — \`${obterTag(bot)}\` (\`${bot?.id ?? '?'}\`)`),
+                        new TextDisplayBuilder().setContent('**Executado por:** Sistema Automático')
+                    )
+                    .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
+            )
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent('**Motivo:** Bot detectado ao entrar no servidor'))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Ação aplicada:** \`${acao === 'banir' ? 'banido' : 'expulso'}\``))
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
+
+        await canal.send({
+            components: [container],
+            flags: [MessageFlags.IsComponentsV2],
+            allowedMentions: { parse: [] }
+        });
+    } catch (err) {
+        console.error('--- Erro ao enviar log de anti-bot ---', err);
+    }
 }
 
-// ============ CARGOS ============
-async function logarCargo({ guild, tipo, alvo, alvoUser, autor, cargo, extra }) {
-    const linhaCargo = cargo ? `**Cargo:** ${cargo}` : null;
-    const extraFinal = [linhaCargo, extra].filter(Boolean).join('\n') || null;
-
-    return enviarLogModeracao({
-        guild,
-        tipo,
-        alvo,
-        alvoUser: alvoUser || null,
-        autor,
-        motivo: null,
-        extra: extraFinal,
-        canalId: CANAL_LOGS_CARGOS
-    });
-}
-
-// ============ CALL TEMPORÁRIA ============
-async function logarCallTemp({ guild, acao, dono, canalVoz, alvo, extra }) {
-    const linhaAlvo = alvo ? `**Alvo:** ${alvo}` : null;
-    const extraFinal = [linhaAlvo, extra].filter(Boolean).join('\n') || null;
-
-    return enviarLogModeracao({
-        guild,
-        tipo: `Call Temp — ${acao}`,
-        alvo: `${dono} (${dono.tag || dono.username})`,
-        alvoUser: dono,
-        autor: `${canalVoz}`,
-        motivo: null,
-        extra: extraFinal,
-        canalId: CANAL_LOGS_CALLTEMP
-    });
-}
-
-// ============ ANTI-LINK / ANTI-SPAM / ANTI-BOT ============
-async function logarAntiLink({ guild, usuario, motivo, link, canal }) {
-    return enviarLogModeracao({
-        guild,
-        tipo: 'Anti-Link',
-        alvo: `${usuario} — \`${usuario.username}\` (\`${usuario.id}\`)`,
-        alvoUser: usuario,
-        autor: 'Sistema Automático',
-        motivo,
-        extra: `**Canal:** ${canal}\n**Link:** \`\`\`${link}\`\`\``,
-        canalId: CANAL_LOGS_AUTOMOD
-    });
-}
-
-async function logarAntiSpam({ guild, usuario, motivo, canal, muteMinutos }) {
-    return enviarLogModeracao({
-        guild,
-        tipo: 'Anti-Spam',
-        alvo: `${usuario} — \`${usuario.username}\` (\`${usuario.id}\`)`,
-        alvoUser: usuario,
-        autor: 'Sistema Automático',
-        motivo,
-        extra: `**Canal:** ${canal}\n**Ação:** Mensagens apagadas + timeout de \`${muteMinutos}\` minuto(s)`,
-        canalId: CANAL_LOGS_AUTOMOD
-    });
-}
-
-async function logarAntiBot({ guild, bot, acao }) {
-    return enviarLogModeracao({
-        guild,
-        tipo: 'Anti-Bot',
-        alvo: `${bot} — \`${bot.username}\` (\`${bot.id}\`)`,
-        alvoUser: bot,
-        autor: 'Sistema Automático',
-        motivo: 'Bot detectado ao entrar no servidor',
-        extra: `**Ação aplicada:** \`${acao === 'banir' ? 'banido' : 'expulso'}\``,
-        canalId: CANAL_LOGS_AUTOMOD
-    });
-}
-
-// ============ MENSAGEM APAGADA ============
+// ============ MENSAGEM APAGADA — EMBED PRÓPRIA ============
 async function logarMensagemApagada({ guild, autor, canal, executor, mensagemId, conteudo, canalId }) {
     try {
         const canalLogs = await guild.channels.fetch(canalId || CANAL_LOGS_MENSAGENS_ID).catch(() => null);
         if (!canalLogs) return;
 
-        const agora = new Date();
-        const horaFormatada = agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Sao_Paulo' });
-        const dataFormatada = agora.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-
-        const avatarUrl = typeof autor?.displayAvatarURL === 'function'
-            ? autor.displayAvatarURL({ extension: 'png', size: 256 })
-            : IMG_DISCORD_LOGO;
+        const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
+        const avatarUrl = obterAvatarUrl(autor);
 
         const conteudoFinal = conteudo && conteudo.trim().length > 0
             ? conteudo.slice(0, 3500)
@@ -244,7 +531,7 @@ async function logarMensagemApagada({ guild, autor, canal, executor, mensagemId,
                 new SectionBuilder()
                     .addTextDisplayComponents(
                         new TextDisplayBuilder().setContent('### Mensagem apagada'),
-                        new TextDisplayBuilder().setContent(`**Autor:** ${autor ?? '\`desconhecido\`'} — \`${autor?.tag ?? autor?.username ?? '?'}\` (\`${autor?.id ?? '?'}\`)`)
+                        new TextDisplayBuilder().setContent(`**Autor:** ${autor ?? '\`desconhecido\`'} — \`${obterTag(autor)}\` (\`${autor?.id ?? '?'}\`)`)
                     )
                     .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
             )
@@ -272,19 +559,14 @@ async function logarMensagemApagada({ guild, autor, canal, executor, mensagemId,
     }
 }
 
-// ============ MENSAGEM EDITADA ============
+// ============ MENSAGEM EDITADA — EMBED PRÓPRIA ============
 async function logarMensagemEditada({ guild, autor, canal, mensagemId, antes, depois, antesIndisponivel, url, canalId }) {
     try {
         const canalLogs = await guild.channels.fetch(canalId || CANAL_LOGS_MENSAGENS_ID).catch(() => null);
         if (!canalLogs) return;
 
-        const agora = new Date();
-        const horaFormatada = agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Sao_Paulo' });
-        const dataFormatada = agora.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-
-        const avatarUrl = typeof autor?.displayAvatarURL === 'function'
-            ? autor.displayAvatarURL({ extension: 'png', size: 256 })
-            : IMG_DISCORD_LOGO;
+        const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
+        const avatarUrl = obterAvatarUrl(autor);
 
         const antesFinal = antesIndisponivel
             ? '`Não disponível (mensagem enviada antes do bot reiniciar/cachear)`'
@@ -297,7 +579,7 @@ async function logarMensagemEditada({ guild, autor, canal, mensagemId, antes, de
                 new SectionBuilder()
                     .addTextDisplayComponents(
                         new TextDisplayBuilder().setContent('### Mensagem editada'),
-                        new TextDisplayBuilder().setContent(`**Autor:** ${autor} — \`${autor?.tag ?? autor?.username ?? '?'}\` (\`${autor?.id ?? '?'}\`)`)
+                        new TextDisplayBuilder().setContent(`**Autor:** ${autor} — \`${obterTag(autor)}\` (\`${autor?.id ?? '?'}\`)`)
                     )
                     .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
             )
@@ -338,43 +620,92 @@ async function logarMensagemEditada({ guild, autor, canal, mensagemId, antes, de
     }
 }
 
-// ============ LOGS DE VOZ (entrou, saiu, movido, expulso, mute e deafen no servidor) ============
+// ============ LOGS DE VOZ — EMBED PRÓPRIA ============
 async function logarVoz({ guild, tipo, membro, extra, canalId }) {
-    return enviarLogModeracao({
-        guild,
-        tipo: `Voz — ${tipo}`,
-        alvo: `${membro} — \`${membro.tag ?? membro.username}\` (\`${membro.id}\`)`,
-        alvoUser: membro,
-        autor: 'Sistema',
-        motivo: null,
-        extra: extra || null,
-        canalId: canalId || CANAL_LOGS_VOZ_ID
-    });
+    try {
+        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_VOZ_ID).catch(() => null);
+        if (!canal) return;
+
+        const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
+        const avatarUrl = obterAvatarUrl(membro);
+
+        const container = new ContainerBuilder()
+            .setAccentColor(0xFFFFFF)
+            .addSectionComponents(
+                new SectionBuilder()
+                    .addTextDisplayComponents(
+                        new TextDisplayBuilder().setContent(`### Voz — ${tipo} — ${guild.name}`),
+                        new TextDisplayBuilder().setContent(`**Usuário:** ${membro} — \`${obterTag(membro)}\` (\`${membro?.id ?? '?'}\`)`)
+                    )
+                    .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
+            )
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+
+        if (extra) {
+            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(extra));
+            container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+        }
+
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
+
+        await canal.send({
+            components: [container],
+            flags: [MessageFlags.IsComponentsV2],
+            allowedMentions: { parse: [] }
+        });
+    } catch (err) {
+        console.error('--- Erro ao enviar log de voz ---', err);
+    }
 }
 
-// ============ CASTIGO MANUAL (TIMEOUT APLICADO/REMOVIDO FORA DE COMANDO) ============
+// ============ CASTIGO MANUAL (TIMEOUT FORA DE COMANDO) — EMBED PRÓPRIA ============
 async function logarCastigo({ guild, tipo, alvo, alvoUser, autor, motivo, duracao, canalId }) {
-    return enviarLogModeracao({
-        guild,
-        tipo,
-        alvo,
-        alvoUser: alvoUser || null,
-        autor,
-        motivo: motivo || 'Não informado',
-        extra: duracao ? `**Duração:** \`${duracao}\`` : null,
-        canalId: canalId || CANAL_LOGS_MOD
-    });
+    try {
+        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_MOD).catch(() => null);
+        if (!canal) return;
+
+        const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
+        const avatarUrl = obterAvatarUrl(alvoUser);
+
+        const container = new ContainerBuilder()
+            .setAccentColor(0xFFFFFF)
+            .addSectionComponents(
+                new SectionBuilder()
+                    .addTextDisplayComponents(
+                        new TextDisplayBuilder().setContent(`### ${tipo} — ${guild.name}`),
+                        new TextDisplayBuilder().setContent(`**Usuário:** ${alvo}`),
+                        new TextDisplayBuilder().setContent(`**Executado por:** ${autor}`)
+                    )
+                    .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
+            )
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Motivo:** ${motivo || 'Não informado'}`));
+
+        if (duracao) {
+            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Duração:** \`${duracao}\``));
+        }
+
+        container
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
+
+        await canal.send({
+            components: [container],
+            flags: [MessageFlags.IsComponentsV2],
+            allowedMentions: { parse: [] }
+        });
+    } catch (err) {
+        console.error('--- Erro ao enviar log de castigo manual ---', err);
+    }
 }
 
-// ============ CARGO DO SERVIDOR CRIADO / EXCLUÍDO ============
+// ============ CARGO DO SERVIDOR CRIADO / EXCLUÍDO — EMBED PRÓPRIA ============
 async function logarCargoServidor({ guild, tipo, cargo, executor, motivo, extra, canalId }) {
     try {
         const canal = await guild.channels.fetch(canalId || CANAL_LOGS_CARGOS).catch(() => null);
         if (!canal) return;
 
-        const agora = new Date();
-        const horaFormatada = agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Sao_Paulo' });
-        const dataFormatada = agora.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+        const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
 
         const container = new ContainerBuilder()
             .setAccentColor(0xFFFFFF)
@@ -407,15 +738,13 @@ async function logarCargoServidor({ guild, tipo, cargo, executor, motivo, extra,
     }
 }
 
-// ============ CANAL DO SERVIDOR CRIADO / EXCLUÍDO / EDITADO ============
+// ============ CANAL DO SERVIDOR CRIADO / EXCLUÍDO / EDITADO — EMBED PRÓPRIA ============
 async function logarCanalServidor({ guild, tipo, canal, tipoCanal, categoria, executor, extra, canalId }) {
     try {
         const canalLogs = await guild.channels.fetch(canalId || CANAL_LOGS_MOD).catch(() => null);
         if (!canalLogs) return;
 
-        const agora = new Date();
-        const horaFormatada = agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Sao_Paulo' });
-        const dataFormatada = agora.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+        const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
 
         const container = new ContainerBuilder()
             .setAccentColor(0xFFFFFF)
@@ -445,21 +774,49 @@ async function logarCanalServidor({ guild, tipo, canal, tipoCanal, categoria, ex
     }
 }
 
-// ============ REMOÇÃO/DEVOLUÇÃO TEMPORÁRIA DE CARGOS (ANTI-ABUSO: BAN EM MASSA POR STAFF) ============
+// ============ REMOÇÃO/DEVOLUÇÃO TEMPORÁRIA DE CARGOS (ANTI-ABUSO) — EMBED PRÓPRIA ============
 async function logarPunicaoCargosStaff({ guild, tipo, membro, cargos, extra, canalId }) {
-    const linhaCargos = cargos && cargos.length ? `**Cargos afetados:** ${cargos.join(', ')}` : null;
-    const extraFinal = [linhaCargos, extra].filter(Boolean).join('\n') || null;
+    try {
+        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_MOD).catch(() => null);
+        if (!canal) return;
 
-    return enviarLogModeracao({
-        guild,
-        tipo,
-        alvo: `${membro} (${membro.user?.tag ?? membro.tag ?? membro.id})`,
-        alvoUser: membro.user ?? membro,
-        autor: 'Sistema (Anti-Abuso)',
-        motivo: null,
-        extra: extraFinal,
-        canalId: canalId || CANAL_LOGS_MOD
-    });
+        const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
+        const usuarioAlvo = membro?.user ?? membro;
+        const avatarUrl = obterAvatarUrl(usuarioAlvo);
+
+        const container = new ContainerBuilder()
+            .setAccentColor(0xFFFFFF)
+            .addSectionComponents(
+                new SectionBuilder()
+                    .addTextDisplayComponents(
+                        new TextDisplayBuilder().setContent(`### ${tipo} — ${guild.name}`),
+                        new TextDisplayBuilder().setContent(`**Usuário:** ${membro} (${obterTag(usuarioAlvo)})`),
+                        new TextDisplayBuilder().setContent('**Executado por:** Sistema (Anti-Abuso)')
+                    )
+                    .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
+            )
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+
+        if (cargos && cargos.length) {
+            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Cargos afetados:** ${cargos.join(', ')}`));
+        }
+
+        if (extra) {
+            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(extra));
+        }
+
+        container
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
+
+        await canal.send({
+            components: [container],
+            flags: [MessageFlags.IsComponentsV2],
+            allowedMentions: { parse: [] }
+        });
+    } catch (err) {
+        console.error('--- Erro ao enviar log de punição de cargos (staff) ---', err);
+    }
 }
 
 module.exports = {
