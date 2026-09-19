@@ -282,7 +282,7 @@ registrar(
         const avatarUrl = alvo.displayAvatarURL({ extension: 'png', size: 4096, forceStatic: false });
 
         const container = new ContainerBuilder()
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(` **AVATAR - ${alvo.username}**`))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(` **Avatar - ${alvo.username}**`))
             .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
             .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(avatarUrl)))
             .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
