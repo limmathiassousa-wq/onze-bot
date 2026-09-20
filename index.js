@@ -33,7 +33,7 @@ const {
 const { logar, enviarLogModeracao, logarBanimento, logarMembro, logarCargo, logarCallTemp, logarExpulsao, logarMute, logarAntiLink, logarAntiSpam, logarAntiBot, logarMensagemApagada, logarMensagemEditada, logarVoz, logarCastigo, logarCargoServidor, logarCanalServidor, logarPunicaoCargosStaff } = require('./logger');
 
 const { anaResponderComAudio, DONO_ID: DONO_ID_ANA } = require('./ana_voz');
-const CANAIS_VOZ_ANA = ['1550979191040909402', '1550764596208472117'];
+const CANAIS_VOZ_ANA = ['1548489854038581308', '1548578896054718474'];
 
 
 const mongoConectado = mongoose.connect(MONGO_URI)
@@ -1646,7 +1646,8 @@ client.on('messageCreate', async (message) => {
 
         console.log('[DEBUG-ANA] Gatilho válido! Prosseguindo para gerar resposta...');
 
-        const conteudoLimpo = message.content.replace(/<@!?\d+>/g, '').trim();
+        const mencaoBotRegex = new RegExp(`<@!?${client.user.id}>`, 'g');
+        const conteudoLimpo = message.content.replace(mencaoBotRegex, '').trim();
         const textoUsuario = conteudoLimpo || '(o usuário só te mencionou, sem escrever nada — cumprimente ele)';
 
         await message.channel.sendTyping().catch(() => null);
