@@ -12,7 +12,16 @@ const OpenAI = require('openai');
 
 const { ConversaAna } = require('./models');
 
-// ============ OPENROUTER (no lugar da Groq) ============
+// ============ GROQ (modelo principal, no lugar da OpenRouter) ============
+const groq = new OpenAI({
+    apiKey: process.env.GROQ_API_KEY,
+    baseURL: 'https://api.groq.com/openai/v1'
+});
+
+const MODELO_ANA = 'llama-3.3-70b-versatile';
+const DONO_ID = '1548516775669538898';
+
+// ============ OPENROUTER (mantido só pra visão, o Gemini free daqui é bom) ============
 const openrouter = new OpenAI({
     apiKey: process.env.OPENROUTER_API_KEY,
     baseURL: 'https://openrouter.ai/api/v1',
@@ -21,9 +30,6 @@ const openrouter = new OpenAI({
         'X-Title': 'Ana - Bot Discord'
     }
 });
-
-const MODELO_ANA = 'nvidia/nemotron-3-ultra-550b-a55b:free';
-const DONO_ID = '1548516775669538898';
 
 // ============ BAZAARLINK (segunda IA, entra só se a primeira cair) ============
 const bazaarlink = new OpenAI({
@@ -917,8 +923,8 @@ async function obterCompletionComRetry(mensagens, ferramentas) {
     }
 
     const tentativas = [
-        () => tentar(openrouter, MODELO_ANA, { reasoning: { effort: 'low', exclude: true } }),
-        () => tentar(openrouter, MODELO_ANA, { reasoning: { effort: 'low', exclude: true } }),
+        () => tentar(groq, MODELO_ANA),
+        () => tentar(groq, MODELO_ANA),
         () => tentar(bazaarlink, MODELO_ANA_FALLBACK),
         () => tentar(bazaarlink, MODELO_ANA_FALLBACK)
     ];
