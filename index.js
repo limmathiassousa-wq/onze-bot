@@ -33,7 +33,7 @@ const {
 const { logar, enviarLogModeracao, logarBanimento, logarMembro, logarCargo, logarCallTemp, logarExpulsao, logarMute, logarAntiLink, logarAntiSpam, logarAntiBot, logarMensagemApagada, logarMensagemEditada, logarVoz, logarCastigo, logarCargoServidor, logarCanalServidor, logarPunicaoCargosStaff } = require('./logger');
 
 const { anaResponderComAudio, DONO_ID: DONO_ID_ANA } = require('./ana_voz');
-const CANAIS_VOZ_ANA = ['1548489854038581308', '1548578896054718474'];
+const CANAIS_VOZ_ANA = ['1550979191040909402', '1550764596208472117'];
 
 
 const mongoConectado = mongoose.connect(MONGO_URI)
