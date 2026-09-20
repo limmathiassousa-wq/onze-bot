@@ -32,6 +32,15 @@ const {
 
 const { logar, enviarLogModeracao, logarBanimento, logarMembro, logarCargo, logarCallTemp, logarExpulsao, logarMute, logarAntiLink, logarAntiSpam, logarAntiBot, logarMensagemApagada, logarMensagemEditada, logarVoz, logarCastigo, logarCargoServidor, logarCanalServidor, logarPunicaoCargosStaff } = require('./logger');
 
+const { Message: MessageClass } = require('discord.js');
+const mensagensApagadasPeloBot = new Set();
+const _messageDeleteOriginal = MessageClass.prototype.delete;
+MessageClass.prototype.delete = function (...args) {
+    mensagensApagadasPeloBot.add(this.id);
+    setTimeout(() => mensagensApagadasPeloBot.delete(this.id), 15000);
+    return _messageDeleteOriginal.apply(this, args);
+};
+
 const { anaResponderComAudio, DONO_ID: DONO_ID_ANA } = require('./ana_voz');
 const CANAIS_VOZ_ANA = ['1548489854038581308', '1548578896054718474'];
 
@@ -1583,6 +1592,9 @@ client.on('messageDelete', async (message) => {
     try {
         if (!message.guild || !message.channel) return;
 
+        const foiOBotQueApagou = mensagensApagadasPeloBot.has(message.id);
+        if (foiOBotQueApagou) mensagensApagadasPeloBot.delete(message.id);
+
         if (message.partial) {
             try { message = await message.fetch(); } catch { /* mensagem já apagada, não dá pra recuperar */ }
         }
@@ -1593,7 +1605,7 @@ client.on('messageDelete', async (message) => {
                 guild: message.guild,
                 autor: null,
                 canal: message.channel,
-                executor: '`desconhecido`',
+                executor: foiOBotQueApagou ? `${client.user} — \`${client.user.tag}\` (ação automática do bot)` : '`desconhecido`',
                 mensagemId: message.id,
                 conteudo: '`conteúdo não disponível (mensagem não estava em cache)`'
             }).catch(() => null);
@@ -1602,15 +1614,19 @@ client.on('messageDelete', async (message) => {
 
         if (!message.author || message.author.bot) return;
 
-        const executorAuditoria = await obterExecutorAuditLog(message.guild, AuditLogEvent.MessageDelete, message.author.id).catch(() => null);
-
         let executor;
-        if (executorAuditoria && executorAuditoria.id === client.user.id) {
-            executor = 'Sistema';
-        } else if (executorAuditoria && executorAuditoria.id !== message.author.id) {
-            executor = `${executorAuditoria} — \`${executorAuditoria.tag ?? executorAuditoria.username}\` (\`${executorAuditoria.id}\`)`;
+        if (foiOBotQueApagou) {
+            executor = `${client.user} — \`${client.user.tag}\` (ação automática do bot)`;
         } else {
-            executor = `${message.author} — \`${message.author.tag}\` (o próprio autor)`;
+            const executorAuditoria = await obterExecutorAuditLog(message.guild, AuditLogEvent.MessageDelete, message.author.id).catch(() => null);
+
+            if (executorAuditoria && executorAuditoria.id === client.user.id) {
+                executor = 'Sistema';
+            } else if (executorAuditoria && executorAuditoria.id !== message.author.id) {
+                executor = `${executorAuditoria} — \`${executorAuditoria.tag ?? executorAuditoria.username}\` (\`${executorAuditoria.id}\`)`;
+            } else {
+                executor = `${message.author} — \`${message.author.tag}\` (o próprio autor)`;
+            }
         }
         
         await logarMensagemApagada({
@@ -1695,11 +1711,7 @@ client.on('messageCreate', async (message) => {
 
 client.on(Events.MessageCreate, async (message) => {
     if (!message.guild || !message.channel) return; 
-
-    if (message.author.bot) {
-        await verificarSpamMensagem(message).catch(() => null);
-        return;
-    }
+    if (message.author.bot) return;
     
 
 if (ticketDB.has(message.channel.id)) {
@@ -6058,28 +6070,7 @@ if (interaction.isButton() && interaction.customId === 'lock_destravar') {
     return interaction.editReply({ components: [montarPainelLock(interaction.guild.id)], flags: [MessageFlags.IsComponentsV2] });
 }
 
-  if (interaction.isButton() && interaction.customId === 'lock_antinuke') {
-    if (!interaction.member.permissions.has('Administrator') && !interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
-        return interaction.reply({ components: containerTexto('Apenas administradores podem usar isso!'), flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral] });
-    }
-    return interaction.update({ components: [montarPainelAntiNukeCanais(interaction.guild.id)], flags: [MessageFlags.IsComponentsV2] });
-}
-
-if (interaction.isButton() && interaction.customId === 'antinukecanais_toggle') {
-    if (!interaction.member.permissions.has('Administrator') && !interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
-        return interaction.reply({ components: containerTexto('Apenas administradores podem usar isso!'), flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral] });
-    }
-    await alternarAntiNukeCanais();
-    return interaction.update({ components: [montarPainelAntiNukeCanais(interaction.guild.id)], flags: [MessageFlags.IsComponentsV2] });
-}
-
-if (interaction.isUserSelectMenu() && interaction.customId === 'antinukecanais_bypass_select') {
-    if (!interaction.member.permissions.has('Administrator') && !interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
-        return interaction.reply({ components: containerTexto('Apenas administradores podem usar isso!'), flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral] });
-    }
-    await definirBypassAntiNukeCanais(interaction.values);
-    return interaction.update({ components: [montarPainelAntiNukeCanais(interaction.guild.id)], flags: [MessageFlags.IsComponentsV2] });
-}
+  
 
 if (interaction.isButton() && interaction.customId === 'protecao_ef_config_antibot') {
     if (!interaction.member.permissions.has('Administrator') && !interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
