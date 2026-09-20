@@ -153,6 +153,9 @@ const {
     temPermissaoEditarCargosGRoles, ticketDB, tokenizarLinhaComEmoji, tokenizarPalavraComEmoji,
     travarTodosCanais, verificarAntiLink, verificarBanEmMassaStaff, verificarCallTemp,
     verificarCargosLojaExpirados, verificarEventoMoedasAntigo, verificarSpamMensagem, verificarUrlNaBio,
+    alternarAntiNukeCanais, antiNukeCanalCriado, antiNukeCanalDeletado, antiNukeCanalEditado,
+    definirBypassAntiNukeCanais, inicializarAntiNukeCanais, marcarAcaoPropriaCanal,
+    marcarCanalTemporarioAntiNuke, montarPainelAntiNukeCanais, pausarAntiNukeCanais, retomarAntiNukeCanais,
 } = require('./functions');
 
 
@@ -339,6 +342,16 @@ const client = new Client({
   }
 });
 setClient(client);
+
+client.on('channelCreate', (canal) => {
+    try { antiNukeCanalCriado(canal); } catch (err) { console.error('--- Erro no Anti Nuke (canal criado) ---', err); }
+});
+client.on('channelDelete', (canal) => {
+    antiNukeCanalDeletado(canal).catch(err => console.error('--- Erro no Anti Nuke (canal apagado) ---', err));
+});
+client.on('channelUpdate', (canalAntigo, canalNovo) => {
+    antiNukeCanalEditado(canalAntigo, canalNovo).catch(err => console.error('--- Erro no Anti Nuke (canal editado) ---', err));
+});
 
 
 
@@ -654,7 +667,7 @@ carregarTellonymPendentes();
     await carregarTickets();
     await respostasBotoesMsg.carregar();
     await canaisLockDB.carregar();
-    
+    await inicializarAntiNukeCanais();
     try {
     const mutesPendentes = await MuteCargo.find();
     for (const m of mutesPendentes) agendarFimMuteCargo(m.guildId, m.userId, m.expiraEm);
@@ -1268,6 +1281,7 @@ if (newState.channelId === CANAL_GERADOR_ID) {
             ]
         });
         await setCallTemp(member.id, novaCall.id);
+        await marcarCanalTemporarioAntiNuke(novaCall.id);
         await member.voice.setChannel(novaCall).catch(() => null);
 
         // ============ ENVIA O PAINEL DE CONTROLE NO CHAT DA CALL ============
@@ -1355,6 +1369,7 @@ if (membroVoice && !membroVoice.user.bot) {
                 ]
             });
             await setCallTemp(member.id, novaCall.id);
+            await marcarCanalTemporarioAntiNuke(novaCall.id);
             await member.voice.setChannel(novaCall).catch(() => null);
         } catch (err) {
             console.error('--- Erro ao criar call temp ---', err);
@@ -2500,6 +2515,7 @@ if (message.content.toLowerCase() === `${PREFIXO}nuke`) {
 
     try {
         const posicaoOriginal = canal.rawPosition; 
+        marcarAcaoPropriaCanal(canal.id);
 
         const [novoCanal] = await Promise.all([
             canal.clone({
@@ -3153,7 +3169,8 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'ticket_painels
             console.error('--- Erro ao criar call privada do ticket ---', err);
             return interaction.editReply({ components: containerTexto('Ocorreu um erro ao criar a call privada.'), flags: [MessageFlags.IsComponentsV2] });
         }
-
+        
+        await marcarCanalTemporarioAntiNuke(callCriada.id);
         const containerSucessoCall = new ContainerBuilder()
             .addTextDisplayComponents(new TextDisplayBuilder().setContent(`Call privada **${callCriada.name}** criada com sucesso!`));
 
@@ -4716,7 +4733,9 @@ if (interaction.isButton() && interaction.customId.startsWith('backup_restaurar_
     let ultimaEdicao = Date.now();
     const INTERVALO_MIN_MS = 7000;
 
+
     let resultado;
+    pausarAntiNukeCanais();
     try {
         resultado = await restaurarBackupServidor(interaction.guild, backupId, async (etapa, res) => {
             const agora = Date.now();
@@ -4735,6 +4754,8 @@ if (interaction.isButton() && interaction.customId.startsWith('backup_restaurar_
             components: containerTexto('Ocorreu um erro inesperado durante a restauração. Veja o console.'),
             flags: [MessageFlags.IsComponentsV2]
         });
+    } finally {
+        retomarAntiNukeCanais(interaction.guild).catch(err => console.error('--- Erro ao retomar Anti Nuke ---', err));
     }
 
     processosBackup.delete(interaction.guild.id);
@@ -6031,6 +6052,29 @@ if (interaction.isButton() && interaction.customId === 'lock_destravar') {
     });
 
     return interaction.editReply({ components: [montarPainelLock(interaction.guild.id)], flags: [MessageFlags.IsComponentsV2] });
+}
+
+  if (interaction.isButton() && interaction.customId === 'lock_antinuke') {
+    if (!interaction.member.permissions.has('Administrator') && !interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
+        return interaction.reply({ components: containerTexto('Apenas administradores podem usar isso!'), flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral] });
+    }
+    return interaction.update({ components: [montarPainelAntiNukeCanais(interaction.guild.id)], flags: [MessageFlags.IsComponentsV2] });
+}
+
+if (interaction.isButton() && interaction.customId === 'antinukecanais_toggle') {
+    if (!interaction.member.permissions.has('Administrator') && !interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
+        return interaction.reply({ components: containerTexto('Apenas administradores podem usar isso!'), flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral] });
+    }
+    await alternarAntiNukeCanais();
+    return interaction.update({ components: [montarPainelAntiNukeCanais(interaction.guild.id)], flags: [MessageFlags.IsComponentsV2] });
+}
+
+if (interaction.isUserSelectMenu() && interaction.customId === 'antinukecanais_bypass_select') {
+    if (!interaction.member.permissions.has('Administrator') && !interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
+        return interaction.reply({ components: containerTexto('Apenas administradores podem usar isso!'), flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral] });
+    }
+    await definirBypassAntiNukeCanais(interaction.values);
+    return interaction.update({ components: [montarPainelAntiNukeCanais(interaction.guild.id)], flags: [MessageFlags.IsComponentsV2] });
 }
 
 if (interaction.isButton() && interaction.customId === 'protecao_ef_config_antibot') {
