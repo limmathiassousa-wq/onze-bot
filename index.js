@@ -7,8 +7,7 @@ app.listen(process.env.PORT || 3000, () => console.log('Servidor web do bot inic
 // ============ BOT ============
 const TOKEN = process.env.DISCORD_TOKEN;
 const MONGO_URI = process.env.MONGO_URI;
-
-
+ 
 const { Client, GatewayIntentBits, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, MediaGalleryBuilder, MediaGalleryItemBuilder, ThumbnailBuilder, SectionBuilder, ChannelType, ActivityType, AttachmentBuilder, EmbedBuilder, SlashCommandBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, UserSelectMenuBuilder, ChannelSelectMenuBuilder, LabelBuilder, FileUploadBuilder, RoleSelectMenuBuilder, Events, Routes, AuditLogEvent,
 ContextMenuCommandBuilder, ApplicationCommandType, StickerFormatType, PermissionFlagsBits, OverwriteType } = require('discord.js');
 const { joinVoiceChannel, getVoiceConnection, VoiceConnectionStatus, entersState } = require('@discordjs/voice');
