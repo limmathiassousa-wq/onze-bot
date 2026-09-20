@@ -4,7 +4,7 @@ const {
     MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, ContainerBuilder, TextDisplayBuilder,
     SeparatorBuilder, MediaGalleryBuilder, MediaGalleryItemBuilder, ThumbnailBuilder, SectionBuilder,
     ChannelType, EmbedBuilder, SlashCommandBuilder, StringSelectMenuBuilder, UserSelectMenuBuilder,
-    ChannelSelectMenuBuilder, RoleSelectMenuBuilder, Routes, PermissionFlagsBits
+    ChannelSelectMenuBuilder, RoleSelectMenuBuilder, Routes, PermissionFlagsBits, AuditLogEvent, OverwriteType
 } = require('discord.js');
 const { joinVoiceChannel, VoiceConnectionStatus, entersState } = require('@discordjs/voice');
 const { createCanvas, loadImage, GlobalFonts } = require("@napi-rs/canvas");
@@ -251,7 +251,8 @@ const protecaoConfig = {
         limiteBans: 5,
         limiteWebhooks: 5,
         limiteBots: 1,
-        janelaMs: 10000
+        janelaMs: 10000,
+        antiNukeCanais: { ativo: false, bypassIds: [] }
     },
     antiSpam: { ativo: false, msgLimite: 6, janelaMs: 7000, duplicadoLimite: 3, muteMinutos: 10 },
     antiLink: { ativo: false, bloquearConvites: true, cargosBypass: [] },
@@ -269,7 +270,8 @@ const nukeTracker = {
     cargosEditados: new Map(),
     bans: new Map(),
     kicks: new Map(),
-    webhooks: new Map()
+    webhooks: new Map(),
+    canaisProtegidos: new Map()
 };
 
 const LIMITES_ANTINUKE_EXTRA = {
@@ -4058,6 +4060,12 @@ async function enviarAlertaProtecao(guild, titulo, linhas, avatarUrl = null) {
 function limparNukeTrackerAntigo() {
     const agora = Date.now();
     const janela = protecaoConfig.antiRaid.janelaMs;
+    for (const [canalId, marca] of acoesPropriasCanais) {
+        if (marca.ate < agora) acoesPropriasCanais.delete(canalId);
+    }
+    for (const [entradaId, usadaEm] of entradasAuditConsumidas) {
+        if (agora - usadaEm > 2 * 60 * 1000) entradasAuditConsumidas.delete(entradaId);
+    }
     for (const mapa of Object.values(nukeTracker)) {
         for (const [executorId, timestamps] of mapa) {
             const filtrado = timestamps.filter(t => agora - t < janela);
@@ -4317,6 +4325,7 @@ async function travarTodosCanais(guild, autorId, onProgresso) {
                 : 'neutro';
 
             estados.push({ canalId: canal.id, estadoAnterior });
+            marcarAcaoPropriaCanal(canal.id);
             await canal.permissionOverwrites.edit(guild.id, { SendMessages: false });
             sucesso++;
         } catch (err) {
@@ -4344,6 +4353,7 @@ async function destravarTodosCanais(guild, onProgresso) {
         try {
             const canal = guild.channels.cache.get(estado.canalId);
             if (canal) {
+                marcarAcaoPropriaCanal(canal.id);
                 if (estado.estadoAnterior === 'deny') {
                     await canal.permissionOverwrites.edit(guild.id, { SendMessages: false });
                 } else if (estado.estadoAnterior === 'allow') {
@@ -4365,6 +4375,616 @@ async function destravarTodosCanais(guild, onProgresso) {
 
     await canaisLockDB.remover(guild.id);
     return { sucesso, erros, total };
+}
+
+// ============ ANTI NUKE DE CANAIS (devolve canais apagados ou editados) ============
+const TIPOS_CANAL_PROTEGIDOS = new Set([
+    ChannelType.GuildText, ChannelType.GuildVoice, ChannelType.GuildCategory,
+    ChannelType.GuildAnnouncement, ChannelType.GuildStageVoice, ChannelType.GuildForum, ChannelType.GuildMedia
+]);
+const TIPOS_CANAL_TEXTO_ANTINUKE = [ChannelType.GuildText, ChannelType.GuildAnnouncement, ChannelType.GuildForum, ChannelType.GuildMedia];
+const TIPOS_CANAL_VOZ_ANTINUKE = [ChannelType.GuildVoice, ChannelType.GuildStageVoice];
+const TIPOS_AUDIT_EDICAO_CANAL = [
+    AuditLogEvent.ChannelUpdate, AuditLogEvent.ChannelOverwriteCreate,
+    AuditLogEvent.ChannelOverwriteUpdate, AuditLogEvent.ChannelOverwriteDelete
+];
+const ESPERAS_AUDIT_CANAL_MS = [0, 300, 700];   // o audit log às vezes demora alguns ms pra registrar
+const JANELA_MARCA_PROPRIA_MS = 6000;
+
+const snapshotsCanais = new Map();              // guildId -> Map(canalId -> estado confiável do canal)
+const canaisTemporarios = new Set();            // calls temporárias e call privada de ticket (não são protegidas)
+const acoesPropriasCanais = new Map();          // canalId -> { n, ate } (edições feitas pelo próprio bot)
+const restauracoesCanais = new Map();           // canalIdAntigo -> Promise do canal restaurado (ou null)
+const idsCanaisRestaurados = new Map();         // canalIdAntigo -> canalIdNovo
+const punidosAntiNukeCanais = new Set();        // guildId:executorId punido há pouco (evita punir/avisar em duplicidade)
+const auditRapidoCanais = new Map();            // guildId -> { inicio, promessa } (um fetch atende vários eventos)
+const posicoesPendentesCanais = new Map();      // guildId -> { timer, mapa: Map(canalId -> posicao) }
+const relatoriosAntiNukeCanais = new Map();     // guildId -> resumo aguardando envio pro canal de logs
+const revertsEmAndamentoCanais = new Map();     // canalId -> Promise (uma reversão por vez em cada canal)
+const entradasAuditConsumidas = new Map();      // idDaEntradaDoAudit -> quando foi usada
+let antiNukeCanaisPausas = 0;
+
+function cfgAntiNukeCanais() {
+    const raid = protecaoConfig.antiRaid;
+    if (!raid.antiNukeCanais || typeof raid.antiNukeCanais !== 'object') raid.antiNukeCanais = { ativo: false, bypassIds: [] };
+    if (!Array.isArray(raid.antiNukeCanais.bypassIds)) raid.antiNukeCanais.bypassIds = [];
+    return raid.antiNukeCanais;
+}
+
+function obterMapaSnapshotsCanais(guildId) {
+    let mapa = snapshotsCanais.get(guildId);
+    if (!mapa) {
+        mapa = new Map();
+        snapshotsCanais.set(guildId, mapa);
+    }
+    return mapa;
+}
+
+function serializarCanalAntiNuke(canal) {
+    const overwrites = [];
+    for (const o of canal.permissionOverwrites?.cache?.values() ?? []) {
+        overwrites.push({ id: o.id, type: o.type, allow: o.allow.bitfield.toString(), deny: o.deny.bitfield.toString() });
+    }
+    return {
+        id: canal.id,
+        tipo: canal.type,
+        nome: canal.name,
+        parentId: canal.parentId ?? null,
+        posicao: canal.rawPosition ?? 0,
+        topico: canal.topic ?? null,
+        nsfw: !!canal.nsfw,
+        slowmode: canal.rateLimitPerUser ?? 0,
+        bitrate: canal.bitrate ?? null,
+        limiteUsuarios: canal.userLimit ?? 0,
+        regiao: canal.rtcRegion ?? null,
+        qualidadeVideo: canal.videoQualityMode ?? null,
+        autoArchive: canal.defaultAutoArchiveDuration ?? null,
+        slowmodeThreads: canal.defaultThreadRateLimitPerUser ?? null,
+        tags: canal.availableTags?.map(t => ({
+            name: t.name,
+            moderated: !!t.moderated,
+            emoji: t.emoji ? { id: t.emoji.id ?? null, name: t.emoji.name ?? null } : null
+        })) ?? null,
+        emojiPadrao: canal.defaultReactionEmoji ?? null,
+        ordenacao: canal.defaultSortOrder ?? null,
+        layout: canal.defaultForumLayout ?? null,
+        overwrites
+    };
+}
+
+// Ignora overwrites de cargos que já foram apagados (o Discord remove sozinho, não é edição de ninguém)
+function overwritesValidosAntiNuke(guild, lista) {
+    return lista.filter(o => o.type !== OverwriteType.Role || o.id === guild.id || guild.roles.cache.has(o.id));
+}
+
+async function overwritesExistentesAntiNuke(guild, lista) {
+    const resultado = [];
+    for (const o of lista) {
+        if (o.type === OverwriteType.Role) {
+            if (o.id === guild.id || guild.roles.cache.has(o.id)) resultado.push(o);
+            continue;
+        }
+        const existe = guild.members.cache.has(o.id) || await guild.members.fetch(o.id).then(() => true).catch(() => false);
+        if (existe) resultado.push(o);
+    }
+    return resultado;
+}
+
+function montarOverwritesAntiNuke(lista) {
+    return lista.map(o => ({ id: o.id, type: o.type, allow: BigInt(o.allow), deny: BigInt(o.deny) }));
+}
+
+function chaveOverwritesAntiNuke(lista) {
+    return lista.map(o => `${o.id}:${o.type}:${o.allow}:${o.deny}`).sort().join('|');
+}
+
+function camposAlteradosAntiNuke(guild, snap, atual) {
+    const campos = [];
+    if (snap.nome !== atual.nome) campos.push('nome');
+    if (snap.topico !== atual.topico) campos.push('topico');
+    if (snap.nsfw !== atual.nsfw) campos.push('nsfw');
+    if (snap.slowmode !== atual.slowmode) campos.push('slowmode');
+    if (snap.bitrate !== atual.bitrate) campos.push('bitrate');
+    if (snap.limiteUsuarios !== atual.limiteUsuarios) campos.push('limiteUsuarios');
+    if (snap.regiao !== atual.regiao) campos.push('regiao');
+    if (snap.qualidadeVideo !== atual.qualidadeVideo) campos.push('qualidadeVideo');
+    if (snap.tipo !== atual.tipo) campos.push('tipo');
+    // Categoria apagada faz os canais dela ficarem sem categoria: isso é cascata, quem cuida é a restauração da categoria
+    if (snap.parentId !== atual.parentId && (!snap.parentId || guild.channels.cache.has(snap.parentId))) campos.push('parentId');
+    if (chaveOverwritesAntiNuke(overwritesValidosAntiNuke(guild, snap.overwrites)) !== chaveOverwritesAntiNuke(overwritesValidosAntiNuke(guild, atual.overwrites))) {
+        campos.push('overwrites');
+    }
+    return campos;
+}
+
+// ---- marcas de ações do próprio bot (lock all, !nuke, etc.) ----
+function marcarAcaoPropriaCanal(canalId) {
+    const agora = Date.now();
+    const marca = acoesPropriasCanais.get(canalId);
+    if (marca && marca.ate > agora) {
+        marca.n++;
+        marca.ate = agora + JANELA_MARCA_PROPRIA_MS;
+    } else {
+        acoesPropriasCanais.set(canalId, { n: 1, ate: agora + JANELA_MARCA_PROPRIA_MS });
+    }
+}
+
+function consumirAcaoPropriaCanal(canalId) {
+    const marca = acoesPropriasCanais.get(canalId);
+    if (!marca) return false;
+    if (marca.ate < Date.now()) {
+        acoesPropriasCanais.delete(canalId);
+        return false;
+    }
+    if (--marca.n <= 0) acoesPropriasCanais.delete(canalId);
+    return true;
+}
+
+// ---- canais temporários (calls temp, call privada de ticket) ----
+async function marcarCanalTemporarioAntiNuke(canalId) {
+    canaisTemporarios.add(canalId);
+    for (const mapa of snapshotsCanais.values()) mapa.delete(canalId);
+    try { await redis.set(`antinuke_temp:${canalId}`, '1'); } catch { /* sem redis, fica só na memória */ }
+}
+
+function desmarcarCanalTemporarioAntiNuke(canalId) {
+    canaisTemporarios.delete(canalId);
+    Promise.resolve().then(() => redis.del(`antinuke_temp:${canalId}`)).catch(() => null);
+}
+
+async function marcarTemporariosGuildAntiNuke(guild) {
+    const canaisVoz = guild.channels.cache.filter(c => TIPOS_CANAL_VOZ_ANTINUKE.includes(c.type));
+    await Promise.all([...canaisVoz.values()].map(async (canal) => {
+        try {
+            const [dono, marca] = await Promise.all([getDonoCallTemp(canal.id), redis.get(`antinuke_temp:${canal.id}`)]);
+            if (dono || marca) {
+                canaisTemporarios.add(canal.id);
+                snapshotsCanais.get(guild.id)?.delete(canal.id);
+            }
+        } catch { /* ignora */ }
+    }));
+}
+
+// ---- snapshots ----
+function capturarSnapshotsGuildAntiNuke(guild) {
+    const mapa = new Map();
+    for (const canal of guild.channels.cache.values()) {
+        if (!TIPOS_CANAL_PROTEGIDOS.has(canal.type) || canaisTemporarios.has(canal.id)) continue;
+        mapa.set(canal.id, serializarCanalAntiNuke(canal));
+    }
+    snapshotsCanais.set(guild.id, mapa);
+}
+
+async function inicializarAntiNukeCanais() {
+    if (!cfgAntiNukeCanais().ativo) return;
+    for (const guild of client.guilds.cache.values()) {
+        await guild.channels.fetch().catch(() => null);
+        capturarSnapshotsGuildAntiNuke(guild);
+        await marcarTemporariosGuildAntiNuke(guild);
+        console.log(`[Anti Nuke] ${snapshotsCanais.get(guild.id)?.size ?? 0} canal(is) protegido(s) em ${guild.name}.`);
+    }
+}
+
+async function alternarAntiNukeCanais() {
+    const cfg = cfgAntiNukeCanais();
+    cfg.ativo = !cfg.ativo;
+    if (cfg.ativo) {
+        for (const guild of client.guilds.cache.values()) {
+            capturarSnapshotsGuildAntiNuke(guild);
+            marcarTemporariosGuildAntiNuke(guild).catch(() => null);
+        }
+    } else {
+        snapshotsCanais.clear();
+    }
+    await salvarProtecao();
+    return cfg.ativo;
+}
+
+async function definirBypassAntiNukeCanais(ids) {
+    cfgAntiNukeCanais().bypassIds = [...new Set(ids)];
+    await salvarProtecao();
+}
+
+function pausarAntiNukeCanais() {
+    antiNukeCanaisPausas++;
+}
+
+async function retomarAntiNukeCanais(guild) {
+    antiNukeCanaisPausas = Math.max(0, antiNukeCanaisPausas - 1);
+    if (antiNukeCanaisPausas > 0 || !cfgAntiNukeCanais().ativo) return;
+    capturarSnapshotsGuildAntiNuke(guild);
+    await marcarTemporariosGuildAntiNuke(guild);
+}
+
+// ---- identificação do executor (um único fetch atende vários eventos de uma raid) ----
+function buscarAuditRapidoCanais(guild, marco) {
+    const atual = auditRapidoCanais.get(guild.id);
+    if (atual && marco - atual.inicio <= 100) return atual.promessa;
+    const promessa = guild.fetchAuditLogs({ limit: 50 })
+        .then(logs => [...logs.entries.values()])
+        .catch(err => {
+            console.error('--- Erro ao buscar audit log (Anti Nuke de canais) ---', err.message);
+            return [];
+        });
+    auditRapidoCanais.set(guild.id, { inicio: Date.now(), promessa });
+    return promessa;
+}
+
+async function identificarExecutorCanal(guild, canalId, tipos) {
+    const chegada = Date.now();
+    for (const espera of ESPERAS_AUDIT_CANAL_MS) {
+        if (espera) await esperar(espera);
+        const entradas = await buscarAuditRapidoCanais(guild, Date.now());
+
+        // Cada entrada do audit log vale pra um evento só; entre as livres, pega a mais próxima do momento em que o evento chegou
+        let escolhida = null;
+        let menorDistancia = Infinity;
+        for (const e of entradas) {
+            if (e.targetId !== canalId || !tipos.includes(e.action) || entradasAuditConsumidas.has(e.id)) continue;
+            if (e.createdTimestamp < chegada - 8000 || e.createdTimestamp > chegada + 5000) continue;
+            const distancia = Math.abs(chegada - e.createdTimestamp);
+            if (distancia < menorDistancia) {
+                menorDistancia = distancia;
+                escolhida = e;
+            }
+        }
+        if (!escolhida?.executorId) continue;
+
+        entradasAuditConsumidas.set(escolhida.id, Date.now());
+        const user = escolhida.executor ?? await client.users.fetch(escolhida.executorId).catch(() => null);
+        return { id: escolhida.executorId, bot: !!user?.bot, user };
+    }
+    return null;
+}
+
+function executorPermitidoCanais(guild, executor) {
+    if (!executor) return false;
+    return executor.id === client.user.id
+        || executor.id === guild.ownerId
+        || cfgAntiNukeCanais().bypassIds.includes(executor.id);
+}
+
+// ---- punição: bot é banido na hora, humano só passa do limite de infrações ----
+function punirInfratorCanais(guild, executor, motivo) {
+    const usuario = executor.user ?? { id: executor.id, bot: executor.bot, tag: executor.id, displayAvatarURL: () => null };
+    const chave = `${guild.id}:${usuario.id}`;
+
+    if (!usuario.bot) {
+        const total = registrarAcaoNuke(nukeTracker.canaisProtegidos, usuario.id);
+        if (total < Math.max(1, protecaoConfig.antiRaid.limiteCanais)) return;
+        nukeTracker.canaisProtegidos.delete(usuario.id);
+        motivo = `${total} canais apagados/editados sem bypass em menos de ${protecaoConfig.antiRaid.janelaMs / 1000}s (${motivo})`;
+    }
+
+    if (punidosAntiNukeCanais.has(chave)) return;
+    punidosAntiNukeCanais.add(chave);
+    setTimeout(() => punidosAntiNukeCanais.delete(chave), 60 * 1000);
+
+    punirExecutorNuke(guild, usuario, `Anti Nuke de canais: ${motivo}`)
+        .catch(err => console.error('--- Erro ao punir infrator (Anti Nuke de canais) ---', err));
+}
+
+// ---- relatório agrupado (uma mensagem por rajada, não uma por canal) ----
+function registrarRelatorioAntiNukeCanais(guild, tipo, texto, executor) {
+    let r = relatoriosAntiNukeCanais.get(guild.id);
+    if (!r) {
+        r = { restaurados: [], revertidos: [], falhas: [], executores: new Map(), timer: null };
+        relatoriosAntiNukeCanais.set(guild.id, r);
+        r.timer = setTimeout(() => {
+            relatoriosAntiNukeCanais.delete(guild.id);
+            enviarRelatorioAntiNukeCanais(guild, r).catch(() => null);
+        }, 2500);
+    }
+    r[tipo].push(texto);
+    if (executor) r.executores.set(executor.id, executor);
+}
+
+async function enviarRelatorioAntiNukeCanais(guild, r) {
+    const listar = (lista) => {
+        const nomes = lista.slice(0, 15).map(n => `\`${n}\``).join(', ');
+        return lista.length > 15 ? `${nomes} e mais ${lista.length - 15}` : nomes;
+    };
+    const linhas = [];
+    if (r.restaurados.length) linhas.push(`**Canais restaurados (${r.restaurados.length}):** ${listar(r.restaurados)}`);
+    if (r.revertidos.length) linhas.push(`**Edições revertidas (${r.revertidos.length}):** ${listar(r.revertidos)}`);
+    if (r.falhas.length) linhas.push(`**Não consegui devolver (${r.falhas.length}):** ${listar(r.falhas)} — confira minhas permissões`);
+    if (!linhas.length) return;
+
+    const executores = [...r.executores.values()];
+    linhas.push(executores.length
+        ? `**Responsável:** ${executores.map(e => `<@${e.id}>${e.bot ? ' (bot)' : ''}`).join(', ')}`
+        : '**Responsável:** `não identificado`');
+
+    await enviarAlertaProtecao(guild, 'ANTI NUKE: CANAIS PROTEGIDOS', linhas, executores[0]?.user?.displayAvatarURL({ extension: 'png', size: 256 }));
+}
+
+// ---- restauração de canal apagado ----
+async function resolverPaiAntiNuke(guild, parentId) {
+    if (!parentId) return null;
+    if (guild.channels.cache.has(parentId)) return parentId;
+    const pendente = restauracoesCanais.get(parentId);
+    if (pendente) await pendente.catch(() => null);
+    const novoId = idsCanaisRestaurados.get(parentId);
+    return novoId && guild.channels.cache.has(novoId) ? novoId : null;
+}
+
+function montarOpcoesCriacaoAntiNuke(guild, snap, parentId, overwrites) {
+    const op = { name: snap.nome, type: snap.tipo, reason: 'Anti Nuke: canal restaurado', permissionOverwrites: montarOverwritesAntiNuke(overwrites) };
+    if (snap.tipo !== ChannelType.GuildCategory && parentId) op.parent = parentId;
+
+    if (TIPOS_CANAL_TEXTO_ANTINUKE.includes(snap.tipo)) {
+        if (snap.topico) op.topic = snap.topico;
+        op.nsfw = snap.nsfw;
+        op.rateLimitPerUser = snap.slowmode;
+        if (snap.autoArchive) op.defaultAutoArchiveDuration = snap.autoArchive;
+    }
+    if (TIPOS_CANAL_VOZ_ANTINUKE.includes(snap.tipo)) {
+        if (snap.bitrate) op.bitrate = Math.min(snap.bitrate, guild.maximumBitrate);
+        op.userLimit = snap.limiteUsuarios;
+        if (snap.regiao) op.rtcRegion = snap.regiao;
+    }
+    if (snap.tipo === ChannelType.GuildVoice) {
+        if (snap.qualidadeVideo) op.videoQualityMode = snap.qualidadeVideo;
+        op.nsfw = snap.nsfw;
+        op.rateLimitPerUser = snap.slowmode;
+    }
+    if (snap.tipo === ChannelType.GuildForum || snap.tipo === ChannelType.GuildMedia) {
+        if (snap.tags?.length) op.availableTags = snap.tags.map(t => ({ name: t.name, moderated: t.moderated, emoji: t.emoji ?? undefined }));
+        if (snap.emojiPadrao) op.defaultReactionEmoji = snap.emojiPadrao;
+        if (snap.ordenacao !== null) op.defaultSortOrder = snap.ordenacao;
+        if (snap.layout !== null) op.defaultForumLayout = snap.layout;
+        if (snap.slowmodeThreads) op.defaultThreadRateLimitPerUser = snap.slowmodeThreads;
+    }
+    return op;
+}
+
+function agendarAjustePosicoesAntiNuke(guild, canalId, posicao) {
+    let pend = posicoesPendentesCanais.get(guild.id);
+    if (!pend) {
+        pend = { mapa: new Map(), timer: null };
+        posicoesPendentesCanais.set(guild.id, pend);
+    }
+    pend.mapa.set(canalId, posicao);
+    clearTimeout(pend.timer);
+    pend.timer = setTimeout(async () => {
+        posicoesPendentesCanais.delete(guild.id);
+        const lista = [...pend.mapa]
+            .filter(([id]) => guild.channels.cache.has(id))
+            .sort((a, b) => a[1] - b[1])
+            .map(([channel, position]) => ({ channel, position }));
+        if (!lista.length) return;
+        await guild.channels.setPositions(lista).catch(err => console.error('--- Erro ao reposicionar canais (Anti Nuke) ---', err.message));
+    }, 1500);
+}
+
+async function restaurarCanalAntiNuke(guild, snap) {
+    let novo = null;
+    let ultimoErro = null;
+
+    for (let tentativa = 0; tentativa < 3 && !novo; tentativa++) {
+        try {
+            if (tentativa) await esperar(500 * tentativa);
+            const parentId = await resolverPaiAntiNuke(guild, snap.parentId);
+            const overwrites = tentativa === 0
+                ? overwritesValidosAntiNuke(guild, snap.overwrites)
+                : await overwritesExistentesAntiNuke(guild, snap.overwrites);
+            novo = await guild.channels.create(montarOpcoesCriacaoAntiNuke(guild, snap, parentId, overwrites));
+        } catch (err) {
+            ultimoErro = err;
+        }
+    }
+    if (!novo) throw ultimoErro;
+
+    idsCanaisRestaurados.set(snap.id, novo.id);
+    setTimeout(() => idsCanaisRestaurados.delete(snap.id), 10 * 60 * 1000);
+
+    const mapa = obterMapaSnapshotsCanais(guild.id);
+    mapa.set(novo.id, { ...snap, id: novo.id, parentId: novo.parentId ?? null });
+    agendarAjustePosicoesAntiNuke(guild, novo.id, snap.posicao);
+
+    // Categoria restaurada: devolve os canais que estavam nela
+    if (snap.tipo === ChannelType.GuildCategory) {
+        for (const filho of mapa.values()) {
+            if (filho.parentId !== snap.id) continue;
+            filho.parentId = novo.id;
+            const vivo = guild.channels.cache.get(filho.id);
+            if (vivo && vivo.parentId !== novo.id) {
+                vivo.setParent(novo.id, { lockPermissions: false })
+                    .then(() => agendarAjustePosicoesAntiNuke(guild, filho.id, filho.posicao))
+                    .catch(err => console.error('--- Erro ao devolver canal pra categoria (Anti Nuke) ---', err.message));
+            }
+        }
+    }
+    return novo;
+}
+
+// ---- reversão de canal editado ----
+async function reverterCanalAntiNuke(canal, snap, campos) {
+    const guild = canal.guild;
+    const dados = { reason: 'Anti Nuke: edição não autorizada revertida' };
+
+    if (campos.includes('nome')) dados.name = snap.nome;
+    if (campos.includes('topico')) dados.topic = snap.topico;
+    if (campos.includes('nsfw')) dados.nsfw = snap.nsfw;
+    if (campos.includes('slowmode')) dados.rateLimitPerUser = snap.slowmode;
+    if (campos.includes('bitrate') && snap.bitrate) dados.bitrate = Math.min(snap.bitrate, guild.maximumBitrate);
+    if (campos.includes('limiteUsuarios')) dados.userLimit = snap.limiteUsuarios;
+    if (campos.includes('regiao')) dados.rtcRegion = snap.regiao;
+    if (campos.includes('qualidadeVideo') && snap.qualidadeVideo) dados.videoQualityMode = snap.qualidadeVideo;
+    if (campos.includes('tipo')
+        && [ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(snap.tipo)
+        && [ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(canal.type)) {
+        dados.type = snap.tipo;
+    }
+    if (campos.includes('parentId')) {
+        dados.parent = snap.parentId && guild.channels.cache.has(snap.parentId) ? snap.parentId : null;
+        dados.lockPermissions = false;
+    }
+    if (campos.includes('overwrites')) {
+        dados.permissionOverwrites = montarOverwritesAntiNuke(overwritesValidosAntiNuke(guild, snap.overwrites));
+    }
+
+    try {
+        await canal.edit(dados);
+    } catch (err) {
+        if (!dados.permissionOverwrites) throw err;
+        dados.permissionOverwrites = montarOverwritesAntiNuke(await overwritesExistentesAntiNuke(guild, snap.overwrites));
+        await canal.edit(dados);
+    }
+
+    if (campos.includes('parentId')) agendarAjustePosicoesAntiNuke(guild, canal.id, snap.posicao);
+}
+
+// Uma reversão por vez em cada canal; cada uma reavalia o estado atual, então rajadas de edições viram uma correção só
+function reverterCanalSeguroAntiNuke(guild, canalId, snapReserva) {
+    const anterior = revertsEmAndamentoCanais.get(canalId) ?? Promise.resolve();
+    const atual = anterior.catch(() => null).then(async () => {
+        const vivo = guild.channels.cache.get(canalId);
+        if (!vivo) return false;
+        const snap = obterMapaSnapshotsCanais(guild.id).get(canalId) ?? snapReserva;
+        const campos = camposAlteradosAntiNuke(guild, snap, serializarCanalAntiNuke(vivo));
+        if (!campos.length) return false;
+        await reverterCanalAntiNuke(vivo, snap, campos);
+        return true;
+    });
+    revertsEmAndamentoCanais.set(canalId, atual);
+    atual.then(() => null, () => null).then(() => {
+        if (revertsEmAndamentoCanais.get(canalId) === atual) revertsEmAndamentoCanais.delete(canalId);
+    });
+    return atual;
+}
+
+// ---- eventos ----
+function antiNukeCanalCriado(canal) {
+    if (!canal.guild || !cfgAntiNukeCanais().ativo) return;
+    if (!TIPOS_CANAL_PROTEGIDOS.has(canal.type) || canaisTemporarios.has(canal.id)) return;
+    obterMapaSnapshotsCanais(canal.guild.id).set(canal.id, serializarCanalAntiNuke(canal));
+}
+
+async function antiNukeCanalDeletado(canal) {
+    const guild = canal.guild;
+    if (!guild || !cfgAntiNukeCanais().ativo || !TIPOS_CANAL_PROTEGIDOS.has(canal.type)) return;
+
+    const mapa = obterMapaSnapshotsCanais(guild.id);
+    const snap = mapa.get(canal.id) ?? serializarCanalAntiNuke(canal);
+    mapa.delete(canal.id);
+
+    if (canaisTemporarios.has(canal.id)) {
+        desmarcarCanalTemporarioAntiNuke(canal.id);
+        return;
+    }
+    if (consumirAcaoPropriaCanal(canal.id)) return;
+
+    let resolverRestauracao;
+    restauracoesCanais.set(canal.id, new Promise(r => { resolverRestauracao = r; }));
+    let novo = null;
+
+    try {
+        const executor = await identificarExecutorCanal(guild, canal.id, [AuditLogEvent.ChannelDelete]);
+        if (executorPermitidoCanais(guild, executor)) return;
+        if (!executor && antiNukeCanaisPausas > 0) return;
+
+        if (executor) punirInfratorCanais(guild, executor, `apagou o canal ${snap.nome}`);
+
+        try {
+            novo = await restaurarCanalAntiNuke(guild, snap);
+            registrarRelatorioAntiNukeCanais(guild, 'restaurados', snap.nome, executor);
+        } catch (err) {
+            console.error(`--- Anti Nuke: falha ao restaurar o canal ${snap.nome} ---`, err.message);
+            registrarRelatorioAntiNukeCanais(guild, 'falhas', snap.nome, executor);
+        }
+    } catch (err) {
+        console.error('--- Erro no Anti Nuke (canal apagado) ---', err);
+    } finally {
+        resolverRestauracao(novo);
+        setTimeout(() => restauracoesCanais.delete(canal.id), 60 * 1000);
+    }
+}
+
+async function antiNukeCanalEditado(antigo, novo) {
+    const guild = novo.guild;
+    if (!guild || !cfgAntiNukeCanais().ativo) return;
+    if (!TIPOS_CANAL_PROTEGIDOS.has(novo.type) || canaisTemporarios.has(novo.id)) return;
+
+    // Tudo até o primeiro await é síncrono: captura o estado exato deste evento antes de qualquer outra edição
+    const mapa = obterMapaSnapshotsCanais(guild.id);
+    const snap = mapa.get(novo.id);
+    const atual = serializarCanalAntiNuke(novo);
+    if (!snap) {
+        mapa.set(novo.id, atual);
+        return;
+    }
+
+    const campos = camposAlteradosAntiNuke(guild, snap, atual);
+    if (!campos.length) {
+        // só mudou algo que não é revertido (posição, por exemplo): atualiza o registro sem consultar audit log
+        Object.assign(snap, atual, { parentId: snap.parentId });
+        return;
+    }
+    if (consumirAcaoPropriaCanal(novo.id)) {
+        mapa.set(novo.id, atual);
+        return;
+    }
+
+    const executor = await identificarExecutorCanal(guild, novo.id, TIPOS_AUDIT_EDICAO_CANAL);
+    if (executorPermitidoCanais(guild, executor) || (!executor && antiNukeCanaisPausas > 0)) {
+        obterMapaSnapshotsCanais(guild.id).set(novo.id, atual);
+        return;
+    }
+
+    if (executor) punirInfratorCanais(guild, executor, `editou o canal ${snap.nome}`);
+
+    try {
+        const reverteu = await reverterCanalSeguroAntiNuke(guild, novo.id, snap);
+        if (reverteu) registrarRelatorioAntiNukeCanais(guild, 'revertidos', snap.nome, executor);
+    } catch (err) {
+        console.error(`--- Anti Nuke: falha ao reverter o canal ${snap.nome} ---`, err.message);
+        registrarRelatorioAntiNukeCanais(guild, 'falhas', snap.nome, executor);
+    }
+}
+
+// ---- painel ----
+function montarPainelAntiNukeCanais(guildId) {
+    const cfg = cfgAntiNukeCanais();
+    const protegidos = cfg.ativo ? (snapshotsCanais.get(guildId)?.size ?? 0) : 0;
+
+    return new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`### ${cfg.ativo ? EMOJI_ATIVADO : EMOJI_DESATIVADO} Anti Nuke`))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('-# Painel > Lock all > Anti Nuke'))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            'Protege todos os canais de texto e voz do servidor. Quem não tem bypass não consegue apagar nem editar nada.'
+        ))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            '**Apagou um canal?** Ele volta com nome, categoria, permissões e cargos.\n' +
+            '**Editou um canal?** Nome, permissões e o resto voltam como estavam.\n' +
+            '**Foi um bot?** Banido na hora.'
+        ))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            `**Status:** \`${cfg.ativo ? 'ativo' : 'inativo'}\` · **Canais protegidos:** \`${protegidos}\` · **Bypass:** \`${cfg.bypassIds.length}\``
+        ))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('-# Tópicos de ticket e calls temporárias não são afetados.'))
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId('antinukecanais_toggle')
+                    .setLabel(cfg.ativo ? 'Desativar' : 'Ativar')
+                    .setStyle(cfg.ativo ? ButtonStyle.Danger : ButtonStyle.Success)
+            )
+        )
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('-# Quem estiver aqui pode mexer nos canais sem ser revertido.'))
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new UserSelectMenuBuilder()
+                    .setCustomId('antinukecanais_bypass_select')
+                    .setPlaceholder('Usuários com bypass')
+                    .setMinValues(0)
+                    .setMaxValues(25)
+                    .setDefaultUsers(cfg.bypassIds.slice(0, 25))
+            )
+        );
 }
 
 function montarPainelProtecao(guildId) {
@@ -4544,7 +5164,11 @@ function montarPainelLock(guildId) {
             new ButtonBuilder()
                 .setCustomId(travado ? 'lock_destravar' : 'lock_travar')
                 .setLabel(travado ? 'Destravar servidor' : 'Travar servidor')
-                .setStyle(travado ? ButtonStyle.Success : ButtonStyle.Danger)
+                .setStyle(travado ? ButtonStyle.Success : ButtonStyle.Danger),
+            new ButtonBuilder()
+                .setCustomId('lock_antinuke')
+                .setLabel('Anti Nuke')
+                .setStyle(ButtonStyle.Secondary)
         )
     );
 
@@ -6244,6 +6868,19 @@ module.exports = {
     setClient,
     getEventoMoedasAtivo,
     setEventoMoedasAtivo,
+
+    // --- anti nuke de canais ---
+    alternarAntiNukeCanais,
+    antiNukeCanalCriado,
+    antiNukeCanalDeletado,
+    antiNukeCanalEditado,
+    definirBypassAntiNukeCanais,
+    inicializarAntiNukeCanais,
+    marcarAcaoPropriaCanal,
+    marcarCanalTemporarioAntiNuke,
+    montarPainelAntiNukeCanais,
+    pausarAntiNukeCanais,
+    retomarAntiNukeCanais,
 
     // --- estado e constantes compartilhados ---
     auditLogCache,
