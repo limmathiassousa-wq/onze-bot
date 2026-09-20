@@ -42,7 +42,7 @@ MessageClass.prototype.delete = function (...args) {
 };
 
 const { anaResponderComAudio, DONO_ID: DONO_ID_ANA } = require('./ana_voz');
-const CANAIS_VOZ_ANA = ['1550979191040909402', '1551247350435938354'];
+const CANAIS_VOZ_ANA = ['1548489854038581308', '1548578896054718474'];
 
 
 const mongoConectado = mongoose.connect(MONGO_URI)
@@ -667,7 +667,8 @@ setInterval(() => {
 
     client.once('clientReady', async () => {
     console.log(`Logado como ${client.user.tag}!`);
-    client.user.setActivity(`Prefixo: ${PREFIXO}`, { type: ActivityType.Streaming, url: 'https://www.youtube.com/watch?v=XTDH7gSqwiQ' });
+    client.user.setActivity(`Prefixo: ${PREFIXO}`, { type: ActivityType.Streaming, url: 'https://youtu.be/XTDH7gSqwiQ?si=_Y7GWvC5q0ANTsmC' });
+
     
 carregarTellonymPendentes();
     await carregarProtecao();
@@ -1691,7 +1692,42 @@ client.on('messageCreate', async (message) => {
         const autorizado = message.author.id === DONO_ID_ANA
             || !!message.member?.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
 
-        console.log(`[DEBUG-ANA] Chamando anaResponderComAudio | textoUsuario="${textoUsuario}" | autorizado=${autorizado}`);
+        // Monta uma "nota de contexto" resolvendo quem/o que cada menção da mensagem representa,
+        // já que os códigos crus (<@id>, <@&id>, <#id>) não significam nada pra IA sozinhos.
+        const notaContextoPartes = [];
+
+        if (message.mentions.users.size) {
+            const pessoas = [...message.mentions.users.values()]
+                .filter(u => u.id !== client.user.id)
+                .map(u => {
+                    const membro = message.mentions.members?.get(u.id);
+                    const nomeExibido = membro?.displayName || u.globalName || u.username;
+                    return `<@${u.id}> é a pessoa "${nomeExibido}" (usuário: ${u.username}, id: ${u.id})`;
+                });
+            if (pessoas.length) notaContextoPartes.push(pessoas.join('; '));
+        }
+
+        if (message.mentions.roles.size) {
+            const cargos = [...message.mentions.roles.values()]
+                .map(r => `<@&${r.id}> é o cargo "${r.name}" (id: ${r.id})`);
+            notaContextoPartes.push(cargos.join('; '));
+        }
+
+        if (message.mentions.channels.size) {
+            const canais = [...message.mentions.channels.values()]
+                .map(c => `<#${c.id}> é o canal "#${c.name}" (id: ${c.id})`);
+            notaContextoPartes.push(canais.join('; '));
+        }
+
+        const notaContexto = notaContextoPartes.length
+            ? `[Contexto interno, não fale isso em voz alta — é só referência sua pra entender a mensagem: ${notaContextoPartes.join('; ')}]`
+            : '';
+
+        // Pega a primeira imagem anexada na mensagem, se tiver
+        const anexoImagem = message.attachments.find(a => a.contentType?.startsWith('image/'));
+        const imagemAnexadaUrl = anexoImagem?.url || null;
+
+        console.log(`[DEBUG-ANA] Chamando anaResponderComAudio | textoUsuario="${textoUsuario}" | autorizado=${autorizado} | notaContexto="${notaContexto}" | imagemAnexadaUrl=${imagemAnexadaUrl}`);
 
         await anaResponderComAudio({
             canalId: message.channel.id,
@@ -1699,7 +1735,9 @@ client.on('messageCreate', async (message) => {
             textoUsuario,
             replyToMessageId: message.id,
             guildId: message.guild.id,
-            autorizado
+            autorizado,
+            notaContexto,
+            imagemAnexadaUrl
         });
 
         console.log('[DEBUG-ANA] anaResponderComAudio concluído com sucesso.');
@@ -8486,7 +8524,6 @@ client.once(Events.ClientReady, async (c) => {
     console.log('========================================');
     console.log(`[DISCORD] BOT ONLINE: ${c.user.tag}`);
     console.log(`[DISCORD] ID: ${c.user.id}`);
-    console.log(`[DISCORD] SERVIDORES: ${c.guilds.cache.size}`);
     console.log(`[DISCORD] PING: ${c.ws.ping}ms`);
     console.log('========================================');
 });
