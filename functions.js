@@ -22,7 +22,7 @@ const {
     ServerBackup, Mensagens, ConfigMoedas, EventoMoedasState, CargoLoja, VoiceState, BotCallPainel,
     ContadorTicket, TicketData, ProtecaoConfigModel, ConviteStats, Sorteio, InstaPost, HistoricoUsername,
     HistoricoAvatar, HistoricoBanner, TellonymPendente, MapaPersistenteEntry, HistoricoBio, MuteCargo,
-    TranscriptMedia, LogAtividadeUsuario
+    TranscriptMedia
 } = require('./models');
 const {
     EMOJI_ATIVADO, EMOJI_DESATIVADO, CANAL_LOGS_MOD, CATEGORIA_MOEDAS_BOASVINDAS, CORES_MSG_CRIADOR,
@@ -374,12 +374,6 @@ const NOMES_BADGES = {
     CertifiedModerator: 'Moderador Certificado',
     ActiveDeveloper: 'Desenvolvedor Ativo'
 };
-
-const LIMITE_MENSAGENS_ATIVIDADE = 40;
-const LIMITE_CALLS_ATIVIDADE = 40;
-
-// controla sessões de voz abertas em memória: chave `${guildId}_${userId}`
-const sessoesVozAtividade = new Map();
 
 // ============ COMANDO HELP ============
 
@@ -5601,73 +5595,6 @@ async function garantirHistoricoInicial(user) {
     }
 }
 
-async function registrarMensagemAtividade(message) {
-    if (!message.guild || message.author.bot) return;
-
-    const conteudo = (message.content || '').slice(0, 300)
-        || (message.attachments.size ? '[anexo sem texto]' : '[mensagem sem texto]');
-
-    await LogAtividadeUsuario.findOneAndUpdate(
-        { guildId: message.guild.id, userId: message.author.id },
-        {
-            $push: {
-                mensagens: {
-                    $each: [{
-                        messageId: message.id,
-                        channelId: message.channel.id,
-                        conteudo,
-                        criadoEm: Date.now()
-                    }],
-                    $slice: -LIMITE_MENSAGENS_ATIVIDADE
-                }
-            }
-        },
-        { upsert: true }
-    );
-}
-
-async function registrarAtividadeVoz(guild, membro, oldState, newState) {
-    if (!guild || !membro) return;
-    const chave = `${guild.id}_${membro.id}`;
-    const antigoCanal = oldState.channelId;
-    const novoCanal = newState.channelId;
-    if (antigoCanal === novoCanal) return; // só trocou câmera/mute etc, ignora aqui
-
-    // fecha a sessão anterior, se existia
-    if (antigoCanal && sessoesVozAtividade.has(chave)) {
-        const sessao = sessoesVozAtividade.get(chave);
-        sessoesVozAtividade.delete(chave);
-
-        await LogAtividadeUsuario.findOneAndUpdate(
-            { guildId: guild.id, userId: membro.id },
-            {
-                $push: {
-                    calls: {
-                        $each: [{
-                            channelId: sessao.canalId,
-                            entrouEm: sessao.entrouEm,
-                            saiuEm: Date.now(),
-                            camera: sessao.camera,
-                            stream: sessao.stream
-                        }],
-                        $slice: -LIMITE_CALLS_ATIVIDADE
-                    }
-                }
-            },
-            { upsert: true }
-        ).catch(err => console.error('--- Erro ao salvar sessão de call (atividade) ---', err));
-    }
-
-    // abre uma sessão nova, se entrou em algum canal
-    if (novoCanal) {
-        sessoesVozAtividade.set(chave, {
-            canalId: novoCanal,
-            entrouEm: Date.now(),
-            camera: !!newState.selfVideo,
-            stream: !!newState.streaming
-        });
-    }
-}
 
 function montarSelectUserInfo(alvoId, autorId, atual, expiraEm = 0) {
     return new ActionRowBuilder().addComponents(
@@ -5679,9 +5606,7 @@ function montarSelectUserInfo(alvoId, autorId, atual, expiraEm = 0) {
                 { label: 'Biografias anteriores', value: 'bios', description: 'Ver biografias anteriores', default: atual === 'bios' },
                 { label: 'Usernames antigos', value: 'usernames', description: 'Ver nomes de usuário anteriores', default: atual === 'usernames' },
                 { label: 'Avatares usados', value: 'avatares', description: 'Ver avatares anteriores', default: atual === 'avatares' },
-                { label: 'Banners', value: 'banners', description: 'Ver banners anteriores', default: atual === 'banners' },
-                { label: 'Mensagens', value: 'mensagens', description: 'Suas mensagens neste servidor (só você vê)', default: atual === 'mensagens' },
-                { label: 'Calls', value: 'calls', description: 'Suas calls neste servidor (só você vê)', default: atual === 'calls' }
+                { label: 'Banners', value: 'banners', description: 'Ver banners anteriores', default: atual === 'banners' }
             )
     );
 }
@@ -5845,109 +5770,6 @@ async function montarPainelAvatares(alvoUser, autorId, indice = 0, expiraEm = 0)
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(' Avatar atual (histórico anterior estava indisponível e foi removido)'));
     container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
     container.addActionRowComponents(montarSelectUserInfo(alvoUser.id, autorId, 'avatares', expiraEm));
-    return rodapeExpiracao(container, expiraEm);
-}
-
-function montarUrlMensagem(guildId, channelId, messageId) {
-    return `https://discord.com/channels/${guildId}/${channelId}/${messageId}`;
-}
-
-async function montarPainelMensagensUsuario(guild, alvoUser, autorId, pagina = 0, expiraEm = 0) {
-    const doc = await LogAtividadeUsuario.findOne({ guildId: guild.id, userId: alvoUser.id }).catch(() => null);
-    const registros = (doc?.mensagens || []).slice().reverse();
-
-    const porPagina = 5;
-    const totalPaginas = Math.max(1, Math.ceil(registros.length / porPagina));
-    const paginaAtual = Math.min(Math.max(pagina, 0), totalPaginas - 1);
-    const fatia = registros.slice(paginaAtual * porPagina, paginaAtual * porPagina + porPagina);
-
-    const container = new ContainerBuilder()
-        .addSectionComponents(
-            new SectionBuilder()
-                .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-                    `### Suas mensagens neste servidor\n-# ${alvoUser.username} · visível só pra você`
-                ))
-                .setThumbnailAccessory(new ThumbnailBuilder().setURL(alvoUser.displayAvatarURL({ extension: 'png', size: 256 })))
-        )
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-
-    if (!fatia.length) {
-        container.addTextDisplayComponents(new TextDisplayBuilder().setContent('Nenhum registro por aqui ainda.'));
-    } else {
-        const linhas = fatia.map((m, i) => {
-            const indice = paginaAtual * porPagina + i + 1;
-            return `**${String(indice).padStart(2, '0')}.** <#${m.channelId}> · ${formatarTempoRelativo(m.criadoEm)}\n> ${m.conteudo}`;
-        }).join('\n\n');
-        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(linhas));
-
-        const botoesLink = fatia.map((m, i) =>
-            new ButtonBuilder()
-                .setStyle(ButtonStyle.Link)
-                .setURL(montarUrlMensagem(guild.id, m.channelId, m.messageId))
-                .setLabel(String(paginaAtual * porPagina + i + 1).padStart(2, '0'))
-        );
-        container.addActionRowComponents(new ActionRowBuilder().addComponents(botoesLink));
-    }
-
-    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
-        `-# Página ${paginaAtual + 1} de ${totalPaginas} · ${registros.length} registro(s)`
-    ));
-
-    container.addActionRowComponents(new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`userinfo_msgs_pagina_${alvoUser.id}_${autorId}_${paginaAtual - 1}_${expiraEm}`).setLabel('Anterior').setStyle(ButtonStyle.Secondary).setDisabled(paginaAtual <= 0),
-        new ButtonBuilder().setCustomId('userinfo_msgs_pagina_atual').setLabel(`${paginaAtual + 1}/${totalPaginas}`).setStyle(ButtonStyle.Secondary).setDisabled(true),
-        new ButtonBuilder().setCustomId(`userinfo_msgs_pagina_${alvoUser.id}_${autorId}_${paginaAtual + 1}_${expiraEm}`).setLabel('Próxima').setStyle(ButtonStyle.Secondary).setDisabled(paginaAtual >= totalPaginas - 1)
-    ));
-
-    container.addActionRowComponents(montarSelectUserInfo(alvoUser.id, autorId, 'mensagens', expiraEm));
-    return rodapeExpiracao(container, expiraEm);
-}
-
-async function montarPainelCallsUsuario(guild, alvoUser, autorId, pagina = 0, expiraEm = 0) {
-    const doc = await LogAtividadeUsuario.findOne({ guildId: guild.id, userId: alvoUser.id }).catch(() => null);
-    const registros = (doc?.calls || []).slice().reverse();
-
-    const porPagina = 5;
-    const totalPaginas = Math.max(1, Math.ceil(registros.length / porPagina));
-    const paginaAtual = Math.min(Math.max(pagina, 0), totalPaginas - 1);
-    const fatia = registros.slice(paginaAtual * porPagina, paginaAtual * porPagina + porPagina);
-
-    const container = new ContainerBuilder()
-        .addSectionComponents(
-            new SectionBuilder()
-                .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-                    `### Suas calls neste servidor\n-# ${alvoUser.username} · visível só pra você`
-                ))
-                .setThumbnailAccessory(new ThumbnailBuilder().setURL(alvoUser.displayAvatarURL({ extension: 'png', size: 256 })))
-        )
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-
-    if (!fatia.length) {
-        container.addTextDisplayComponents(new TextDisplayBuilder().setContent('Nenhum registro por aqui ainda.'));
-    } else {
-        const linhas = fatia.map((c, i) => {
-            const indice = paginaAtual * porPagina + i + 1;
-            const duracao = formatarDuracaoMs((c.saiuEm || Date.now()) - c.entrouEm);
-            const status = c.saiuEm ? `saiu ${formatarTempoRelativo(c.saiuEm)}` : 'ainda conectado';
-            const recursos = [c.camera ? 'câmera' : null, c.stream ? 'transmissão' : null].filter(Boolean).join(' · ') || 'sem câmera/transmissão';
-            return `**${String(indice).padStart(2, '0')}.** <#${c.channelId}>\nentrou ${formatarTempoRelativo(c.entrouEm)} · ${status} · ficou ${duracao}\n${recursos}`;
-        }).join('\n\n');
-        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(linhas));
-    }
-
-    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
-        `-# Página ${paginaAtual + 1} de ${totalPaginas} · ${registros.length} registro(s)`
-    ));
-
-    container.addActionRowComponents(new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`userinfo_calls_pagina_${alvoUser.id}_${autorId}_${paginaAtual - 1}_${expiraEm}`).setLabel('Anterior').setStyle(ButtonStyle.Secondary).setDisabled(paginaAtual <= 0),
-        new ButtonBuilder().setCustomId('userinfo_calls_pagina_atual').setLabel(`${paginaAtual + 1}/${totalPaginas}`).setStyle(ButtonStyle.Secondary).setDisabled(true),
-        new ButtonBuilder().setCustomId(`userinfo_calls_pagina_${alvoUser.id}_${autorId}_${paginaAtual + 1}_${expiraEm}`).setLabel('Próxima').setStyle(ButtonStyle.Secondary).setDisabled(paginaAtual >= totalPaginas - 1)
-    ));
-
-    container.addActionRowComponents(montarSelectUserInfo(alvoUser.id, autorId, 'calls', expiraEm));
     return rodapeExpiracao(container, expiraEm);
 }
 
@@ -6442,9 +6264,7 @@ module.exports = {
     invitesCache,
     JANELA_BAN_STAFF_MS,
     LIMITE_BANS_STAFF,
-    LIMITE_CALLS_ATIVIDADE,
     LIMITE_MEDIA_TRANSCRIPT,
-    LIMITE_MENSAGENS_ATIVIDADE,
     LIMITES_ANTINUKE_EXTRA,
     LISTA_DE_COMANDOS,
     LISTA_PERMS_EDITAVEIS_GROLES,
@@ -6471,7 +6291,6 @@ module.exports = {
     REGEX_EVERYONE_HERE,
     REGEX_URL_SERVIDOR,
     SCALE,
-    sessoesVozAtividade,
     sorteioTimeouts,
     sorteioVoiceSessions,
     spamPunicaoEmAndamento,
@@ -6588,7 +6407,6 @@ module.exports = {
     montarPainelBanners,
     montarPainelBios,
     montarPainelBiosLista,
-    montarPainelCallsUsuario,
     montarPainelEfemeroProtecao,
     montarPainelGRoles,
     montarPainelGRolesCriar,
@@ -6602,7 +6420,6 @@ module.exports = {
     montarPainelInstaInfo,
     montarPainelListaCargo,
     montarPainelLock,
-    montarPainelMensagensUsuario,
     montarPainelMoedas,
     montarPainelMsgCriadorBuilder,
     montarPainelMsgCriadorInicial,
@@ -6623,7 +6440,6 @@ module.exports = {
     montarPreviewMsgCriador,
     montarSelectUserInfo,
     montarUrlAvatar,
-    montarUrlMensagem,
     nomeTipoCanalLog,
     obterCargosExcluiveisGRoles,
     obterCargosGerenciaveisGRoles,
@@ -6643,11 +6459,9 @@ module.exports = {
     quebrarLinhasComEmoji,
     reconectarVoiceStates,
     registrarAcaoNuke,
-    registrarAtividadeVoz,
     registrarAvatarSeNecessario,
     registrarBannerSeNecessario,
     registrarBioSeNecessario,
-    registrarMensagemAtividade,
     registrarPainelProtecao,
     registrarUsernameSeNecessario,
     removerAfk,
