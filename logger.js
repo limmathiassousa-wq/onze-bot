@@ -819,11 +819,86 @@ async function logarPunicaoCargosStaff({ guild, tipo, membro, cargos, extra, can
     }
 }
 
+// ============ ANTI NUKE DE CANAIS (canais restaurados / edições revertidas) — EMBED PRÓPRIA ============
+async function logarAntiNukeCanais({ guild, executores, restaurados, revertidos, falhas, canalId }) {
+    try {
+        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_MOD).catch(() => null);
+        if (!canal) return;
+
+        const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
+        const listar = (lista) => {
+            const nomes = lista.slice(0, 15).map(n => `\`${n}\``).join(', ');
+            return lista.length > 15 ? `${nomes} e mais ${lista.length - 15}` : nomes;
+        };
+
+        const principal = executores[0]?.user ?? null;
+        const unico = executores.length === 1 ? executores[0] : null;
+
+        const linhasTopo = [
+            new TextDisplayBuilder().setContent(`### Anti Nuke — ${guild.name}`),
+            new TextDisplayBuilder().setContent(
+                !executores.length
+                    ? '**Usuário:** `não identificado`'
+                    : unico
+                        ? `**Usuário:** <@${unico.id}> — \`${obterTag(unico.user)}\` (\`${unico.id}\`)`
+                        : `**Usuários:** ${executores.map(e => `<@${e.id}>`).join(', ')}`
+            ),
+            new TextDisplayBuilder().setContent('**Executado por:** Sistema Automático')
+        ];
+
+        const container = new ContainerBuilder().setAccentColor(0xFFFFFF);
+
+        if (principal) {
+            container.addSectionComponents(
+                new SectionBuilder()
+                    .addTextDisplayComponents(...linhasTopo)
+                    .setThumbnailAccessory(new ThumbnailBuilder().setURL(obterAvatarUrl(principal)))
+            );
+        } else {
+            container.addTextDisplayComponents(...linhasTopo);
+        }
+
+        container
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent('**Motivo:** Canais protegidos apagados ou editados sem bypass'));
+
+        for (const e of executores) {
+            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
+                unico ? `**Ação aplicada:** \`${e.acao}\`` : `**Ação aplicada em <@${e.id}>:** \`${e.acao}\``
+            ));
+        }
+
+        container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+
+        if (restaurados.length) {
+            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Canais restaurados (${restaurados.length}):** ${listar(restaurados)}`));
+        }
+        if (revertidos.length) {
+            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Edições revertidas (${revertidos.length}):** ${listar(revertidos)}`));
+        }
+        if (falhas.length) {
+            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Não consegui devolver (${falhas.length}):** ${listar(falhas)} — confira minhas permissões`));
+        }
+
+        container
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
+
+        await canal.send({
+            components: [container],
+            flags: [MessageFlags.IsComponentsV2],
+            allowedMentions: { parse: [] }
+        });
+    } catch (err) {
+        console.error('--- Erro ao enviar log de anti nuke de canais ---', err);
+    }
+}
+
 module.exports = {
     enviarLogModeracao, logar,
     logarBanimento, logarMembro, logarCargo, logarCallTemp, logarExpulsao, logarMute,
     logarAntiLink, logarAntiSpam, logarAntiBot,
     logarMensagemApagada, logarMensagemEditada,
     logarVoz, logarCastigo, logarCargoServidor,
-    logarCanalServidor, logarPunicaoCargosStaff
+    logarCanalServidor, logarPunicaoCargosStaff, logarAntiNukeCanais
 };
