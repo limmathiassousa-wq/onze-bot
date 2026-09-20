@@ -4981,6 +4981,10 @@ if (interaction.isStringSelectMenu() && interaction.customId.startsWith('userinf
         }
         const alvoUser = await interaction.client.users.fetch(alvoId, { force: true }).catch(() => null);
         if (!alvoUser) return interaction.reply({ content: 'Não foi possível encontrar esse usuário.', flags: [MessageFlags.Ephemeral] });
+
+        const opcao = interaction.values[0];
+        let painel;
+
         if (opcao === 'perfil') painel = await montarPainelUserInfo(interaction.guild, alvoUser, autorId, expiraEm);
         else if (opcao === 'bios') painel = await montarPainelBios(interaction.guild, alvoUser, autorId, expiraEm);
         else if (opcao === 'usernames') painel = await montarPainelUsernames(alvoUser, autorId, expiraEm);
