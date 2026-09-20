@@ -4,6 +4,10 @@ const app = express();
 app.get('/', (req, res) => res.send('Bot Online!'));
 app.listen(process.env.PORT || 3000, () => console.log('Servidor web do bot iniciado!'));
 
+// ============ BOT ============
+const TOKEN = process.env.DISCORD_TOKEN;
+const MONGO_URI = process.env.MONGO_URI;
+
 
 const { Client, GatewayIntentBits, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, MediaGalleryBuilder, MediaGalleryItemBuilder, ThumbnailBuilder, SectionBuilder, ChannelType, ActivityType, AttachmentBuilder, EmbedBuilder, SlashCommandBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, UserSelectMenuBuilder, ChannelSelectMenuBuilder, LabelBuilder, FileUploadBuilder, RoleSelectMenuBuilder, Events, Routes, AuditLogEvent,
 ContextMenuCommandBuilder, ApplicationCommandType, StickerFormatType, PermissionFlagsBits, OverwriteType } = require('discord.js');
@@ -16,7 +20,7 @@ const path = require("path");
 const os = require('os');
 const crypto = require('crypto');
 
-const { comandos, montarPainelBotCall, registrarPainelBotCall, montarPainelPD, obterPrimeirasDamas, montarPainelMuteInicial, montarPainelMuteTimeout, montarPainelMuteCargo, emojisDraftDB, montarPainelEmojisBot } = require('./commands');
+const { comandos, montarPainelBotCall, registrarPainelBotCall, montarPainelPD, obterPrimeirasDamas, montarPainelMuteInicial, montarPainelMuteTimeout, montarPainelMuteCargo } = require('./commands');
 const { botCallDB, botCallPaineis, confirmacaoModeracaoDB, msgCriadorDB, sorteioDraftDB, muteDraftDB } = require('./state');
 
 const {
@@ -29,16 +33,9 @@ const {
 const { logar, enviarLogModeracao, logarBanimento, logarMembro, logarCargo, logarCallTemp, logarExpulsao, logarMute, logarAntiLink, logarAntiSpam, logarAntiBot, logarMensagemApagada, logarMensagemEditada, logarVoz, logarCastigo, logarCargoServidor, logarCanalServidor, logarPunicaoCargosStaff } = require('./logger');
 
 const { anaResponderComAudio } = require('./ana_voz');
-const CANAIS_VOZ_ANA = ['1550979191040909402', '1550764596208472117'];
+const CANAIS_VOZ_ANA = ['1548489854038581308', '1548578896054718474'];
 
 
-// ============ BOT ============
-const TOKEN = process.env.DISCORD_TOKEN;
-
-const MONGO_URI = process.env.MONGO_URI;
-
-
- 
 const mongoConectado = mongoose.connect(MONGO_URI)
     .then(() => {
         console.log('[MongoDB] Conectado com sucesso!');
@@ -158,20 +155,12 @@ const {
     verificarCargosLojaExpirados, verificarEventoMoedasAntigo, verificarSpamMensagem, verificarUrlNaBio,
 } = require('./functions');
 
-// ============ LET ============
-
 
 // ============ MAPS ============
  
 const nukeEmAndamento = new Set();
-
-
 const callTempDeleteTimeouts = new Map();
-      
-
-
 const respostasBotoesMsg = new MapaPersistente('respostas_botoes_msg');
-
 const processosBackup = new Map();
 
 // ============ CARD TELLONYM ============
@@ -193,17 +182,9 @@ module.exports = {
     gerarCardTellonym
 };
 
-// ============ FUNCTIONS/ACTIONS============
-
-
-// ============ GERENCIAMENTO DE CARGOS (o!groles) ============
 
 
 const CARGOS_BLOQUEADOS_GROLES = ['1542321888309809210'];
-
-
-// ============ EDITAR CARGOS (Criar/Excluir) ============
-
 
 const CORES_CARGO_GROLES = [
     { label: 'Vermelho', value: 'E74C3C' },
@@ -222,18 +203,6 @@ const CORES_CARGO_GROLES = [
     { label: 'Dourado', value: 'D4AF37' },
     { label: 'Marrom', value: '8B4513' }
 ];
-
-
-// ============ BACKUP DO SERVIDOR ============
-
-
-// ============ STATUS DO BOT ============
-
-
-// ============ STATUS DE VOZ - LÍDER DO SORTEIO ============
-
-
-// Último status que o bot definiu em cada canal (evita reenviar o mesmo status / remover status já vazio a cada tick)
 
 
 app.get('/transcript/:id', async (req, res) => {
@@ -3006,24 +2975,7 @@ if (message.content.toLowerCase() === `${PREFIXO}tickets`) {
 
 
 client.on('interactionCreate', async (interaction) => {
-
-if (interaction.isButton() && (interaction.customId === 'listaremojis_voltar' || interaction.customId === 'listaremojis_avancar')) {
-    const draft = emojisDraftDB.get(interaction.message.id);
-    if (!draft) return interaction.reply({ content: 'Esse painel expirou.', flags: [MessageFlags.Ephemeral] });
-    if (interaction.user.id !== draft.autorId) {
-        return interaction.reply({ content: 'Esse painel não pertence a você!', flags: [MessageFlags.Ephemeral] });
-    }
-
-    draft.pagina += interaction.customId === 'listaremojis_voltar' ? -1 : 1;
-
-    await interaction.deferUpdate();
-    return interaction.editReply({
-        components: [montarPainelEmojisBot(draft.emojisArray, draft.pagina)],
-        flags: [MessageFlags.IsComponentsV2]
-    });
-}
-
-
+    
 // ============ PAINEL STAFF DO TICKET ============
 if (interaction.isButton() && interaction.customId === 'ticket_painelstaff') {
     if (!interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
