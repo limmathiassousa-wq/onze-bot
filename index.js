@@ -7,7 +7,8 @@ app.listen(process.env.PORT || 3000, () => console.log('Servidor web do bot inic
 // ============ BOT ============
 const TOKEN = process.env.DISCORD_TOKEN;
 const MONGO_URI = process.env.MONGO_URI;
- 
+
+
 const { Client, GatewayIntentBits, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, MediaGalleryBuilder, MediaGalleryItemBuilder, ThumbnailBuilder, SectionBuilder, ChannelType, ActivityType, AttachmentBuilder, EmbedBuilder, SlashCommandBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, UserSelectMenuBuilder, ChannelSelectMenuBuilder, LabelBuilder, FileUploadBuilder, RoleSelectMenuBuilder, Events, Routes, AuditLogEvent,
 ContextMenuCommandBuilder, ApplicationCommandType, StickerFormatType, PermissionFlagsBits, OverwriteType } = require('discord.js');
 const { joinVoiceChannel, getVoiceConnection, VoiceConnectionStatus, entersState } = require('@discordjs/voice');
@@ -1611,7 +1612,14 @@ client.on('messageDelete', async (message) => {
 client.on('messageCreate', async (message) => {
     try {
         if (message.author.bot) return;
-        if (!CANAIS_VOZ_ANA.includes(message.channel.id)) return;
+
+        // [DEBUG-ANA] Mostra TODA mensagem que chega em qualquer canal, pra confirmar se o listener roda
+        console.log(`[DEBUG-ANA] messageCreate recebido | canal=${message.channel.id} | autor=${message.author.id} | conteudo="${message.content}"`);
+
+        if (!CANAIS_VOZ_ANA.includes(message.channel.id)) {
+            console.log(`[DEBUG-ANA] Ignorado: canal ${message.channel.id} não está em CANAIS_VOZ_ANA (${CANAIS_VOZ_ANA.join(', ')})`);
+            return;
+        }
 
         const ehReply = !!message.reference?.messageId;
         let respondendoAudioDaAna = false;
@@ -1624,21 +1632,33 @@ client.on('messageCreate', async (message) => {
                 msgReferenciada.flags?.has(MessageFlags.IsVoiceMessage)
             );
 
-            // É reply a alguma outra coisa dela (embed, comando, etc) -> ignora
-            if (!respondendoAudioDaAna) return;
+            if (!respondendoAudioDaAna) {
+                console.log('[DEBUG-ANA] Ignorado: é reply, mas não a uma mensagem de voz da Ana');
+                return;
+            }
         } else {
-            // Não é reply -> só responde se foi mencionada diretamente
             const foiMencionada = message.mentions.users.has(client.user.id);
-            if (!foiMencionada) return;
+            if (!foiMencionada) {
+                console.log('[DEBUG-ANA] Ignorado: não é reply e o bot não foi mencionado');
+                return;
+            }
         }
+
+        console.log('[DEBUG-ANA] Gatilho válido! Prosseguindo para gerar resposta...');
 
         const conteudoLimpo = message.content.replace(/<@!?\d+>/g, '').trim();
         const textoUsuario = conteudoLimpo || '(o usuário só te mencionou, sem escrever nada — cumprimente ele)';
 
         await message.channel.sendTyping().catch(() => null);
 
+        if (!message.member) {
+            console.log('[DEBUG-ANA] AVISO: message.member veio null (membro não cacheado) — checando permissão só por DONO_ID');
+        }
+
         const autorizado = message.author.id === DONO_ID_ANA
-            || message.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
+            || !!message.member?.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
+
+        console.log(`[DEBUG-ANA] Chamando anaResponderComAudio | textoUsuario="${textoUsuario}" | autorizado=${autorizado}`);
 
         await anaResponderComAudio({
             canalId: message.channel.id,
@@ -1648,6 +1668,8 @@ client.on('messageCreate', async (message) => {
             guildId: message.guild.id,
             autorizado
         });
+
+        console.log('[DEBUG-ANA] anaResponderComAudio concluído com sucesso.');
     } catch (err) {
         console.error('--- Erro no sistema de voz da Ana ---', err);
     }
