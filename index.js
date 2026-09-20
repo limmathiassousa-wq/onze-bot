@@ -47,11 +47,12 @@ const mongoConectado = mongoose.connect(MONGO_URI)
     });
     
 const redis = require('./redis');
+const { supabase } = require('./supabase');
 
 const {
     ServerBackup, Carteira, XP, Mensagens, ConfigMoedas, EventoMoedasState,
     CargoLoja, VoiceState, BotCallPainel, ContadorTicket, TicketData,
-    ProtecaoConfigModel, PrimeiraDama, ConviteStats,
+    ProtecaoConfigModel, ConviteStats,
     ConviteMembro, Sorteio, TellonymPost, InstaPost,
     HistoricoUsername, HistoricoAvatar, HistoricoBanner,
     Daily, Afk, TellonymPendente,
@@ -6835,15 +6836,25 @@ if (interaction.isUserSelectMenu() && interaction.customId === 'pd_selecionar') 
         return interaction.reply({ content: 'Você não pode definir um bot como primeira dama!', flags: [MessageFlags.Ephemeral] });
     }
 
-    const jaExiste = await PrimeiraDama.findOne({ guildId: interaction.guild.id, setterId: interaction.user.id, targetId: alvoId });
-    if (jaExiste) {
-        return interaction.reply({ content: `${alvoMembro} já é uma das suas primeiras damas!`, flags: [MessageFlags.Ephemeral] });
-    }
+    const { data: jaExiste } = await supabase
+    .from('primeira_dama')
+    .select('id')
+    .eq('guild_id', interaction.guild.id)
+    .eq('setter_id', interaction.user.id)
+    .eq('target_id', alvoId)
+    .maybeSingle();
+if (jaExiste) {
+    return interaction.reply({ content: `${alvoMembro} já é uma das suas primeiras damas!`, flags: [MessageFlags.Ephemeral] });
+}
 
-    const totalAtual = await PrimeiraDama.countDocuments({ guildId: interaction.guild.id, setterId: interaction.user.id });
-    if (totalAtual >= LIMITE_PRIMEIRAS_DAMAS) {
-        return interaction.reply({ content: `Você já atingiu o limite de **${LIMITE_PRIMEIRAS_DAMAS}** primeiras damas!`, flags: [MessageFlags.Ephemeral] });
-    }
+const { count: totalAtual } = await supabase
+    .from('primeira_dama')
+    .select('id', { count: 'exact', head: true })
+    .eq('guild_id', interaction.guild.id)
+    .eq('setter_id', interaction.user.id);
+if (totalAtual >= LIMITE_PRIMEIRAS_DAMAS) {
+    return interaction.reply({ content: `Você já atingiu o limite de **${LIMITE_PRIMEIRAS_DAMAS}** primeiras damas!`, flags: [MessageFlags.Ephemeral] });
+}
 
     try {
         await alvoMembro.roles.add(CARGO_PRIMEIRA_DAMA);
@@ -6853,8 +6864,11 @@ if (interaction.isUserSelectMenu() && interaction.customId === 'pd_selecionar') 
     }
 
     try {
-        await PrimeiraDama.create({ guildId: interaction.guild.id, setterId: interaction.user.id, targetId: alvoId });
-    } catch (err) {
+    const { error } = await supabase
+        .from('primeira_dama')
+        .insert({ guild_id: interaction.guild.id, setter_id: interaction.user.id, target_id: alvoId });
+    if (error) throw error;
+} catch (err) {
         console.error('--- Erro ao salvar primeira dama no banco ---', err);
         await alvoMembro.roles.remove(CARGO_PRIMEIRA_DAMA).catch(() => null);
         return interaction.reply({ content: 'Ocorreu um erro ao salvar. Tente novamente.', flags: [MessageFlags.Ephemeral] });
@@ -6887,17 +6901,28 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'pd_remover') {
 
     const alvoId = interaction.values[0];
 
-    const registro = await PrimeiraDama.findOneAndDelete({ guildId: interaction.guild.id, setterId: interaction.user.id, targetId: alvoId });
-    if (!registro) {
-        return interaction.reply({ content: 'Esse registro não foi encontrado ou já foi removido.', flags: [MessageFlags.Ephemeral] });
-    }
+    const { data: registros, error: erroDelete } = await supabase
+    .from('primeira_dama')
+    .delete()
+    .eq('guild_id', interaction.guild.id)
+    .eq('setter_id', interaction.user.id)
+    .eq('target_id', alvoId)
+    .select();
+const registro = !erroDelete && registros && registros[0];
+if (!registro) {
+    return interaction.reply({ content: 'Esse registro não foi encontrado ou já foi removido.', flags: [MessageFlags.Ephemeral] });
+}
 
-    const alvoMembro = await interaction.guild.members.fetch({ user: alvoId, force: true }).catch(() => null);
+const alvoMembro = await interaction.guild.members.fetch({ user: alvoId, force: true }).catch(() => null);
 
-    const outrosRegistros = await PrimeiraDama.countDocuments({ guildId: interaction.guild.id, targetId: alvoId });
-    if (outrosRegistros === 0 && alvoMembro) {
-        await alvoMembro.roles.remove(CARGO_PRIMEIRA_DAMA).catch(() => null);
-    }
+const { count: outrosRegistros } = await supabase
+    .from('primeira_dama')
+    .select('id', { count: 'exact', head: true })
+    .eq('guild_id', interaction.guild.id)
+    .eq('target_id', alvoId);
+if (outrosRegistros === 0 && alvoMembro) {
+    await alvoMembro.roles.remove(CARGO_PRIMEIRA_DAMA).catch(() => null);
+}
 
 await enviarLogModeracao({
     guild: interaction.guild,
