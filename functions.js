@@ -16,7 +16,7 @@ const crypto = require('crypto');
 const { comandos, montarPainelBotCall } = require('./commands');
 const { botCallDB, botCallPaineis, msgCriadorDB } = require('./state');
 const { esperar, containerTexto, comRetry, xpNecessario, somarSaldo, getXP, setXP, urlValida } = require('./helpers');
-const { logarAntiLink, logarAntiSpam, logarPunicaoCargosStaff, logarAntiNukeCanais } = require('./logger');
+const { logarAntiLink, logarAntiSpam, logarPunicaoCargosStaff } = require('./logger');
 const redis = require('./redis');
 const { supabase } = require('./supabase');
 const {
@@ -292,6 +292,8 @@ const staffPunicaoCargos = new Map();    // executorId -> { idsCargos }
 const JANELA_BAN_STAFF_MS = 30 * 60 * 1000; // 30 minutos
 const LIMITE_BANS_STAFF = 3;
 const DURACAO_PUNICAO_STAFF_MS = 2 * 60 * 1000; // 2 minutos
+
+const CARGO_ISENTO_BAN_STAFF = '1542321888355684456'; // pode banir à vontade, sem punição do Anti-Abuso
 
 const spamPunicaoEmAndamento = new Set();
 
@@ -4118,12 +4120,11 @@ async function obterExecutorAuditLog(guild, tipoEvento, alvoId = null) {
     return entrada?.executor ?? null;
 }
 
-// opcoes.silencioso: não envia o alerta (quem chamou faz o próprio log). Retorna a ação aplicada, null se falhou ou 'imune'.
-async function punirExecutorNuke(guild, executor, motivo, opcoes = {}) {
-    if (!executor) return 'imune';
-    if (executor.id === client.user.id) return 'imune';
-    if (executor.id === guild.ownerId) return 'imune';
-    if (protecaoConfig.antiRaid.whitelistIds.includes(executor.id)) return 'imune';
+async function punirExecutorNuke(guild, executor, motivo) {
+    if (!executor) return;
+    if (executor.id === client.user.id) return;
+    if (executor.id === guild.ownerId) return;
+    if (protecaoConfig.antiRaid.whitelistIds.includes(executor.id)) return;
 
     
     const cadeia = executor.bot ? ['banir'] : [protecaoConfig.antiRaid.acaoExecutor];
@@ -4159,8 +4160,6 @@ async function punirExecutorNuke(guild, executor, motivo, opcoes = {}) {
         }
     }
 
-    if (opcoes.silencioso) return acaoAplicada;
-
     const textoAcao = { banir: 'banido', kick: 'expulso', remover_cargos: 'cargos removidos' };
 
     await enviarAlertaProtecao(guild, acaoAplicada ? 'ANTI-NUKE ACIONADO' : 'ANTI-NUKE DETECTOU MAS A PUNIÇÃO FALHOU', [
@@ -4168,7 +4167,6 @@ async function punirExecutorNuke(guild, executor, motivo, opcoes = {}) {
         `**Motivo:** ${motivo}`,
         `**Ação aplicada:** \`${acaoAplicada ? textoAcao[acaoAplicada] : 'nenhuma — revise a hierarquia do bot'}\``
    ], executor.displayAvatarURL({ extension: 'png', size: 256 }));
-    return acaoAplicada;
 }
 
 async function verificarBanEmMassaStaff(guild, executor) {
@@ -4176,6 +4174,9 @@ async function verificarBanEmMassaStaff(guild, executor) {
     if (executor.id === guild.ownerId) return;
     if (protecaoConfig.antiRaid.whitelistIds.includes(executor.id)) return;
     if (staffPunicaoCargos.has(executor.id)) return; // já está sendo punido, ignora
+
+    const membro = await guild.members.fetch(executor.id).catch(() => null);
+    if (membro?.roles.cache.has(CARGO_ISENTO_BAN_STAFF)) return; // cargo liberado, pode banir à vontade
 
     const agora = Date.now();
     const lista = (staffBanTracker.get(executor.id) || []).filter(t => agora - t < JANELA_BAN_STAFF_MS);
@@ -4185,7 +4186,6 @@ async function verificarBanEmMassaStaff(guild, executor) {
     if (lista.length < LIMITE_BANS_STAFF) return;
     staffBanTracker.delete(executor.id);
 
-    const membro = await guild.members.fetch(executor.id).catch(() => null);
     if (!membro) return;
 
     const cargosRemover = membro.roles.cache.filter(r => r.id !== guild.id && !r.managed && r.editable);
@@ -4263,6 +4263,8 @@ async function verificarSpamMensagem(message) {
     if (spamPunicaoEmAndamento.has(userId)) return false;
     spamPunicaoEmAndamento.add(userId);
 
+    const ehBot = !!message.author.bot;
+
     try {
         try {
             const buscadas = await message.channel.messages.fetch({ limit: 50 });
@@ -4274,11 +4276,16 @@ async function verificarSpamMensagem(message) {
 
         try {
             const membro = await message.guild.members.fetch(userId).catch(() => null);
-            if (membro && membro.moderatable) {
+
+            if (ehBot) {
+                if (membro && membro.kickable) {
+                    await membro.kick('Anti-Spam: bot detectado floodando mensagens');
+                }
+            } else if (membro && membro.moderatable) {
                 await membro.timeout(cfg.muteMinutos * 60 * 1000, 'Anti-Spam: flood/mensagens duplicadas');
             }
         } catch (err) {
-            console.error('--- Erro ao aplicar timeout de anti-spam ---', err);
+            console.error('--- Erro ao punir spam ---', err);
         }
 
         await redis.del(chave);
@@ -4288,14 +4295,14 @@ async function verificarSpamMensagem(message) {
             usuario: message.author,
             motivo: flood ? 'Flood de mensagens' : 'Mensagens duplicadas',
             canal: message.channel,
-            muteMinutos: cfg.muteMinutos
+            muteMinutos: ehBot ? null : cfg.muteMinutos,
+            acao: ehBot ? 'kick' : 'mute'
         }).catch(() => null);
 
         return true;
     } finally {
         spamPunicaoEmAndamento.delete(userId);
     }
-}
 
 function montarPainelMoedas() {
     return new ContainerBuilder()
@@ -4664,64 +4671,42 @@ function punirInfratorCanais(guild, executor, motivo) {
     punidosAntiNukeCanais.add(chave);
     setTimeout(() => punidosAntiNukeCanais.delete(chave), 60 * 1000);
 
-    const punicao = punirExecutorNuke(guild, usuario, `Anti Nuke de canais: ${motivo}`, { silencioso: true })
-        .catch(err => {
-            console.error('--- Erro ao punir infrator (Anti Nuke de canais) ---', err);
-            return null;
-        });
-    registrarPunicaoRelatorioAntiNukeCanais(guild, executor, punicao);
+    punirExecutorNuke(guild, usuario, `Anti Nuke de canais: ${motivo}`)
+        .catch(err => console.error('--- Erro ao punir infrator (Anti Nuke de canais) ---', err));
 }
 
 // ---- relatório agrupado (uma mensagem por rajada, não uma por canal) ----
-const TEXTO_ACAO_ANTINUKE_CANAIS = { banir: 'banido', kick: 'expulso', remover_cargos: 'cargos removidos', imune: 'imune, não punido' };
-
-function obterRelatorioAntiNukeCanais(guild) {
+function registrarRelatorioAntiNukeCanais(guild, tipo, texto, executor) {
     let r = relatoriosAntiNukeCanais.get(guild.id);
     if (!r) {
-        r = { restaurados: [], revertidos: [], falhas: [], executores: new Map(), pendentes: [], timer: null };
+        r = { restaurados: [], revertidos: [], falhas: [], executores: new Map(), timer: null };
         relatoriosAntiNukeCanais.set(guild.id, r);
         r.timer = setTimeout(() => {
             relatoriosAntiNukeCanais.delete(guild.id);
             enviarRelatorioAntiNukeCanais(guild, r).catch(() => null);
         }, 2500);
     }
-    return r;
-}
-
-function itemExecutorRelatorioAntiNukeCanais(r, executor) {
-    let item = r.executores.get(executor.id);
-    if (!item) {
-        item = { id: executor.id, bot: executor.bot, user: executor.user ?? null, acao: 'nenhuma' };
-        r.executores.set(executor.id, item);
-    }
-    return item;
-}
-
-function registrarRelatorioAntiNukeCanais(guild, tipo, texto, executor) {
-    const r = obterRelatorioAntiNukeCanais(guild);
     r[tipo].push(texto);
-    if (executor) itemExecutorRelatorioAntiNukeCanais(r, executor);
-}
-
-function registrarPunicaoRelatorioAntiNukeCanais(guild, executor, promessa) {
-    const r = obterRelatorioAntiNukeCanais(guild);
-    const item = itemExecutorRelatorioAntiNukeCanais(r, executor);
-    r.pendentes.push(promessa.then(acao => {
-        item.acao = acao === null ? 'falhou, revise a hierarquia do bot' : (TEXTO_ACAO_ANTINUKE_CANAIS[acao] ?? acao);
-    }));
+    if (executor) r.executores.set(executor.id, executor);
 }
 
 async function enviarRelatorioAntiNukeCanais(guild, r) {
-    await Promise.race([Promise.allSettled(r.pendentes), esperar(4000)]);
+    const listar = (lista) => {
+        const nomes = lista.slice(0, 15).map(n => `\`${n}\``).join(', ');
+        return lista.length > 15 ? `${nomes} e mais ${lista.length - 15}` : nomes;
+    };
+    const linhas = [];
+    if (r.restaurados.length) linhas.push(`**Canais restaurados (${r.restaurados.length}):** ${listar(r.restaurados)}`);
+    if (r.revertidos.length) linhas.push(`**Edições revertidas (${r.revertidos.length}):** ${listar(r.revertidos)}`);
+    if (r.falhas.length) linhas.push(`**Não consegui devolver (${r.falhas.length}):** ${listar(r.falhas)} — confira minhas permissões`);
+    if (!linhas.length) return;
+
     const executores = [...r.executores.values()];
-    if (!executores.length && !r.restaurados.length && !r.revertidos.length && !r.falhas.length) return;
-    await logarAntiNukeCanais({
-        guild,
-        executores,
-        restaurados: r.restaurados,
-        revertidos: r.revertidos,
-        falhas: r.falhas
-    });
+    linhas.push(executores.length
+        ? `**Responsável:** ${executores.map(e => `<@${e.id}>${e.bot ? ' (bot)' : ''}`).join(', ')}`
+        : '**Responsável:** `não identificado`');
+
+    await enviarAlertaProtecao(guild, 'ANTI NUKE: CANAIS PROTEGIDOS', linhas, executores[0]?.user?.displayAvatarURL({ extension: 'png', size: 256 }));
 }
 
 // ---- restauração de canal apagado ----
