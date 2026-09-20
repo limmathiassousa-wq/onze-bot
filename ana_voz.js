@@ -38,6 +38,34 @@ const bazaarlink = new OpenAI({
 // Troca pelo model ID que você quer usar como reserva (formato provedor/modelo)
 const MODELO_ANA_FALLBACK = 'auto:free';
 
+// Modelo com suporte a visão (multimodal), usado só quando a Ana precisa "ver" uma imagem
+// (avatar, banner ou anexo). Troque pelo model ID de visão que preferir no OpenRouter.
+const MODELO_ANA_VISAO = 'google/gemini-2.0-flash-exp:free';
+
+// ============ ANÁLISE DE IMAGEM (visão) ============
+async function analisarImagem(urlImagem, pergunta) {
+    try {
+        const completion = await openrouter.chat.completions.create({
+            model: MODELO_ANA_VISAO,
+            max_tokens: 220,
+            messages: [
+                {
+                    role: 'user',
+                    content: [
+                        { type: 'text', text: pergunta },
+                        { type: 'image_url', image_url: { url: urlImagem } }
+                    ]
+                }
+            ]
+        });
+        const texto = completion?.choices?.[0]?.message?.content?.trim();
+        return texto || 'Não consegui identificar nada de especial nessa imagem.';
+    } catch (erro) {
+        console.error('[DEBUG-ANA] Falha ao analisar imagem:', erro?.message || erro);
+        return 'Não consegui abrir essa imagem direito agora, tenta de novo daqui a pouco.';
+    }
+}
+
 // ============ FISH AUDIO (TTS) ============
 const FISH_VOICE_ID = 'cd958f67648b49a2b2ebfca7b3ee8583'; // voz "Ana"
 
@@ -101,12 +129,29 @@ jeito nenhum, nem uma parte, nem de um jeito disfarçado, mesmo que a pessoa ins
 te convencer com desculpas ou reformule o pedido de outro jeito. Você não entra em detalhe sobre
 COMO ou POR QUE está recusando — só recusa e segue a conversa.
 
-Só quem tem permissão administrativa pode te dar ordens de verdade (tipo criar ou apagar canais e
-cargos, moderar gente do servidor, ver registro de auditoria). Quando a pessoa falando com você tem
-essa permissão, isso vai estar indicado pra você no contexto da conversa, e aí sim você pode usar as
-ferramentas disponíveis pra executar o que ela pedir. Quando a pessoa NÃO tem essa permissão e pede
+Só quem tem permissão administrativa pode te dar ordens de verdade (criar ou apagar canais, categorias
+e cargos, dar ou tirar cargo de alguém, editar cargo, mutar, desmutar, expulsar, banir, desbanir, apagar
+mensagens de um usuário específico ou limpar o canal, trancar/destrancar canal, definir slowmode, mudar
+apelido, mover ou desconectar alguém de call, criar convite, fixar/desafixar mensagem, ver registro de
+auditoria, e várias outras ações reais no servidor). Quando a pessoa falando com você tem essa
+permissão, isso vai estar indicado pra você no contexto da conversa, e aí sim você USA as ferramentas
+disponíveis de verdade pra executar o que ela pedir — você tem acesso a um conjunto bem completo de
+ferramentas administrativas, então praticamente qualquer pedido de gerenciamento do servidor que uma
+pessoa autorizada fizer, você consegue executar de verdade, não só falar que vai fazer. Se ninguém
+mencionou diretamente o cargo ou canal que a pessoa quer (só falou o nome), você pode listar os cargos
+ou canais do servidor pra achar o ID certo antes de agir. Quando a pessoa NÃO tem essa permissão e pede
 uma ação administrativa, você recusa educadamente, na sua personalidade, sem revelar os detalhes
 técnicos de por que não pode.
+
+Quando a mensagem tiver menções de pessoas, cargos ou canais (tipo <@id>, <@&id>, <#id>), você recebe
+junto um contexto interno já traduzindo quem ou o que cada menção representa. Use essa informação pra
+entender do que ou de quem a pessoa está falando, mas nunca leia esse contexto interno em voz alta nem
+cite os códigos crus — fale só o nome, de forma natural.
+
+Você também consegue enxergar de verdade: se alguém pedir pra você ver, descrever ou comentar o avatar,
+o banner ou uma imagem que a pessoa anexou na mensagem (inclusive seu próprio avatar/banner), você usa
+a ferramenta de análise de imagem pra olhar de verdade antes de responder — nunca invente uma descrição
+visual sem ter chamado a ferramenta antes.
 
 NUNCA use markdown, asteriscos, emojis ou listas, porque sua resposta vira áudio. Responda SEMPRE
 em português do Brasil, mesmo que a pessoa escreva em outro idioma — nunca troque de idioma. Nunca
@@ -116,7 +161,7 @@ meta-comentário sobre a conversa. Seja direta e breve: no máximo 2 a 3 frases 
 já que seu áudio tem um limite de geração bem apertado.`;
 
 // ============ FERRAMENTAS ADMINISTRATIVAS (só disponíveis pra quem tem permissão) ============
-const FERRAMENTAS_ANA = [
+const FERRAMENTAS_ADMIN_ANA = [
     {
         type: 'function',
         function: {
@@ -249,8 +294,331 @@ const FERRAMENTAS_ANA = [
                 }
             }
         }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'adicionar_cargo_membro',
+            description: 'Adiciona (dá) um cargo a um membro do servidor.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    usuario_id: { type: 'string', description: 'ID do usuário que vai receber o cargo (extraído de uma menção <@id>)' },
+                    cargo_id: { type: 'string', description: 'ID do cargo a ser adicionado (extraído de uma menção <@&id>)' }
+                },
+                required: ['usuario_id', 'cargo_id']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'remover_cargo_membro',
+            description: 'Remove um cargo de um membro do servidor.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    usuario_id: { type: 'string', description: 'ID do usuário que vai perder o cargo (extraído de uma menção <@id>)' },
+                    cargo_id: { type: 'string', description: 'ID do cargo a ser removido (extraído de uma menção <@&id>)' }
+                },
+                required: ['usuario_id', 'cargo_id']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'editar_cargo',
+            description: 'Edita o nome, a cor e/ou se é mencionável de um cargo já existente.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    cargo_id: { type: 'string', description: 'ID do cargo a editar (extraído de uma menção <@&id>)' },
+                    novo_nome: { type: 'string', description: 'Novo nome do cargo (opcional)' },
+                    cor_hex: { type: 'string', description: 'Nova cor em hexadecimal, ex: #ff0000 (opcional)' },
+                    mencionavel: { type: 'boolean', description: 'Se o cargo passa a poder ser mencionado por qualquer um (opcional)' }
+                },
+                required: ['cargo_id']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'listar_cargos_servidor',
+            description: 'Lista todos os cargos existentes no servidor com nome e ID. Use quando precisar achar o ID de um cargo pelo nome, e ninguém mencionou o cargo diretamente na mensagem.',
+            parameters: { type: 'object', properties: {} }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'listar_canais_servidor',
+            description: 'Lista todos os canais e categorias existentes no servidor com nome, tipo e ID. Use quando precisar achar o ID de um canal pelo nome, e ninguém mencionou o canal diretamente na mensagem.',
+            parameters: { type: 'object', properties: {} }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'criar_categoria',
+            description: 'Cria uma categoria nova no servidor (pra organizar canais dentro dela).',
+            parameters: {
+                type: 'object',
+                properties: {
+                    nome: { type: 'string', description: 'Nome da categoria' }
+                },
+                required: ['nome']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'renomear_canal',
+            description: 'Renomeia um canal ou categoria já existente.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    canal_id: { type: 'string', description: 'ID do canal a renomear (extraído de uma menção <#id>)' },
+                    novo_nome: { type: 'string', description: 'Novo nome do canal' }
+                },
+                required: ['canal_id', 'novo_nome']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'mover_canal_categoria',
+            description: 'Move um canal pra dentro de uma categoria (ou tira o canal de qualquer categoria).',
+            parameters: {
+                type: 'object',
+                properties: {
+                    canal_id: { type: 'string', description: 'ID do canal a mover (extraído de uma menção <#id>)' },
+                    categoria_id: { type: 'string', description: 'ID da categoria de destino. Deixe vazio pra tirar o canal de qualquer categoria.' }
+                },
+                required: ['canal_id']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'trancar_canal',
+            description: 'Tranca um canal de texto, impedindo membros comuns (@everyone) de enviar mensagens nele.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    canal_id: { type: 'string', description: 'ID do canal a trancar (extraído de uma menção <#id>)' }
+                },
+                required: ['canal_id']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'destrancar_canal',
+            description: 'Destranca um canal de texto, permitindo membros comuns (@everyone) a enviarem mensagens nele de novo.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    canal_id: { type: 'string', description: 'ID do canal a destrancar (extraído de uma menção <#id>)' }
+                },
+                required: ['canal_id']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'definir_slowmode',
+            description: 'Define o modo lento (slowmode) de um canal de texto, em segundos.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    canal_id: { type: 'string', description: 'ID do canal (extraído de uma menção <#id>)' },
+                    segundos: { type: 'number', description: 'Intervalo do slowmode em segundos (0 a 21600). Use 0 pra desativar.' }
+                },
+                required: ['canal_id', 'segundos']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'alterar_apelido',
+            description: 'Altera o apelido (nickname) de um membro do servidor.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    usuario_id: { type: 'string', description: 'ID do usuário (extraído de uma menção <@id>)' },
+                    novo_apelido: { type: 'string', description: 'Novo apelido. Use uma string vazia pra remover o apelido e voltar ao nome original.' }
+                },
+                required: ['usuario_id', 'novo_apelido']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'mover_membro_voz',
+            description: 'Move um membro de um canal de voz pra outro.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    usuario_id: { type: 'string', description: 'ID do usuário a mover (extraído de uma menção <@id>)' },
+                    canal_voz_id: { type: 'string', description: 'ID do canal de voz de destino (extraído de uma menção <#id>)' }
+                },
+                required: ['usuario_id', 'canal_voz_id']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'desconectar_membro_voz',
+            description: 'Desconecta um membro de qualquer canal de voz que ele esteja.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    usuario_id: { type: 'string', description: 'ID do usuário a desconectar (extraído de uma menção <@id>)' }
+                },
+                required: ['usuario_id']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'desbanir_membro',
+            description: 'Remove o banimento de um usuário, permitindo ele entrar no servidor de novo.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    usuario_id: { type: 'string', description: 'ID do usuário a desbanir' }
+                },
+                required: ['usuario_id']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'criar_convite',
+            description: 'Cria um link de convite pra um canal do servidor.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    canal_id: { type: 'string', description: 'ID do canal onde o convite vai dar entrada (extraído de uma menção <#id>)' },
+                    duracao_minutos: { type: 'number', description: 'Validade do convite em minutos (0 = nunca expira, padrão 1440 = 24h)' },
+                    usos_maximos: { type: 'number', description: 'Número máximo de usos (0 = ilimitado, padrão 0)' }
+                },
+                required: ['canal_id']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'fixar_mensagem',
+            description: 'Fixa uma mensagem no topo do canal.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    canal_id: { type: 'string', description: 'ID do canal onde está a mensagem' },
+                    mensagem_id: { type: 'string', description: 'ID da mensagem a fixar' }
+                },
+                required: ['canal_id', 'mensagem_id']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'desafixar_mensagem',
+            description: 'Remove a fixação de uma mensagem do canal.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    canal_id: { type: 'string', description: 'ID do canal onde está a mensagem' },
+                    mensagem_id: { type: 'string', description: 'ID da mensagem a desafixar' }
+                },
+                required: ['canal_id', 'mensagem_id']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'limpar_mensagens',
+            description: 'Apaga as últimas N mensagens de um canal (limpeza geral, não filtra por usuário).',
+            parameters: {
+                type: 'object',
+                properties: {
+                    canal_id: { type: 'string', description: 'ID do canal a limpar' },
+                    quantidade: { type: 'number', description: 'Quantas mensagens apagar (1 a 100)' }
+                },
+                required: ['canal_id', 'quantidade']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'apagar_mensagens_usuario',
+            description: 'Apaga as últimas mensagens de um usuário específico dentro de um canal.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    canal_id: { type: 'string', description: 'ID do canal onde apagar as mensagens' },
+                    usuario_id: { type: 'string', description: 'ID do usuário cujas mensagens serão apagadas (extraído de uma menção <@id>)' },
+                    quantidade: { type: 'number', description: 'Quantas mensagens desse usuário apagar, no máximo (padrão 20, máximo 100)' }
+                },
+                required: ['canal_id', 'usuario_id']
+            }
+        }
     }
 ];
+
+// ============ FERRAMENTAS GERAIS (disponíveis pra QUALQUER pessoa, não só admin) ============
+// "Ver" avatar/banner/imagem não é uma ação administrativa, então essas ferramentas
+// ficam disponíveis mesmo pra quem não tem permissão de staff.
+const FERRAMENTAS_GERAIS_ANA = [
+    {
+        type: 'function',
+        function: {
+            name: 'ver_imagem_usuario',
+            description: 'Analisa visualmente o avatar (foto de perfil) ou o banner de um usuário do servidor, incluindo a própria Ana, e descreve as características visuais reais da imagem (cores, o que aparece, estilo, etc). Use sempre que alguém pedir pra você ver, descrever, comentar ou dizer as características do avatar/foto/banner de alguém — nunca invente uma descrição sem chamar essa ferramenta antes.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    usuario_id: {
+                        type: 'string',
+                        description: 'ID do usuário (extraído de uma menção <@id> na mensagem). Use "propria" se a pergunta for sobre a própria Ana, ou "autor" se for sobre quem está falando com você agora e não mencionou ninguém específico.'
+                    },
+                    tipo_imagem: {
+                        type: 'string',
+                        enum: ['avatar', 'banner'],
+                        description: 'Se é pra analisar o avatar (foto de perfil) ou o banner do usuário'
+                    }
+                },
+                required: ['usuario_id', 'tipo_imagem']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'ver_imagem_anexada',
+            description: 'Analisa visualmente uma imagem que a pessoa acabou de enviar/anexar junto da mensagem atual (foto, print, meme, etc) e descreve o que aparece nela. Use quando a pessoa mandar uma imagem e pedir pra você ver, comentar, descrever ou reagir a ela.',
+            parameters: { type: 'object', properties: {} }
+        }
+    }
+];
+
+// ============ CONFIRMAÇÃO PRA AÇÕES DESTRUTIVAS/IRREVERSÍVEIS ============
 
 // ============ CONFIRMAÇÃO PRA AÇÕES DESTRUTIVAS/IRREVERSÍVEIS ============
 const ACOES_QUE_PRECISAM_CONFIRMACAO = ['banir_membro', 'kickar_membro', 'deletar_canal', 'deletar_cargo'];
@@ -292,7 +660,7 @@ async function chamarDiscordAPI(method, url, body, motivo) {
 }
 
 // ============ EXECUTOR DAS FERRAMENTAS ============
-async function executarFerramentaAna(nome, args, guildId) {
+async function executarFerramentaAna(nome, args, guildId, contexto = {}) {
     switch (nome) {
         case 'criar_canal': {
             const tipoDiscord = args.tipo === 'voz' ? 2 : 0;
@@ -354,6 +722,177 @@ async function executarFerramentaAna(nome, args, guildId) {
             );
             return entradas.length ? entradas.join(' | ') : 'Nenhum registro recente encontrado.';
         }
+        case 'adicionar_cargo_membro': {
+            if (args.usuario_id === DONO_ID) return 'Não vou mexer nos cargos do dono do servidor.';
+            await chamarDiscordAPI('PUT', `/guilds/${guildId}/members/${args.usuario_id}/roles/${args.cargo_id}`, null, 'Cargo adicionado pela Ana a pedido de um usuário autorizado');
+            return 'Cargo adicionado com sucesso.';
+        }
+        case 'remover_cargo_membro': {
+            if (args.usuario_id === DONO_ID) return 'Não vou mexer nos cargos do dono do servidor.';
+            await chamarDiscordAPI('DELETE', `/guilds/${guildId}/members/${args.usuario_id}/roles/${args.cargo_id}`, null, 'Cargo removido pela Ana a pedido de um usuário autorizado');
+            return 'Cargo removido com sucesso.';
+        }
+        case 'editar_cargo': {
+            const payload = {};
+            if (args.novo_nome) payload.name = args.novo_nome;
+            if (args.cor_hex) payload.color = parseInt(args.cor_hex.replace('#', ''), 16);
+            if (typeof args.mencionavel === 'boolean') payload.mentionable = args.mencionavel;
+            const cargo = await chamarDiscordAPI('PATCH', `/guilds/${guildId}/roles/${args.cargo_id}`, payload, 'Editado pela Ana a pedido de um usuário autorizado');
+            return `Cargo "${cargo.name}" editado com sucesso.`;
+        }
+        case 'listar_cargos_servidor': {
+            const cargos = await chamarDiscordAPI('GET', `/guilds/${guildId}/roles`);
+            const lista = (cargos || [])
+                .filter(c => c.name !== '@everyone')
+                .map(c => `${c.name} (id: ${c.id})`);
+            return lista.length ? lista.join(' | ') : 'Nenhum cargo encontrado.';
+        }
+        case 'listar_canais_servidor': {
+            const canais = await chamarDiscordAPI('GET', `/guilds/${guildId}/channels`);
+            const lista = (canais || []).map(c => `${c.name} (id: ${c.id}, tipo: ${c.type})`);
+            return lista.length ? lista.join(' | ') : 'Nenhum canal encontrado.';
+        }
+        case 'criar_categoria': {
+            const categoria = await chamarDiscordAPI('POST', `/guilds/${guildId}/channels`, {
+                name: args.nome,
+                type: 4
+            }, 'Criada pela Ana a pedido de um usuário autorizado');
+            return `Categoria "${categoria.name}" criada com sucesso.`;
+        }
+        case 'renomear_canal': {
+            const canal = await chamarDiscordAPI('PATCH', `/channels/${args.canal_id}`, {
+                name: args.novo_nome
+            }, 'Renomeado pela Ana a pedido de um usuário autorizado');
+            return `Canal renomeado pra "${canal.name}" com sucesso.`;
+        }
+        case 'mover_canal_categoria': {
+            await chamarDiscordAPI('PATCH', `/channels/${args.canal_id}`, {
+                parent_id: args.categoria_id || null
+            }, 'Movido pela Ana a pedido de um usuário autorizado');
+            return 'Canal movido com sucesso.';
+        }
+        case 'trancar_canal': {
+            await chamarDiscordAPI('PUT', `/channels/${args.canal_id}/permissions/${guildId}`, {
+                deny: '2048',
+                allow: '0',
+                type: 0
+            }, 'Trancado pela Ana a pedido de um usuário autorizado');
+            return 'Canal trancado com sucesso.';
+        }
+        case 'destrancar_canal': {
+            await chamarDiscordAPI('PUT', `/channels/${args.canal_id}/permissions/${guildId}`, {
+                deny: '0',
+                allow: '0',
+                type: 0
+            }, 'Destrancado pela Ana a pedido de um usuário autorizado');
+            return 'Canal destrancado com sucesso.';
+        }
+        case 'definir_slowmode': {
+            const segundos = Math.min(Math.max(args.segundos || 0, 0), 21600);
+            await chamarDiscordAPI('PATCH', `/channels/${args.canal_id}`, {
+                rate_limit_per_user: segundos
+            }, 'Slowmode alterado pela Ana a pedido de um usuário autorizado');
+            return segundos > 0 ? `Slowmode desse canal ajustado pra ${segundos} segundo(s).` : 'Slowmode desativado nesse canal.';
+        }
+        case 'alterar_apelido': {
+            if (args.usuario_id === DONO_ID) return 'Não vou mexer no apelido do dono do servidor.';
+            await chamarDiscordAPI('PATCH', `/guilds/${guildId}/members/${args.usuario_id}`, {
+                nick: args.novo_apelido || null
+            }, 'Apelido alterado pela Ana a pedido de um usuário autorizado');
+            return 'Apelido alterado com sucesso.';
+        }
+        case 'mover_membro_voz': {
+            await chamarDiscordAPI('PATCH', `/guilds/${guildId}/members/${args.usuario_id}`, {
+                channel_id: args.canal_voz_id
+            }, 'Movido pela Ana a pedido de um usuário autorizado');
+            return 'Membro movido de canal de voz com sucesso.';
+        }
+        case 'desconectar_membro_voz': {
+            if (args.usuario_id === DONO_ID) return 'Não vou desconectar o dono do servidor da call.';
+            await chamarDiscordAPI('PATCH', `/guilds/${guildId}/members/${args.usuario_id}`, {
+                channel_id: null
+            }, 'Desconectado pela Ana a pedido de um usuário autorizado');
+            return 'Membro desconectado da call com sucesso.';
+        }
+        case 'desbanir_membro': {
+            await chamarDiscordAPI('DELETE', `/guilds/${guildId}/bans/${args.usuario_id}`, null, 'Desbanido pela Ana a pedido de um usuário autorizado');
+            return 'Usuário desbanido com sucesso.';
+        }
+        case 'criar_convite': {
+            const convite = await chamarDiscordAPI('POST', `/channels/${args.canal_id}/invites`, {
+                max_age: Math.max(args.duracao_minutos ?? 1440, 0) * 60,
+                max_uses: Math.max(args.usos_maximos || 0, 0)
+            }, 'Convite criado pela Ana a pedido de um usuário autorizado');
+            return `Convite criado: https://discord.gg/${convite.code}`;
+        }
+        case 'fixar_mensagem': {
+            await chamarDiscordAPI('PUT', `/channels/${args.canal_id}/pins/${args.mensagem_id}`, null, 'Fixada pela Ana a pedido de um usuário autorizado');
+            return 'Mensagem fixada com sucesso.';
+        }
+        case 'desafixar_mensagem': {
+            await chamarDiscordAPI('DELETE', `/channels/${args.canal_id}/pins/${args.mensagem_id}`, null, 'Desafixada pela Ana a pedido de um usuário autorizado');
+            return 'Mensagem desafixada com sucesso.';
+        }
+        case 'limpar_mensagens': {
+            const quantidade = Math.min(Math.max(args.quantidade || 10, 1), 100);
+            const mensagensCanal = await chamarDiscordAPI('GET', `/channels/${args.canal_id}/messages?limit=${quantidade}`);
+            const ids = (mensagensCanal || []).map(m => m.id);
+            if (ids.length === 0) return 'Não achei mensagens pra apagar nesse canal.';
+            if (ids.length === 1) {
+                await chamarDiscordAPI('DELETE', `/channels/${args.canal_id}/messages/${ids[0]}`, null, 'Limpeza feita pela Ana a pedido de um usuário autorizado');
+            } else {
+                await chamarDiscordAPI('POST', `/channels/${args.canal_id}/messages/bulk-delete`, { messages: ids }, 'Limpeza feita pela Ana a pedido de um usuário autorizado');
+            }
+            return `${ids.length} mensagem(ns) apagada(s) com sucesso.`;
+        }
+        case 'apagar_mensagens_usuario': {
+            if (args.usuario_id === DONO_ID) return 'Não vou apagar as mensagens do dono do servidor.';
+            const limite = Math.min(Math.max(args.quantidade || 20, 1), 100);
+            const mensagensCanal = await chamarDiscordAPI('GET', `/channels/${args.canal_id}/messages?limit=100`);
+            const doUsuario = (mensagensCanal || [])
+                .filter(m => m.author?.id === args.usuario_id)
+                .slice(0, limite)
+                .map(m => m.id);
+            if (doUsuario.length === 0) return 'Não achei mensagens recentes desse usuário nesse canal (só consigo ver as últimas 100 mensagens, e nada com mais de 14 dias).';
+            if (doUsuario.length === 1) {
+                await chamarDiscordAPI('DELETE', `/channels/${args.canal_id}/messages/${doUsuario[0]}`, null, 'Mensagens apagadas pela Ana a pedido de um usuário autorizado');
+            } else {
+                await chamarDiscordAPI('POST', `/channels/${args.canal_id}/messages/bulk-delete`, { messages: doUsuario }, 'Mensagens apagadas pela Ana a pedido de um usuário autorizado');
+            }
+            return `${doUsuario.length} mensagem(ns) desse usuário apagada(s) com sucesso.`;
+        }
+        case 'ver_imagem_usuario': {
+            let alvoId = args.usuario_id;
+            if (alvoId === 'propria' || alvoId === 'propio' || alvoId === 'bot') {
+                const eu = await chamarDiscordAPI('GET', '/users/@me');
+                alvoId = eu.id;
+            } else if (alvoId === 'autor' && contexto.autorId) {
+                alvoId = contexto.autorId;
+            }
+            const usuario = await chamarDiscordAPI('GET', `/users/${alvoId}`);
+            const hash = args.tipo_imagem === 'banner' ? usuario.banner : usuario.avatar;
+            if (!hash) {
+                return args.tipo_imagem === 'banner'
+                    ? 'Essa pessoa não tem banner configurado, só a cor de destaque padrão.'
+                    : 'Não consegui achar um avatar customizado pra essa pessoa (deve estar com o avatar padrão do Discord).';
+            }
+            const extensao = hash.startsWith('a_') ? 'gif' : 'png';
+            const pasta = args.tipo_imagem === 'banner' ? 'banners' : 'avatars';
+            const url = `https://cdn.discordapp.com/${pasta}/${alvoId}/${hash}.${extensao}?size=512`;
+            return await analisarImagem(
+                url,
+                `Descreva de forma natural e breve as características visuais dessa imagem de ${args.tipo_imagem === 'banner' ? 'banner' : 'avatar/foto de perfil'} do Discord: cores predominantes, o que aparece (pessoa, personagem, desenho, foto real, paisagem, etc), estilo geral e qualquer detalhe marcante. Responda em português, direto, sem introdução.`
+            );
+        }
+        case 'ver_imagem_anexada': {
+            if (!contexto.imagemAnexadaUrl) {
+                return 'Não tem nenhuma imagem anexada nessa mensagem pra eu ver.';
+            }
+            return await analisarImagem(
+                contexto.imagemAnexadaUrl,
+                'Descreva de forma natural e breve o que aparece nessa imagem, direto, sem introdução, em português.'
+            );
+        }
         default:
             return 'Essa ferramenta não existe.';
     }
@@ -409,7 +948,7 @@ async function obterCompletionComRetry(mensagens, ferramentas) {
 // ============ OPENROUTER: gera o texto da resposta (com suporte a ferramentas) ============
 
     async function gerarRespostaAna(userId, textoUsuario, contexto = {}) {
-    const { guildId, autorizado } = contexto;
+    const { guildId, autorizado, imagemAnexadaUrl, notaContexto } = contexto;
 
     const chavePendente = `${guildId}:${userId}`;
     const pendente = confirmacoesPendentesAna.get(chavePendente);
@@ -426,7 +965,7 @@ async function obterCompletionComRetry(mensagens, ferramentas) {
                 pularFerramentasNestaRodada = true;
                 let resultadoExecucao;
                 try {
-                    resultadoExecucao = await executarFerramentaAna(pendente.nome, pendente.args, guildId);
+                    resultadoExecucao = await executarFerramentaAna(pendente.nome, pendente.args, guildId, contexto);
                 } catch (erro) {
                     resultadoExecucao = `Erro ao executar: ${erro.message}`;
                 }
@@ -457,10 +996,12 @@ async function obterCompletionComRetry(mensagens, ferramentas) {
     const mensagens = [
         { role: 'system', content: PERSONA_ANA + infoDono + infoPermissao + infoResultadoConfirmacao },
         ...historico.slice(-20).map(m => ({ role: m.role, content: m.content })),
-        { role: 'user', content: textoUsuario }
+        { role: 'user', content: (notaContexto ? notaContexto + '\n\n' : '') + textoUsuario }
     ];
 
-    const ferramentas = (autorizado && guildId && !pularFerramentasNestaRodada) ? FERRAMENTAS_ANA : undefined;
+    const ferramentas = (guildId && !pularFerramentasNestaRodada)
+        ? [...FERRAMENTAS_GERAIS_ANA, ...(autorizado ? FERRAMENTAS_ADMIN_ANA : [])]
+        : undefined;
 
     let mensagemResposta = await obterCompletionComRetry(mensagens, ferramentas);
 
@@ -485,7 +1026,7 @@ async function obterCompletionComRetry(mensagens, ferramentas) {
                     });
                     resultado = 'Ação registrada, mas é IRREVERSÍVEL — NÃO execute ainda. Peça pra pessoa confirmar de forma explícita (respondendo "sim" ou "confirmo") antes de fazer de verdade, explicando rapidinho o que ela está confirmando.';
                 } else {
-                    resultado = await executarFerramentaAna(chamada.function.name, args, guildId);
+                    resultado = await executarFerramentaAna(chamada.function.name, args, guildId, contexto);
                 }
             } catch (erro) {
                 resultado = `Erro ao executar: ${erro.message}`;
@@ -529,13 +1070,30 @@ async function obterCompletionComRetry(mensagens, ferramentas) {
 
 // ============ LIMPEZA DO TEXTO ANTES DE VIRAR ÁUDIO ============
 function limparTextoParaAudio(texto) {
-    return texto
-        .replace(/<@!?\d+>/g, '')      // menções de usuário cruas (<@id> / <@!id>)
-        .replace(/<@&\d+>/g, '')       // menções de cargo cruas (<@&id>)
-        .replace(/<#\d+>/g, '')        // menções de canal cruas (<#id>)
-        .replace(/[*_~`]/g, '')        // sobras de markdown que passaram batido
-        .replace(/\s{2,}/g, ' ')       // espaços duplicados que isso deixa pra trás
+    if (!texto) return 'Oi?';
+
+    let limpo = texto
+        .replace(/<a?:\w{2,32}:\d{15,21}>/g, '')            // emojis customizados do Discord <:nome:id>
+        .replace(/<@!?\d+>/g, '')                            // menções de usuário cruas (<@id> / <@!id>)
+        .replace(/<@&\d+>/g, '')                             // menções de cargo cruas (<@&id>)
+        .replace(/<#\d+>/g, '')                              // menções de canal cruas (<#id>)
+        .replace(/https?:\/\/\S+/gi, '')                     // links (não faz sentido falar URL em voz alta)
+        .replace(/```[\s\S]*?```/g, '')                      // blocos de código
+        .replace(/`{1,3}[^`]*`{1,3}/g, '')                   // código inline
+        .replace(/\*\*?([^*]+)\*\*?/g, '$1')                 // negrito/itálico -> mantém só o texto
+        .replace(/[_~]/g, '')                                // sobras de markdown
+        .replace(/\([^)]{0,60}\)/g, '')                      // parênteses curtos (geralmente rubrica tipo "(risos)")
+        .replace(/\p{Extended_Pictographic}\uFE0F?/gu, '')   // emojis unicode
+        .replace(/[#*_~`>|]/g, '')                           // símbolos de markdown soltos
+        .replace(/&amp;/g, 'e').replace(/&[a-z]+;/gi, '')    // entidades HTML perdidas
+        .replace(/([!?.]){2,}/g, '$1')                       // "!!!" "???" repetidos -> um só
+        .replace(/\s{2,}/g, ' ')                             // espaços duplicados
         .trim();
+
+    // Trava de segurança: se sobrou vazio ou muito curto/estranho depois da limpeza, evita mandar áudio quebrado
+    if (!limpo || limpo.length < 2) limpo = 'Oi?';
+
+    return limpo;
 }
 
 // ============ FISH AUDIO: texto -> mp3 ============
@@ -651,9 +1209,9 @@ async function enviarMensagemDeVoz({ canalId, caminhoOgg, duracaoSegundos, wavef
 }
 
 // ============ FUNÇÃO PRINCIPAL: junta tudo ============
-async function anaResponderComAudio({ canalId, autorId, textoUsuario, replyToMessageId, guildId, autorizado }) {
+async function anaResponderComAudio({ canalId, autorId, textoUsuario, replyToMessageId, guildId, autorizado, imagemAnexadaUrl, notaContexto }) {
     console.log('[DEBUG-ANA] anaResponderComAudio: gerando texto da resposta...');
-    const textoBruto = await gerarRespostaAna(autorId, textoUsuario, { guildId, autorizado });
+    const textoBruto = await gerarRespostaAna(autorId, textoUsuario, { guildId, autorizado, imagemAnexadaUrl, notaContexto, autorId });
     const textoResposta = limparTextoParaAudio(textoBruto);
     console.log(`[DEBUG-ANA] Texto gerado: "${textoResposta}"`);
 
