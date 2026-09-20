@@ -42,7 +42,7 @@ MessageClass.prototype.delete = function (...args) {
 };
 
 const { anaResponderComAudio, DONO_ID: DONO_ID_ANA } = require('./ana_voz');
-const CANAIS_VOZ_ANA = ['1548489854038581308', '1548578896054718474'];
+const CANAIS_VOZ_ANA = ['1550979191040909402', '1551247350435938354'];
 
 
 const mongoConectado = mongoose.connect(MONGO_URI)
