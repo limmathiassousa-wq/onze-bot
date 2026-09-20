@@ -50,12 +50,12 @@ const redis = require('./redis');
 const { supabase } = require('./supabase');
 
 const {
-    ServerBackup, Carteira, XP, Mensagens, ConfigMoedas, EventoMoedasState,
-    CargoLoja, VoiceState, BotCallPainel, ContadorTicket, TicketData,
-    ProtecaoConfigModel, ConviteStats,
+    ServerBackup, Carteira, XP, Mensagens,
+    CargoLoja, VoiceState, ContadorTicket, TicketData,
+    ConviteStats,
     ConviteMembro, Sorteio, TellonymPost, InstaPost,
     HistoricoUsername, HistoricoAvatar, HistoricoBanner,
-    Daily, Afk, TellonymPendente,
+    Afk, TellonymPendente,
     MapaPersistenteEntry, HistoricoBio, MuteCargo, TranscriptModel, TranscriptMedia,
     MensagemCriador
 } = require('./models');
