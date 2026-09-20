@@ -158,7 +158,12 @@ async function obterPrimeirasDamas(guildId, setterId) {
         console.error('--- Erro ao obter primeiras damas ---', error);
         return [];
     }
-    return data;
+    return data.map(d => ({
+        guildId: d.guild_id,
+        setterId: d.setter_id,
+        targetId: d.target_id,
+        criadoEm: d.criado_em
+    }));
 }
 
 function montarPainelPD(guild, damas) {
