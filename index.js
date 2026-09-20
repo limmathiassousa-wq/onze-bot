@@ -1695,7 +1695,11 @@ client.on('messageCreate', async (message) => {
 
 client.on(Events.MessageCreate, async (message) => {
     if (!message.guild || !message.channel) return; 
-    if (message.author.bot) return;
+
+    if (message.author.bot) {
+        await verificarSpamMensagem(message).catch(() => null);
+        return;
+    }
     
 
 if (ticketDB.has(message.channel.id)) {
