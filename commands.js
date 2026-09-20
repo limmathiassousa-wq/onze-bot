@@ -7,12 +7,13 @@ const {
 const { getVoiceConnection } = require('@discordjs/voice');
 
 const redis = require('./redis');
+const { supabase } = require('./supabase');
 const {
     CARGOS_ATENDENTE, CARGO_PD_PERMISSAO, CARGO_PRIMEIRA_DAMA, LIMITE_PRIMEIRAS_DAMAS,
     USUARIOS_BLOQUEADOS_EDICAO, COOLDOWN_DAILY_MS, MOEDAS_DAILY, CARGO_MUTADO,
     CARGO_BLOQUEADO_MODERACAO, CANAL_LOGS_KICKS
 } = require('./constants');
-const { PrimeiraDama, ConviteStats } = require('./models');
+const { ConviteStats } = require('./models');
 const { botCallDB, botCallPaineis, confirmacaoModeracaoDB, msgCriadorDB, sorteioDraftDB, muteDraftDB} = require('./state');
 const {
     esperar, containerTexto, comRetry, xpNecessario,
@@ -76,10 +77,12 @@ function montarPainelBotCall(guildId) {
 }
 
 async function registrarPainelBotCall(guildId, channelId, messageId) {
-    const { BotCallPainel } = require('./models');
     botCallPaineis.set(guildId, { channelId, messageId });
     try {
-        await BotCallPainel.findOneAndUpdate({ guildId }, { channelId, messageId }, { upsert: true });
+        const { error } = await supabase
+            .from('bot_call_painel')
+            .upsert({ guild_id: guildId, channel_id: channelId, message_id: messageId });
+        if (error) throw error;
     } catch (err) {
         console.error('--- Erro ao salvar painel de botcall ---', err);
     }
@@ -145,7 +148,17 @@ function montarPainelMuteCargo(draft) {
 }
 
 async function obterPrimeirasDamas(guildId, setterId) {
-    return await PrimeiraDama.find({ guildId, setterId }).sort({ criadoEm: 1 });
+    const { data, error } = await supabase
+        .from('primeira_dama')
+        .select('*')
+        .eq('guild_id', guildId)
+        .eq('setter_id', setterId)
+        .order('criado_em', { ascending: true });
+    if (error) {
+        console.error('--- Erro ao obter primeiras damas ---', error);
+        return [];
+    }
+    return data;
 }
 
 function montarPainelPD(guild, damas) {
