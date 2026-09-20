@@ -4303,6 +4303,7 @@ async function verificarSpamMensagem(message) {
     } finally {
         spamPunicaoEmAndamento.delete(userId);
     }
+}
 
 function montarPainelMoedas() {
     return new ContainerBuilder()
