@@ -441,7 +441,7 @@ async function logarAntiLink({ guild, usuario, motivo, link, canal: canalOrigem,
 }
 
 // ============ ANTI-SPAM — EMBED PRÓPRIA ============
-async function logarAntiSpam({ guild, usuario, motivo, canal: canalOrigem, muteMinutos, canalId }) {
+async function logarAntiSpam({ guild, usuario, motivo, canal: canalOrigem, muteMinutos, canalId, acao }) {
     try {
         const canal = await guild.channels.fetch(canalId || CANAL_LOGS_AUTOMOD).catch(() => null);
         if (!canal) return;
@@ -449,20 +449,25 @@ async function logarAntiSpam({ guild, usuario, motivo, canal: canalOrigem, muteM
         const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
         const avatarUrl = obterAvatarUrl(usuario);
 
+        const ehKick = acao === 'kick';
+        const textoAcao = ehKick
+            ? 'Mensagens apagadas + **expulsão** (bot detectado)'
+            : `Mensagens apagadas + timeout de \`${muteMinutos}\` minuto(s)`;
+
         const container = new ContainerBuilder()
             .setAccentColor(0xFFFFFF)
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
                         new TextDisplayBuilder().setContent(`### Anti-Spam — ${guild.name}`),
-                        new TextDisplayBuilder().setContent(`**Usuário:** ${usuario} — \`${obterTag(usuario)}\` (\`${usuario?.id ?? '?'}\`)`),
+                        new TextDisplayBuilder().setContent(`**Usuário:** ${usuario} — \`${obterTag(usuario)}\` (\`${usuario?.id ?? '?'}\`)${ehKick ? ' — **BOT**' : ''}`),
                         new TextDisplayBuilder().setContent('**Executado por:** Sistema Automático')
                     )
                     .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
             )
             .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
             .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Motivo:** ${motivo}`))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Canal:** ${canalOrigem}\n**Ação:** Mensagens apagadas + timeout de \`${muteMinutos}\` minuto(s)`))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Canal:** ${canalOrigem}\n**Ação:** ${textoAcao}`))
             .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
             .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
 
