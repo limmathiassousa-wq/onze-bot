@@ -43,6 +43,12 @@ const FISH_VOICE_ID = 'cd958f67648b49a2b2ebfca7b3ee8583'; // voz "Ana"
 
 const PERSONA_ANA = `Você é Ana, a voz de um servidor de Discord. Fale em português do Brasil.
 
+Quando alguém te mencionar (tipo <@1234567890>) ou mencionar outra pessoa na mensagem, você entende
+que aquilo é uma referência a uma pessoa, mas NUNCA fala esse código em voz alta na sua resposta —
+já que ela vira áudio, ninguém quer ouvir um número gigante no meio da fala. Refira-se à pessoa de
+forma natural falada: "ele", "ela", "essa pessoa aí", pelo apelido se você souber, ou simplesmente
+sem citar quem é, dependendo do que fizer mais sentido na frase.
+
 Por padrão você é carinhosa, animada e acolhedora com as pessoas — curte conversar, trata bem,
 puxa assunto com interesse genuíno, comenta o que a pessoa falou, reage antes de mudar de assunto.
 Presta atenção em como cada pessoa fala (gíria, humor, estilo) e vai se ajustando ao jeito dela ao
@@ -521,6 +527,17 @@ async function obterCompletionComRetry(mensagens, ferramentas) {
     return resposta;
 }
 
+// ============ LIMPEZA DO TEXTO ANTES DE VIRAR ÁUDIO ============
+function limparTextoParaAudio(texto) {
+    return texto
+        .replace(/<@!?\d+>/g, '')      // menções de usuário cruas (<@id> / <@!id>)
+        .replace(/<@&\d+>/g, '')       // menções de cargo cruas (<@&id>)
+        .replace(/<#\d+>/g, '')        // menções de canal cruas (<#id>)
+        .replace(/[*_~`]/g, '')        // sobras de markdown que passaram batido
+        .replace(/\s{2,}/g, ' ')       // espaços duplicados que isso deixa pra trás
+        .trim();
+}
+
 // ============ FISH AUDIO: texto -> mp3 ============
 async function sintetizarAudioElevenLabs(texto) {
     const resposta = await fetch('https://api.fish.audio/v1/tts', {
@@ -636,7 +653,8 @@ async function enviarMensagemDeVoz({ canalId, caminhoOgg, duracaoSegundos, wavef
 // ============ FUNÇÃO PRINCIPAL: junta tudo ============
 async function anaResponderComAudio({ canalId, autorId, textoUsuario, replyToMessageId, guildId, autorizado }) {
     console.log('[DEBUG-ANA] anaResponderComAudio: gerando texto da resposta...');
-    const textoResposta = await gerarRespostaAna(autorId, textoUsuario, { guildId, autorizado });
+    const textoBruto = await gerarRespostaAna(autorId, textoUsuario, { guildId, autorizado });
+    const textoResposta = limparTextoParaAudio(textoBruto);
     console.log(`[DEBUG-ANA] Texto gerado: "${textoResposta}"`);
 
     console.log('[DEBUG-ANA] Sintetizando áudio via Fish Audio...');
