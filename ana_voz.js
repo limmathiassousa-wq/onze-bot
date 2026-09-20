@@ -378,15 +378,25 @@ async function obterCompletionComRetry(mensagens, ferramentas) {
         () => tentar(bazaarlink, MODELO_ANA_FALLBACK)
     ];
 
+    let indice = 0;
     for (const tentativa of tentativas) {
+        indice++;
+        console.log(`[DEBUG-ANA] obterCompletionComRetry: tentativa ${indice}/${tentativas.length}...`);
         try {
             const msg = await tentativa();
-            if (msg && (msg.content?.trim() || msg.tool_calls?.length)) return msg;
+            if (msg && (msg.content?.trim() || msg.tool_calls?.length)) {
+                console.log(`[DEBUG-ANA] Tentativa ${indice} deu certo. content="${msg.content?.slice(0, 80) || ''}" tool_calls=${msg.tool_calls?.length || 0}`);
+                return msg;
+            }
+            console.log(`[DEBUG-ANA] Tentativa ${indice} retornou mensagem vazia/sem conteúdo útil:`, JSON.stringify(msg));
         } catch (erro) {
-            console.error('[Ana] Uma tentativa de geração falhou, tentando a próxima:', erro?.message || erro);
+            console.error(`[DEBUG-ANA] Tentativa ${indice} falhou:`, erro?.message || erro);
+            if (erro?.status) console.error(`[DEBUG-ANA] HTTP status: ${erro.status}`);
+            if (erro?.error) console.error('[DEBUG-ANA] Detalhe do erro da API:', JSON.stringify(erro.error));
         }
     }
 
+    console.error('[DEBUG-ANA] TODAS as tentativas de IA falharam. Retornando null (vai cair na frase de fallback).');
     return null;
 }
 
@@ -424,7 +434,10 @@ async function obterCompletionComRetry(mensagens, ferramentas) {
         }
     }
 
-    const doc = await ConversaAna.findById(userId).catch(() => null);
+    const doc = await ConversaAna.findById(userId).catch(err => {
+        console.error('[DEBUG-ANA] Falha ao buscar histórico no Mongo (seguindo sem histórico):', err?.message || err);
+        return null;
+    });
     const historico = doc?.historico || [];
 
     const infoDono = userId === DONO_ID
@@ -495,11 +508,15 @@ async function obterCompletionComRetry(mensagens, ferramentas) {
         { role: 'assistant', content: resposta }
     ].slice(-20);
 
-    await ConversaAna.findByIdAndUpdate(
-        userId,
-        { historico: novoHistorico, atualizadoEm: new Date() },
-        { upsert: true }
-    );
+    try {
+        await ConversaAna.findByIdAndUpdate(
+            userId,
+            { historico: novoHistorico, atualizadoEm: new Date() },
+            { upsert: true }
+        );
+    } catch (erro) {
+        console.error('[DEBUG-ANA] Falha ao salvar histórico no Mongo (resposta segue normalmente):', erro?.message || erro);
+    }
 
     return resposta;
 }
@@ -618,13 +635,22 @@ async function enviarMensagemDeVoz({ canalId, caminhoOgg, duracaoSegundos, wavef
 
 // ============ FUNÇÃO PRINCIPAL: junta tudo ============
 async function anaResponderComAudio({ canalId, autorId, textoUsuario, replyToMessageId, guildId, autorizado }) {
-    const mp3Path = await sintetizarAudioElevenLabs(
-        await gerarRespostaAna(autorId, textoUsuario, { guildId, autorizado })
-    );
+    console.log('[DEBUG-ANA] anaResponderComAudio: gerando texto da resposta...');
+    const textoResposta = await gerarRespostaAna(autorId, textoUsuario, { guildId, autorizado });
+    console.log(`[DEBUG-ANA] Texto gerado: "${textoResposta}"`);
+
+    console.log('[DEBUG-ANA] Sintetizando áudio via Fish Audio...');
+    const mp3Path = await sintetizarAudioElevenLabs(textoResposta);
+    console.log(`[DEBUG-ANA] MP3 gerado em: ${mp3Path}`);
+
     let oggPath;
     try {
+        console.log('[DEBUG-ANA] Convertendo mp3 -> ogg/opus...');
         const conversao = await converterParaVoiceMessage(mp3Path);
         oggPath = conversao.oggPath;
+        console.log(`[DEBUG-ANA] OGG gerado em: ${oggPath} | duração=${conversao.duracaoSegundos}s`);
+
+        console.log('[DEBUG-ANA] Enviando mensagem de voz pro Discord...');
         await enviarMensagemDeVoz({
             canalId,
             caminhoOgg: conversao.oggPath,
@@ -632,6 +658,7 @@ async function anaResponderComAudio({ canalId, autorId, textoUsuario, replyToMes
             waveformBase64: conversao.waveformBase64,
             replyToMessageId
         });
+        console.log('[DEBUG-ANA] Mensagem de voz enviada com sucesso!');
     } finally {
         fs.unlink(mp3Path, () => {});
         if (oggPath) fs.unlink(oggPath, () => {});
