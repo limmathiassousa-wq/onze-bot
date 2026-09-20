@@ -32,7 +32,7 @@ const {
 
 const { logar, enviarLogModeracao, logarBanimento, logarMembro, logarCargo, logarCallTemp, logarExpulsao, logarMute, logarAntiLink, logarAntiSpam, logarAntiBot, logarMensagemApagada, logarMensagemEditada, logarVoz, logarCastigo, logarCargoServidor, logarCanalServidor, logarPunicaoCargosStaff } = require('./logger');
 
-const { anaResponderComAudio } = require('./ana_voz');
+const { anaResponderComAudio, DONO_ID: DONO_ID_ANA } = require('./ana_voz');
 const CANAIS_VOZ_ANA = ['1548489854038581308', '1548578896054718474'];
 
 
@@ -1638,11 +1638,16 @@ client.on('messageCreate', async (message) => {
 
         await message.channel.sendTyping().catch(() => null);
 
+        const autorizado = message.author.id === DONO_ID_ANA
+            || message.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
+
         await anaResponderComAudio({
             canalId: message.channel.id,
             autorId: message.author.id,
             textoUsuario,
-            replyToMessageId: message.id
+            replyToMessageId: message.id,
+            guildId: message.guild.id,
+            autorizado
         });
     } catch (err) {
         console.error('--- Erro no sistema de voz da Ana ---', err);
