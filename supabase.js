@@ -17,12 +17,14 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
 
 // Log de conexão (valida com uma query simples numa tabela leve;
 // troque 'healthcheck' por qualquer tabela real que você já tenha criado)
+const CODIGOS_TABELA_INEXISTENTE = ['42P01', 'PGRST205']; // 42P01 = Postgres nativo | PGRST205 = PostgREST (schema cache), ambos ok por enquanto
+
 const supabaseConectado = supabase
     .from('healthcheck')
     .select('*')
     .limit(1)
     .then(({ error }) => {
-        if (error && error.code !== '42P01') { // 42P01 = tabela não existe, ok por enquanto
+        if (error && !CODIGOS_TABELA_INEXISTENTE.includes(error.code)) {
             console.error('--- Erro ao conectar no Supabase ---', error);
             return false;
         }
