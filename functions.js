@@ -20,8 +20,8 @@ const { logarAntiLink, logarAntiSpam, logarPunicaoCargosStaff } = require('./log
 const redis = require('./redis');
 const { supabase } = require('./supabase');
 const {
-    ServerBackup, Mensagens, ConfigMoedas, EventoMoedasState, CargoLoja, VoiceState, BotCallPainel,
-    ContadorTicket, TicketData, ProtecaoConfigModel, ConviteStats, Sorteio, InstaPost, HistoricoUsername,
+    ServerBackup, Mensagens, CargoLoja, VoiceState,
+    ContadorTicket, TicketData, ConviteStats, Sorteio, InstaPost, HistoricoUsername,
     HistoricoAvatar, HistoricoBanner, TellonymPendente, MapaPersistenteEntry, HistoricoBio, MuteCargo,
     TranscriptMedia
 } = require('./models');
