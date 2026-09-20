@@ -18,6 +18,7 @@ const { botCallDB, botCallPaineis, msgCriadorDB } = require('./state');
 const { esperar, containerTexto, comRetry, xpNecessario, somarSaldo, getXP, setXP, urlValida } = require('./helpers');
 const { logarAntiLink, logarAntiSpam, logarPunicaoCargosStaff } = require('./logger');
 const redis = require('./redis');
+const { supabase } = require('./supabase');
 const {
     ServerBackup, Mensagens, ConfigMoedas, EventoMoedasState, CargoLoja, VoiceState, BotCallPainel,
     ContadorTicket, TicketData, ProtecaoConfigModel, ConviteStats, Sorteio, InstaPost, HistoricoUsername,
@@ -516,11 +517,10 @@ const REGEX_EVERYONE_HERE = /@(everyone|here)/i;
 
 async function salvarConfigMoedas() {
     try {
-        await ConfigMoedas.findByIdAndUpdate(
-            'config_moedas',
-            { ativo: eventoMoedasAtivo },
-            { upsert: true }
-        );
+        const { error } = await supabase
+            .from('config_moedas')
+            .upsert({ id: 'config_moedas', ativo: eventoMoedasAtivo });
+        if (error) throw error;
     } catch (err) {
         console.error('--- Erro ao salvar config do evento de moedas ---', err);
     }
@@ -528,7 +528,12 @@ async function salvarConfigMoedas() {
 
 async function carregarConfigMoedas() {
     try {
-        const doc = await ConfigMoedas.findById('config_moedas');
+        const { data: doc, error } = await supabase
+            .from('config_moedas')
+            .select('*')
+            .eq('id', 'config_moedas')
+            .maybeSingle();
+        if (error) throw error;
         if (doc && typeof doc.ativo === 'boolean') eventoMoedasAtivo = doc.ativo;
         console.log(`[Moedas] Evento automático carregado: ${eventoMoedasAtivo ? 'ativo' : 'desativado'}.`);
     } catch (err) {
@@ -3887,17 +3892,17 @@ async function darXP(message) {
 
 async function salvarProtecao() {
     try {
-        await ProtecaoConfigModel.findByIdAndUpdate(
-            'protecao_config',
-            {
-                antiSpam: protecaoConfig.antiSpam,
-                antiLink: protecaoConfig.antiLink,
-                antiFake: protecaoConfig.antiFake,
-                antiBot: protecaoConfig.antiBot,
-                antiRaid: protecaoConfig.antiRaid
-            },
-            { upsert: true }
-        );
+        const { error } = await supabase
+            .from('protecao_config')
+            .upsert({
+                id: 'protecao_config',
+                anti_spam: protecaoConfig.antiSpam,
+                anti_link: protecaoConfig.antiLink,
+                anti_fake: protecaoConfig.antiFake,
+                anti_bot: protecaoConfig.antiBot,
+                anti_raid: protecaoConfig.antiRaid
+            });
+        if (error) throw error;
     } catch (err) {
         console.error('--- Erro ao salvar config de proteção ---', err);
     }
@@ -3905,14 +3910,19 @@ async function salvarProtecao() {
 
 async function carregarProtecao() {
     try {
-        const doc = await ProtecaoConfigModel.findById('protecao_config');
+        const { data: doc, error } = await supabase
+            .from('protecao_config')
+            .select('*')
+            .eq('id', 'protecao_config')
+            .maybeSingle();
+        if (error) throw error;
         if (doc) {
-            Object.assign(protecaoConfig.antiSpam, doc.antiSpam?.toObject?.() ?? doc.antiSpam ?? {});
-            Object.assign(protecaoConfig.antiLink, doc.antiLink?.toObject?.() ?? doc.antiLink ?? {});
-            Object.assign(protecaoConfig.antiFake, doc.antiFake?.toObject?.() ?? doc.antiFake ?? doc.contaNova?.toObject?.() ?? doc.contaNova ?? {});
-            Object.assign(protecaoConfig.antiBot, doc.antiBot?.toObject?.() ?? doc.antiBot ?? {});
-            Object.assign(protecaoConfig.antiRaid, doc.antiRaid?.toObject?.() ?? doc.antiRaid ?? {});
-            console.log('[Proteção] Configuração carregada do MongoDB.');
+            Object.assign(protecaoConfig.antiSpam, doc.anti_spam ?? {});
+            Object.assign(protecaoConfig.antiLink, doc.anti_link ?? {});
+            Object.assign(protecaoConfig.antiFake, doc.anti_fake ?? {});
+            Object.assign(protecaoConfig.antiBot, doc.anti_bot ?? {});
+            Object.assign(protecaoConfig.antiRaid, doc.anti_raid ?? {});
+            console.log('[Proteção] Configuração carregada do Supabase.');
         } else {
             console.log('[Proteção] Nenhuma config salva encontrada, usando padrão.');
         }
@@ -4586,9 +4596,12 @@ async function atualizarPainelBotCallAuto(guildId) {
 
 async function carregarBotCallPaineis() {
     try {
-        const docs = await BotCallPainel.find();
+        const { data: docs, error } = await supabase
+            .from('bot_call_painel')
+            .select('*');
+        if (error) throw error;
         for (const doc of docs) {
-            botCallPaineis.set(doc.guildId, { channelId: doc.channelId, messageId: doc.messageId });
+            botCallPaineis.set(doc.guild_id, { channelId: doc.channel_id, messageId: doc.message_id });
         }
         console.log(`[BotCall] ${docs.length} painel(is) carregado(s) do banco.`);
     } catch (err) {
@@ -4616,11 +4629,10 @@ function monitorarDesconexaoBotCall(guildId, connection) {
 
 async function salvarEstadoEventoMoedas(mensagemId, enviadoEm) {
     try {
-        await EventoMoedasState.findByIdAndUpdate(
-            'evento_moedas',
-            { mensagemId, enviadoEm },
-            { upsert: true }
-        );
+        const { error } = await supabase
+            .from('evento_moedas_state')
+            .upsert({ id: 'evento_moedas', mensagem_id: mensagemId, enviado_em: enviadoEm });
+        if (error) throw error;
     } catch (err) {
         console.error('--- Erro ao salvar estado do evento de moedas ---', err);
     }
@@ -4628,7 +4640,11 @@ async function salvarEstadoEventoMoedas(mensagemId, enviadoEm) {
 
 async function limparEstadoEventoMoedas() {
     try {
-        await EventoMoedasState.deleteOne({ _id: 'evento_moedas' });
+        const { error } = await supabase
+            .from('evento_moedas_state')
+            .delete()
+            .eq('id', 'evento_moedas');
+        if (error) throw error;
     } catch (err) {
         console.error('--- Erro ao limpar estado do evento de moedas ---', err);
     }
@@ -4636,16 +4652,20 @@ async function limparEstadoEventoMoedas() {
 
 async function verificarEventoMoedasAntigo() {
     try {
-        const estado = await EventoMoedasState.findById('evento_moedas').catch(() => null);
+        const { data: estado } = await supabase
+            .from('evento_moedas_state')
+            .select('*')
+            .eq('id', 'evento_moedas')
+            .maybeSingle();
         if (!estado) return;
 
         const canal = await obterPrimeiroCanalCategoria(CATEGORIA_MOEDAS_BOASVINDAS);
         if (!canal) { await limparEstadoEventoMoedas(); return; }
 
-        const msg = await canal.messages.fetch(estado.mensagemId).catch(() => null);
+        const msg = await canal.messages.fetch(estado.mensagem_id).catch(() => null);
         if (!msg) { await limparEstadoEventoMoedas(); return; }
 
-        const tempoPassado = Date.now() - estado.enviadoEm;
+        const tempoPassado = Date.now() - estado.enviado_em;
         const tempoRestante = (60 * 1000) - tempoPassado;
 
         if (tempoRestante <= 0) {
