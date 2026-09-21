@@ -21,6 +21,15 @@ const groq = new OpenAI({
 const MODELO_ANA = 'openai/gpt-oss-120b';
 const DONO_ID = '1548516775669538898';
 
+// Quantas mensagens do histórico são enviadas pra IA a cada chamada (mantemos mais no Mongo,
+// mas só mandamos as últimas pra não pagar token por contexto velho que já não importa tanto).
+const HISTORICO_MAX_ENVIO = 10;
+
+// Quantas mensagens ficam guardadas no Mongo de verdade. Isso é espaço em disco, não token —
+// então pode ser bem maior sem custar nada na API. É o que garante que o usuário não "perde"
+// a conversa com a Ana só porque ela não manda tudo pro modelo em toda chamada.
+const HISTORICO_MAX_PERSISTIDO = 200;
+
 // ============ OPENROUTER (mantido só pra visão, o Gemini free daqui é bom) ============
 const openrouter = new OpenAI({
     apiKey: process.env.OPENROUTER_API_KEY,
@@ -620,8 +629,6 @@ const FERRAMENTAS_GERAIS_ANA = [
 ];
 
 // ============ CONFIRMAÇÃO PRA AÇÕES DESTRUTIVAS/IRREVERSÍVEIS ============
-
-// ============ CONFIRMAÇÃO PRA AÇÕES DESTRUTIVAS/IRREVERSÍVEIS ============
 const ACOES_QUE_PRECISAM_CONFIRMACAO = ['banir_membro', 'kickar_membro', 'deletar_canal', 'deletar_cargo'];
 const TEMPO_LIMITE_CONFIRMACAO_MS = 3 * 60 * 1000; // 3 minutos
 const confirmacoesPendentesAna = new Map(); // chave: `${guildId}:${autorId}` -> { nome, args, criadoEm }
@@ -891,12 +898,53 @@ async function executarFerramentaAna(nome, args, guildId, contexto = {}) {
     }
 }
 
+// ============ COOLDOWN GLOBAL POR PROVEDOR (evita martelar uma API que já avisou que tá sem cota) ============
+// chave: nome do provedor -> timestamp (ms) até quando devemos EVITAR usá-lo
+const cooldownProvedor = new Map();
+
+function extrairRetryAfterMs(erro) {
+    // 1) Header padrão HTTP, se o SDK expuser
+    const headerRetry = erro?.headers?.['retry-after'] ?? erro?.response?.headers?.get?.('retry-after');
+    if (headerRetry) {
+        const segundos = Number(headerRetry);
+        if (!Number.isNaN(segundos)) return segundos * 1000;
+    }
+    // 2) Groq manda no texto da mensagem: "Please try again in 15m33.984s"
+    const msg = erro?.error?.message || erro?.message || '';
+    const match = msg.match(/try again in\s+(?:(\d+)h)?\s*(?:(\d+)m)?\s*([\d.]+)?s?/i);
+    if (match) {
+        const horas = parseFloat(match[1] || '0');
+        const minutos = parseFloat(match[2] || '0');
+        const segundos = parseFloat(match[3] || '0');
+        const totalMs = (horas * 3600 + minutos * 60 + segundos) * 1000;
+        if (totalMs > 0) return totalMs;
+    }
+    return null;
+}
+
+function emCooldown(provedor) {
+    const ate = cooldownProvedor.get(provedor);
+    return ate && Date.now() < ate;
+}
+
+function registrarCooldown(provedor, erro) {
+    const ms = extrairRetryAfterMs(erro);
+    // Se não veio um tempo explícito no erro, usa um cooldown curto de segurança (60s)
+    // só pra não martelar em loop caso seja um 429 sem "retry-after" (ex: rate limit por segundo).
+    const duracaoMs = ms ?? 60_000;
+    const ate = Date.now() + duracaoMs;
+    cooldownProvedor.set(provedor, ate);
+    console.warn(`[DEBUG-ANA] Provedor "${provedor}" em cooldown por ${(duracaoMs / 1000).toFixed(0)}s (até ${new Date(ate).toISOString()}).`);
+}
+
 // ============ CHAMADA COM RETRY EM CASCATA (evita o "desculpa, não consegui pensar") ============
 async function obterCompletionComRetry(mensagens, ferramentas) {
     const corpoBase = {
         messages: mensagens,
         temperature: 0.9,
-        max_tokens: 400,
+        // A resposta final é cortada em 260 caracteres (~80-100 tokens) antes de virar áudio,
+        // então gerar 400 tokens é desperdício puro quando o modelo "se estende" à toa.
+        max_tokens: 180,
         ...(ferramentas ? { tools: ferramentas, tool_choice: 'auto' } : {})
     };
 
@@ -906,31 +954,64 @@ async function obterCompletionComRetry(mensagens, ferramentas) {
             ...corpoBase,
             ...extra
         });
+        const uso = completion?.usage;
+        if (uso) {
+            const cacheados = uso.prompt_tokens_details?.cached_tokens ?? 0;
+            console.log(`[DEBUG-ANA] uso: prompt=${uso.prompt_tokens} (cache=${cacheados}) completion=${uso.completion_tokens} total=${uso.total_tokens}`);
+        }
         return completion?.choices?.[0]?.message || null;
     }
 
+    function ehRateLimit(erro) {
+        if (erro?.status === 429) return true;
+        const codigo = erro?.error?.code || erro?.code;
+        if (codigo === 'rate_limit_exceeded') return true;
+        const msg = (erro?.message || '').toLowerCase();
+        return msg.includes('rate limit') || msg.includes('rate_limit');
+    }
+
+    // Cada provedor só é tentado 2x seguidas se o erro NÃO for rate limit
+    // (rate limit = provedor inteiro fora do ar por minutos, repetir na hora é inútil).
     const tentativas = [
-        () => tentar(groq, MODELO_ANA, { reasoning_effort: 'low' }),
-        () => tentar(groq, MODELO_ANA, { reasoning_effort: 'low' }),
-        () => tentar(bazaarlink, MODELO_ANA_FALLBACK),
-        () => tentar(bazaarlink, MODELO_ANA_FALLBACK)
+        { nome: 'groq-1', provedor: 'groq', run: () => tentar(groq, MODELO_ANA, { reasoning_effort: 'low' }) },
+        { nome: 'groq-2', provedor: 'groq', run: () => tentar(groq, MODELO_ANA, { reasoning_effort: 'low' }) },
+        { nome: 'bazaarlink-1', provedor: 'bazaarlink', run: () => tentar(bazaarlink, MODELO_ANA_FALLBACK) },
+        { nome: 'bazaarlink-2', provedor: 'bazaarlink', run: () => tentar(bazaarlink, MODELO_ANA_FALLBACK) }
     ];
 
     let indice = 0;
+    let ultimoProvedor = null;
     for (const tentativa of tentativas) {
         indice++;
-        console.log(`[DEBUG-ANA] obterCompletionComRetry: tentativa ${indice}/${tentativas.length}...`);
+
+        // Provedor conhecidamente em cooldown (rate limit avisado numa chamada anterior, de QUALQUER usuário)
+        if (emCooldown(tentativa.provedor)) {
+            console.log(`[DEBUG-ANA] Pulando tentativa ${indice} (${tentativa.nome}) — provedor em cooldown global.`);
+            continue;
+        }
+
+        // Se a tentativa anterior do MESMO provedor (nesta mesma chamada) caiu em rate limit, pula a repetição
+        if (ultimoProvedor?.provedor === tentativa.provedor && ultimoProvedor.rateLimit) {
+            console.log(`[DEBUG-ANA] Pulando tentativa ${indice} (${tentativa.nome}) — mesmo provedor acabou de dar rate limit.`);
+            continue;
+        }
+
+        console.log(`[DEBUG-ANA] obterCompletionComRetry: tentativa ${indice}/${tentativas.length} (${tentativa.nome})...`);
         try {
-            const msg = await tentativa();
+            const msg = await tentativa.run();
             if (msg && (msg.content?.trim() || msg.tool_calls?.length)) {
                 console.log(`[DEBUG-ANA] Tentativa ${indice} deu certo. content="${msg.content?.slice(0, 80) || ''}" tool_calls=${msg.tool_calls?.length || 0}`);
                 return msg;
             }
             console.log(`[DEBUG-ANA] Tentativa ${indice} retornou mensagem vazia/sem conteúdo útil:`, JSON.stringify(msg));
+            ultimoProvedor = { provedor: tentativa.provedor, rateLimit: false };
         } catch (erro) {
             console.error(`[DEBUG-ANA] Tentativa ${indice} falhou:`, erro?.message || erro);
             if (erro?.status) console.error(`[DEBUG-ANA] HTTP status: ${erro.status}`);
             if (erro?.error) console.error('[DEBUG-ANA] Detalhe do erro da API:', JSON.stringify(erro.error));
+            const rateLimit = ehRateLimit(erro);
+            if (rateLimit) registrarCooldown(tentativa.provedor, erro);
+            ultimoProvedor = { provedor: tentativa.provedor, rateLimit };
         }
     }
 
@@ -988,9 +1069,11 @@ async function obterCompletionComRetry(mensagens, ferramentas) {
         ? '\n\nImportante: quem tá falando com você agora TEM permissão administrativa. Você pode usar as ferramentas disponíveis pra executar de verdade o que ela pedir (criar/apagar canal ou cargo, moderar membro, ver auditoria) quando fizer sentido no pedido dela.'
         : '\n\nImportante: quem tá falando com você agora NÃO tem permissão administrativa nem acesso a informações internas suas. Se ela pedir uma ação administrativa ou informação técnica interna, recuse com naturalidade, sem entrar em detalhe técnico do motivo.';
 
+    // Guardamos mais histórico no Mongo (continuidade da conversa) do que mandamos pra IA
+    // (custo de token por chamada) — HISTORICO_MAX_ENVIO controla só o que vai no prompt.
     const mensagens = [
         { role: 'system', content: PERSONA_ANA + infoDono + infoAutor + infoPermissao + infoResultadoConfirmacao },
-        ...historico.slice(-20).map(m => ({ role: m.role, content: m.content })),
+        ...historico.slice(-HISTORICO_MAX_ENVIO).map(m => ({ role: m.role, content: m.content })),
         { role: 'user', content: (notaContexto ? notaContexto + '\n\n' : '') + textoUsuario }
     ];
 
@@ -1026,6 +1109,12 @@ async function obterCompletionComRetry(mensagens, ferramentas) {
             } catch (erro) {
                 resultado = `Erro ao executar: ${erro.message}`;
             }
+            // Trava: algumas ferramentas (auditoria, listagem de cargos) podem devolver texto longo.
+            // A Ana só precisa do suficiente pra comentar em 1 frase curta, não do dump inteiro.
+            const LIMITE_RESULTADO_FERRAMENTA = 600;
+            if (typeof resultado === 'string' && resultado.length > LIMITE_RESULTADO_FERRAMENTA) {
+                resultado = resultado.slice(0, LIMITE_RESULTADO_FERRAMENTA) + ' [...resultado truncado]';
+            }
             mensagens.push({ role: 'tool', tool_call_id: chamada.id, content: resultado });
         }
 
@@ -1048,7 +1137,7 @@ async function obterCompletionComRetry(mensagens, ferramentas) {
         ...historico,
         { role: 'user', content: textoUsuario },
         { role: 'assistant', content: resposta }
-    ].slice(-20);
+    ].slice(-HISTORICO_MAX_PERSISTIDO);
 
     try {
         await ConversaAna.findByIdAndUpdate(
