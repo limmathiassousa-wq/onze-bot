@@ -727,7 +727,10 @@ setInterval(() => {
 
     client.once('clientReady', async () => {
     console.log(`Logado como ${client.user.tag}!`);
-    client.user.setActivity(`Prefixo: ${PREFIXO}`, { type: ActivityType.Streaming, url: 'https://Twitch.tv/discord' });
+    client.user.setActivity(`Prefixo: ${PREFIXO}`, { 
+      type: ActivityType.Streaming, 
+      url: 'https://twitch.tv/discord' // tudo minúsculo
+    });
 
     
 carregarTellonymPendentes();
