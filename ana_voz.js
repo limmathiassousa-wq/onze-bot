@@ -18,7 +18,7 @@ const groq = new OpenAI({
     baseURL: 'https://api.groq.com/openai/v1'
 });
 
-const MODELO_ANA = 'llama-3.3-70b-versatile';
+const MODELO_ANA = 'openai/gpt-oss-120b';
 const DONO_ID = '1548516775669538898';
 
 // ============ OPENROUTER (mantido só pra visão, o Gemini free daqui é bom) ============
@@ -48,11 +48,14 @@ const MODELO_ANA_FALLBACK = 'auto:free';
 // (avatar, banner ou anexo). Troque pelo model ID de visão que preferir no OpenRouter.
 const MODELO_ANA_VISAO = 'google/gemini-2.0-flash-exp:free';
 
-// ============ ANÁLISE DE IMAGEM (visão) ============
+// Fallback de visão na Groq, usado só se o Gemini via OpenRouter falhar
+const MODELO_ANA_VISAO_FALLBACK = 'qwen/qwen3.8-27b';
+
+// ============ ANÁLISE DE IMAGEM (visão, com fallback) ============
 async function analisarImagem(urlImagem, pergunta) {
-    try {
-        const completion = await openrouter.chat.completions.create({
-            model: MODELO_ANA_VISAO,
+    async function tentarVisao(cliente, model) {
+        const completion = await cliente.chat.completions.create({
+            model,
             max_tokens: 220,
             messages: [
                 {
@@ -64,11 +67,22 @@ async function analisarImagem(urlImagem, pergunta) {
                 }
             ]
         });
-        const texto = completion?.choices?.[0]?.message?.content?.trim();
-        return texto || 'Não consegui identificar nada de especial nessa imagem.';
+        return completion?.choices?.[0]?.message?.content?.trim();
+    }
+
+    try {
+        const texto = await tentarVisao(openrouter, MODELO_ANA_VISAO);
+        if (texto) return texto;
+        throw new Error('resposta vazia do Gemini');
     } catch (erro) {
-        console.error('[DEBUG-ANA] Falha ao analisar imagem:', erro?.message || erro);
-        return 'Não consegui abrir essa imagem direito agora, tenta de novo daqui a pouco.';
+        console.error('[DEBUG-ANA] Falha ao analisar imagem (Gemini/OpenRouter):', erro?.message || erro);
+        try {
+            const texto = await tentarVisao(groq, MODELO_ANA_VISAO_FALLBACK);
+            return texto || 'Não consegui identificar nada de especial nessa imagem.';
+        } catch (erro2) {
+            console.error('[DEBUG-ANA] Falha ao analisar imagem (fallback Groq):', erro2?.message || erro2);
+            return 'Não consegui abrir essa imagem direito agora, tenta de novo daqui a pouco.';
+        }
     }
 }
 
