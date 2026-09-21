@@ -330,7 +330,7 @@ const client = new Client({
   rest: { timeout: 30000, retries: 5 },
   makeCache: Options.cacheWithLimits({
     MessageManager: 50,
-    GuildMemberManager: 200,
+    GuildMemberManager: Infinity,
     UserManager: 200,
     ReactionManager: 0,
     PresenceManager: 0,
@@ -339,15 +339,7 @@ const client = new Client({
     GuildInviteManager: 100,
   }),
   sweepers: {
-    messages: { interval: 300, lifetime: 600 },
-    users: {
-      interval: 600,
-      filter: () => (user) => user.id !== client.user.id
-    },
-    guildMembers: {
-      interval: 900,
-      filter: () => (member) => member.id !== client.user.id
-    }
+    messages: { interval: 300, lifetime: 600 }
   }
 });
 setClient(client);
@@ -395,6 +387,74 @@ client.on('guildMemberRemove', async (member) => {
     removerUsuarioDoCache(member.id);
     staffBanTracker.delete(member.id);
     staffPunicaoCargos.delete(member.id);
+
+    const guild = member.guild;
+    const guildId = guild.id;
+    const userData = member.user ?? member;
+
+    const tempoNoServidor = member.joinedTimestamp
+        ? formatarDuracaoMs(Date.now() - member.joinedTimestamp)
+        : 'desconhecido';
+    const cargosDoMembro = member.roles?.cache?.filter(c => c.id !== guild.id).map(c => `${c}`).join(', ') || '`nenhum`';
+    const tagUsuario = userData.discriminator && userData.discriminator !== '0'
+        ? `${userData.username}#${userData.discriminator}`
+        : userData.username;
+
+    await logarMembro({
+        guild,
+        tipo: 'Saída',
+        membro: userData,
+        extra:
+            `**ID:** \`${userData.id}\`\n` +
+            `**Tag:** \`${tagUsuario}\`\n` +
+            `**Estava no servidor há:** \`${tempoNoServidor}\`\n` +
+            `**Cargos que possuía:** ${cargosDoMembro}\n` +
+            `**Membros no servidor:** \`${guild.memberCount}\``
+    }).catch(() => null);
+
+    // ============ EXPULSÃO — LOG + ANTI KICK EM MASSA ============
+    const executorKick = await obterExecutorAuditLog(guild, AuditLogEvent.MemberKick, userData.id);
+    if (executorKick) {
+        if (executorKick.id !== client.user.id) {
+            await logarExpulsao({
+                guild,
+                tipo: 'Expulsão (Manual)',
+                alvo: `<@${userData.id}> (${tagUsuario})`,
+                alvoUser: userData,
+                autor: executorKick,
+                motivo: null
+            }).catch(err => console.error('--- Erro ao logar kick manual ---', err));
+        }
+if (protecaoConfig.antiRaid.nukeAtivo) {
+            const totalKicks = registrarAcaoNuke(nukeTracker.kicks, executorKick.id);
+            if (totalKicks >= limiteNukeAcaoExtra(executorKick, 'kicks')) {
+                nukeTracker.kicks.delete(executorKick.id);
+                await punirExecutorNuke(guild, executorKick, `Expulsou ${totalKicks} membros em menos de ${protecaoConfig.antiRaid.janelaMs / 1000}s`);
+            }
+        }
+    }
+
+    try {
+        const registro = await ConviteMembro.findOne({ guildId, membroId: userData.id });
+        if (registro) {
+            if (registro.tipo === 'real') {
+                await incrementarConviteStats(guildId, registro.inviterId, 'reais', -1);
+                await incrementarConviteStats(guildId, registro.inviterId, 'saiu', 1);
+            }
+            await ConviteMembro.deleteOne({ _id: registro._id }).catch(() => null);
+        }
+    } catch (err) {
+        console.error('--- Erro ao processar saída para stats de convite ---', err);
+    }
+
+    try {
+        await Carteira.deleteOne({ userId: userData.id });
+        await Mensagens.deleteOne({ userId: userData.id });
+        await XP.deleteOne({ userId: userData.id });
+        console.log(`[Saída] Moedas, mensagens e XP de ${userData.id} foram apagados (saiu do servidor).`);
+    } catch (err) {
+        console.error('--- Erro ao apagar dados de usuário que saiu ---', err);
+    }
 });
 
 client.on('guildBanAdd', async (ban) => {
@@ -701,6 +761,18 @@ for (const guild of client.guilds.cache.values()) {
         console.error(`--- Erro ao cachear convites de ${guild.name} ---`, err);
     }
 }
+
+// NOVO: garante que o cache de membros esteja completo pra logs de saída funcionarem direito
+for (const guild of client.guilds.cache.values()) {
+    try {
+        await guild.members.fetch();
+        console.log(`[Cache] ${guild.members.cache.size} membro(s) carregado(s) de ${guild.name}.`);
+    } catch (err) {
+        console.error(`--- Erro ao popular cache de membros de ${guild.name} ---`, err);
+    }
+}
+
+inicializarSessoesVoiceSorteio();
 inicializarSessoesVoiceSorteio();
 setInterval(flushSessoesVoiceSorteio, INTERVALO_TICK_CALL_SORTEIO_MS);
     
@@ -753,84 +825,6 @@ client.on('inviteDelete', invite => {
     if (cache) cache.delete(invite.code);
 });
 
-client.on('raw', async (packet) => {
-    if (packet.t !== 'GUILD_MEMBER_REMOVE') return;
-
-    const guildId = packet.d.guild_id;
-    const userData = packet.d.user;
-    const guild = client.guilds.cache.get(guildId);
-    if (!guild || !userData) return;
-
-    // Se o membro ainda estiver em cache, aproveita os dados completos (cargos, tempo no servidor)
-    const memberCache = guild.members.cache.get(userData.id);
-
-    const tempoNoServidor = memberCache?.joinedTimestamp
-        ? formatarDuracaoMs(Date.now() - memberCache.joinedTimestamp)
-        : 'desconhecido';
-    const cargosDoMembro = memberCache?.roles?.cache?.filter(c => c.id !== guild.id).map(c => `${c}`).join(', ') || '`nenhum`';
-    const tagUsuario = userData.discriminator && userData.discriminator !== '0'
-        ? `${userData.username}#${userData.discriminator}`
-        : userData.username;
-
-    await logarMembro({
-        guild,
-        tipo: 'Saída',
-        membro: userData,
-        extra:
-            `**ID:** \`${userData.id}\`\n` +
-            `**Tag:** \`${tagUsuario}\`\n` +
-            `**Estava no servidor há:** \`${tempoNoServidor}\`\n` +
-            `**Cargos que possuía:** ${cargosDoMembro}\n` +
-            `**Membros no servidor:** \`${guild.memberCount}\``
-    }).catch(() => null);
-
-    guild.members.cache.delete(userData.id);
-
-    // ============ EXPULSÃO — LOG + ANTI KICK EM MASSA ============
-    const executorKick = await obterExecutorAuditLog(guild, AuditLogEvent.MemberKick, userData.id);
-    if (executorKick) {
-        if (executorKick.id !== client.user.id) {
-            await logarExpulsao({
-                guild,
-                tipo: 'Expulsão (Manual)',
-                alvo: `<@${userData.id}> (${tagUsuario})`,
-                alvoUser: userData,
-                autor: executorKick,
-                motivo: null
-            }).catch(err => console.error('--- Erro ao logar kick manual ---', err));
-        }
-
-        if (protecaoConfig.antiRaid.nukeAtivo) {
-            const totalKicks = registrarAcaoNuke(nukeTracker.kicks, executorKick.id);
-            if (totalKicks >= limiteNukeAcaoExtra(executorKick, 'kicks')) {
-                nukeTracker.kicks.delete(executorKick.id);
-                await punirExecutorNuke(guild, executorKick, `Expulsou ${totalKicks} membros em menos de ${protecaoConfig.antiRaid.janelaMs / 1000}s`);
-            }
-        }
-    }
-
-    try {
-        const registro = await ConviteMembro.findOne({ guildId, membroId: userData.id });
-        if (registro) {
-            if (registro.tipo === 'real') {
-                await incrementarConviteStats(guildId, registro.inviterId, 'reais', -1);
-                await incrementarConviteStats(guildId, registro.inviterId, 'saiu', 1);
-            }
-            await ConviteMembro.deleteOne({ _id: registro._id }).catch(() => null);
-        }
-    } catch (err) {
-        console.error('--- Erro ao processar saída para stats de convite ---', err);
-    }
-
-    try {
-        await Carteira.deleteOne({ userId: userData.id });
-        await Mensagens.deleteOne({ userId: userData.id });
-        await XP.deleteOne({ userId: userData.id });
-        console.log(`[Saída] Moedas, mensagens e XP de ${userData.id} foram apagados (saiu do servidor).`);
-    } catch (err) {
-        console.error('--- Erro ao apagar dados de usuário que saiu ---', err);
-    }
-});
 
 client.on('userUpdate', async (oldUser, newUser) => {
     try {
