@@ -4562,6 +4562,22 @@ if (interaction.isUserSelectMenu() && interaction.customId === 'antinuke_whiteli
     await salvarProtecao();
     return interaction.update({ components: [montarPainelAntiNuke()], flags: [MessageFlags.IsComponentsV2] });
 }
+
+if (interaction.isButton() && interaction.customId === 'antinukecanais_toggle') {
+    if (!interaction.member.permissions.has('Administrator') && !interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
+        return interaction.reply({ content: 'Apenas administradores podem usar isso!', flags: [MessageFlags.Ephemeral] });
+    }
+    await alternarAntiNukeCanais();
+    return interaction.update({ components: [montarPainelAntiNukeCanais(interaction.guild.id)], flags: [MessageFlags.IsComponentsV2] });
+}
+
+if (interaction.isUserSelectMenu() && interaction.customId === 'antinukecanais_bypass_select') {
+    if (!interaction.member.permissions.has('Administrator') && !interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
+        return interaction.reply({ content: 'Apenas administradores podem usar isso!', flags: [MessageFlags.Ephemeral] });
+    }
+    await definirBypassAntiNukeCanais(interaction.values);
+    return interaction.update({ components: [montarPainelAntiNukeCanais(interaction.guild.id)], flags: [MessageFlags.IsComponentsV2] });
+}
 	
 	
 if (interaction.isButton() && interaction.customId === 'antiraid_ativar') {
@@ -6112,7 +6128,7 @@ if (interaction.isButton() && interaction.customId === 'lock_antinuke') {
         return interaction.reply({ content: 'Apenas administradores podem usar isso!', flags: [MessageFlags.Ephemeral] });
     }
 
-    return interaction.update({ components: [montarPainelAntiNuke()], flags: [MessageFlags.IsComponentsV2] });
+    return interaction.update({ components: [montarPainelAntiNukeCanais(interaction.guild.id)], flags: [MessageFlags.IsComponentsV2] });
 }
   
 
