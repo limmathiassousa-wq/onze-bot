@@ -106,6 +106,45 @@ GlobalFonts.registerFromPath(
     "Arial Bold"
 );
 
+// Fontes usadas nas formatações estilo Discord (itálico, negrito+itálico, código).
+// Se os arquivos não existirem no servidor, cai de volta para a fonte normal/negrito
+// já registrada acima (o texto ainda aparece, só sem o efeito visual extra).
+const FONTE_REGULAR = "Arial";
+const FONTE_BOLD = "Arial Bold";
+let FONTE_ITALIC = "Arial";
+let FONTE_BOLD_ITALIC = "Arial Bold";
+let FONTE_CODE = "Arial";
+
+const CAMINHO_FONTE_ITALIC = path.join(__dirname, "ARIALI.TTF");
+if (fs.existsSync(CAMINHO_FONTE_ITALIC)) {
+    GlobalFonts.registerFromPath(CAMINHO_FONTE_ITALIC, "Arial Italic Tellonym");
+    FONTE_ITALIC = "Arial Italic Tellonym";
+}
+
+const CAMINHO_FONTE_BOLD_ITALIC = path.join(__dirname, "ARIALBI.TTF");
+if (fs.existsSync(CAMINHO_FONTE_BOLD_ITALIC)) {
+    GlobalFonts.registerFromPath(CAMINHO_FONTE_BOLD_ITALIC, "Arial Bold Italic Tellonym");
+    FONTE_BOLD_ITALIC = "Arial Bold Italic Tellonym";
+}
+
+const CAMINHO_FONTE_CODE = path.join(__dirname, "COUR.TTF");
+if (fs.existsSync(CAMINHO_FONTE_CODE)) {
+    GlobalFonts.registerFromPath(CAMINHO_FONTE_CODE, "Consolas Tellonym");
+    FONTE_CODE = "Consolas Tellonym";
+}
+
+// Tamanho de fonte e altura de linha por tipo de bloco (títulos, subtexto, citação)
+const TAMANHOS_BLOCO = {
+    normal: null, // usa MESSAGE_SIZE
+    h1: 34,
+    h2: 30,
+    h3: 27,
+    subtext: 18,
+    quote: null
+};
+
+const QUOTE_INDENT = 18;
+
 const SCALE = 3;
 const CARD_WIDTH = 900;
 const CARD_RADIUS = 28;
@@ -117,6 +156,16 @@ const HANDLE_SIZE = 20;
 const MESSAGE_SIZE = 24;
 const MESSAGE_LINE_HEIGHT = 34;
 const TIME_SIZE = 22;
+
+// Altura de cada linha renderizada no card, por tipo de bloco (formatação estilo Discord)
+const ALTURA_LINHA_BLOCO = {
+    normal: MESSAGE_LINE_HEIGHT,
+    h1: MESSAGE_LINE_HEIGHT + 12,
+    h2: MESSAGE_LINE_HEIGHT + 8,
+    h3: MESSAGE_LINE_HEIGHT + 4,
+    subtext: MESSAGE_LINE_HEIGHT - 8,
+    quote: MESSAGE_LINE_HEIGHT
+};
 
 const DIVIDER_BOTTOM = 50;
 const EMOJI_SIZE = 30;
@@ -580,6 +629,153 @@ async function loadAvatar(url, anonimo) {
 
 }
 
+// ============ FORMATAÇÃO ESTILO DISCORD (CARD DE TELLONYM) ============
+
+// Detecta marcações de bloco (aplicadas no início da linha): títulos (#, ##, ###),
+// subtexto (-#) e citação (>). O restante da linha continua sendo parseado normalmente.
+function analisarEstiloLinha(linha) {
+    let m;
+
+    if ((m = linha.match(/^### (.+)$/))) return { tipo: 'h3', conteudo: m[1] };
+    if ((m = linha.match(/^## (.+)$/))) return { tipo: 'h2', conteudo: m[1] };
+    if ((m = linha.match(/^# (.+)$/))) return { tipo: 'h1', conteudo: m[1] };
+    if ((m = linha.match(/^-# (.+)$/))) return { tipo: 'subtext', conteudo: m[1] };
+    if ((m = linha.match(/^> ?(.*)$/))) return { tipo: 'quote', conteudo: m[1] };
+
+    return { tipo: 'normal', conteudo: linha };
+}
+
+// Faz o parsing das marcações inline do Discord (**negrito**, *itálico*/_itálico_,
+// __sublinhado__, ~~riscado~~, ||spoiler|| e `código`) e devolve uma lista de
+// segmentos de texto, cada um já com as flags de estilo aplicadas.
+function analisarEstilosInline(texto) {
+    const segmentos = [];
+    let i = 0;
+    let negrito = false, italico = false, sublinhado = false, riscado = false, spoiler = false;
+    let bufer = '';
+
+    const emitir = () => {
+        if (bufer) {
+            segmentos.push({ texto: bufer, negrito, italico, sublinhado, riscado, spoiler, codigo: false });
+            bufer = '';
+        }
+    };
+
+    const charEm = (idx) => (idx >= 0 && idx < texto.length) ? texto[idx] : '';
+
+    // Um marcador só é considerado válido se, ao abrir, não houver espaço logo
+    // depois dele, e ao fechar, não houver espaço logo antes (igual ao Discord).
+    // Para o "_" simples, exige-se também borda de palavra, para não confundir
+    // nome_de_variavel com itálico.
+    const ehLetraOuNumero = (c) => /[A-Za-z0-9À-ÿ]/.test(c);
+    const tentarAlternar = (marcador, ativo, exigirLimitePalavra = false) => {
+        if (!ativo) {
+            const depois = charEm(i + marcador.length);
+            if (!depois || depois === ' ') return false;
+            if (exigirLimitePalavra) {
+                const antes = charEm(i - 1);
+                if (antes && ehLetraOuNumero(antes)) return false;
+            }
+            return true;
+        }
+        const antes = charEm(i - 1);
+        if (!antes || antes === ' ') return false;
+        if (exigirLimitePalavra) {
+            const depois = charEm(i + marcador.length);
+            if (depois && ehLetraOuNumero(depois)) return false;
+        }
+        return true;
+    };
+
+    while (i < texto.length) {
+        const ch = texto[i];
+
+        if (ch === '`') {
+            const fechamento = texto.indexOf('`', i + 1);
+            if (fechamento !== -1 && fechamento > i + 1) {
+                emitir();
+                segmentos.push({
+                    texto: texto.slice(i + 1, fechamento),
+                    negrito: false, italico: false, sublinhado: false, riscado: false,
+                    spoiler, codigo: true
+                });
+                i = fechamento + 1;
+                continue;
+            }
+        } else if (ch === '|' && texto[i + 1] === '|') {
+            if (tentarAlternar('||', spoiler)) {
+                emitir(); spoiler = !spoiler; i += 2; continue;
+            }
+        } else if (ch === '~' && texto[i + 1] === '~') {
+            if (tentarAlternar('~~', riscado)) {
+                emitir(); riscado = !riscado; i += 2; continue;
+            }
+        } else if (ch === '*') {
+            let j = i;
+            while (texto[j] === '*') j++;
+            const tamanho = j - i;
+
+            if (tamanho >= 3 && tentarAlternar('***', negrito && italico)) {
+                emitir(); negrito = !negrito; italico = !italico; i += 3; continue;
+            }
+            if (tamanho >= 2 && tentarAlternar('**', negrito)) {
+                emitir(); negrito = !negrito; i += 2; continue;
+            }
+            if (tamanho === 1 && tentarAlternar('*', italico)) {
+                emitir(); italico = !italico; i += 1; continue;
+            }
+        } else if (ch === '_') {
+            let j = i;
+            while (texto[j] === '_') j++;
+            const tamanho = j - i;
+
+            if (tamanho >= 2 && tentarAlternar('__', sublinhado)) {
+                emitir(); sublinhado = !sublinhado; i += 2; continue;
+            }
+            if (tamanho === 1 && tentarAlternar('_', italico, true)) {
+                emitir(); italico = !italico; i += 1; continue;
+            }
+        }
+
+        bufer += ch;
+        i += 1;
+    }
+
+    emitir();
+    return segmentos;
+}
+
+// Monta a string de font() do canvas de acordo com o tipo de bloco da linha
+// (título/subtexto/normal) combinado com os estilos inline do átomo (negrito/itálico/código).
+function fontePorAtom(atom, tipoLinha = 'normal') {
+    const tamanhoBase = TAMANHOS_BLOCO[tipoLinha] ?? MESSAGE_SIZE;
+
+    if (atom?.codigo) return `${Math.max(tamanhoBase - 2, 12)}px "${FONTE_CODE}"`;
+
+    const negrito = !!atom?.negrito || tipoLinha === 'h1' || tipoLinha === 'h2' || tipoLinha === 'h3';
+    const italico = !!atom?.italico;
+
+    if (negrito && italico) return `${tamanhoBase}px "${FONTE_BOLD_ITALIC}"`;
+    if (negrito) return `${tamanhoBase}px "${FONTE_BOLD}"`;
+    if (italico) return `${tamanhoBase}px "${FONTE_ITALIC}"`;
+    return `${tamanhoBase}px "${FONTE_REGULAR}"`;
+}
+
+// Calcula a largura de um átomo (texto, emoji ou espaço) já aplicando a fonte correta
+// no contexto — usada tanto na quebra de linha quanto no desenho final, para os dois
+// baterem exatamente.
+function larguraDoAtom(ctx, atom, tipoLinha = 'normal') {
+    if (atom.type === 'space') {
+        ctx.font = fontePorAtom(atom, tipoLinha);
+        return ctx.measureText(' ').width;
+    }
+    if (atom.type === 'emoji') {
+        return atom.custom ? EMOJI_SIZE_CUSTOM : EMOJI_SIZE;
+    }
+    ctx.font = fontePorAtom(atom, tipoLinha);
+    return ctx.measureText(atom.value).width;
+}
+
 function tokenizarPalavraComEmoji(palavra) {
     const atoms = [];
     let ultimoIndex = 0;
@@ -614,36 +810,59 @@ function tokenizarPalavraComEmoji(palavra) {
 }
 
 function tokenizarLinhaComEmoji(paragrafo) {
-    const partes = paragrafo.split(/(\s+)/).filter(p => p.length > 0);
+    const segmentos = analisarEstilosInline(paragrafo);
     const atoms = [];
 
-    for (const parte of partes) {
-        if (/^\s+$/.test(parte)) {
-            atoms.push({ type: 'space' });
-        } else {
-            atoms.push(...tokenizarPalavraComEmoji(parte));
+    for (const segmento of segmentos) {
+        const partes = segmento.texto.split(/(\s+)/).filter(p => p.length > 0);
+        const estilo = {
+            negrito: segmento.negrito,
+            italico: segmento.italico,
+            sublinhado: segmento.sublinhado,
+            riscado: segmento.riscado,
+            spoiler: segmento.spoiler,
+            codigo: segmento.codigo
+        };
+
+        for (const parte of partes) {
+            if (/^\s+$/.test(parte)) {
+                atoms.push({ type: 'space', ...estilo });
+                continue;
+            }
+
+            // Dentro de um trecho de código, o conteúdo é tratado como texto puro
+            // (sem interpretar emojis), igual ao Discord.
+            const subAtoms = segmento.codigo
+                ? [{ type: 'text', value: parte }]
+                : tokenizarPalavraComEmoji(parte);
+
+            for (const sub of subAtoms) {
+                atoms.push({ ...sub, ...estilo });
+            }
         }
     }
 
     return atoms;
 }
 
-function quebrarLinhasComEmoji(ctx, atoms, maxWidth) {
+function quebrarLinhasComEmoji(ctx, atoms, maxWidth, tipoLinha = 'normal') {
     const linhas = [];
     let atualLine = [];
     let atualWidth = 0;
+
+    ctx.font = fontePorAtom({}, tipoLinha);
     const espacoLargura = ctx.measureText(' ').width;
 
     for (const atom of atoms) {
         if (atom.type === 'space') {
             if (atualLine.length && atualWidth + espacoLargura <= maxWidth) {
-                atualLine.push({ type: 'space' });
+                atualLine.push(atom);
                 atualWidth += espacoLargura;
             }
             continue;
         }
 
-        const largura = atom.type === 'emoji' ? (atom.custom ? EMOJI_SIZE_CUSTOM : EMOJI_SIZE) : ctx.measureText(atom.value).width;
+        const largura = larguraDoAtom(ctx, atom, tipoLinha);
 
         if (atualWidth + largura > maxWidth && atualLine.length > 0) {
             while (atualLine.length && atualLine[atualLine.length - 1].type === 'space') atualLine.pop();
@@ -654,11 +873,12 @@ function quebrarLinhasComEmoji(ctx, atoms, maxWidth) {
 
         // palavra de texto maior que a largura máxima sozinha -> quebra por caractere
         if (largura > maxWidth && atom.type === 'text') {
+            ctx.font = fontePorAtom(atom, tipoLinha);
             let parte = '';
             for (const char of atom.value) {
                 const teste = parte + char;
                 if (ctx.measureText(teste).width > maxWidth && parte) {
-                    atualLine.push({ type: 'text', value: parte });
+                    atualLine.push({ ...atom, value: parte });
                     linhas.push(atualLine);
                     atualLine = [];
                     atualWidth = 0;
@@ -667,7 +887,7 @@ function quebrarLinhasComEmoji(ctx, atoms, maxWidth) {
                 parte += char;
             }
             if (parte) {
-                atualLine.push({ type: 'text', value: parte });
+                atualLine.push({ ...atom, value: parte });
                 atualWidth += ctx.measureText(parte).width;
             }
             continue;
@@ -684,13 +904,22 @@ function quebrarLinhasComEmoji(ctx, atoms, maxWidth) {
     return linhas;
 }
 
+// Cada linha do resultado agora é { tipo, atoms }, onde "tipo" indica o bloco
+// (normal, h1, h2, h3, subtext ou quote) detectado no início do parágrafo original.
 function montarLinhasComEmoji(ctx, mensagem, maxWidth) {
     const paragrafos = String(mensagem ?? "").replace(/\r/g, "").split("\n");
     const todasLinhas = [];
 
     for (const paragrafo of paragrafos) {
-        const atoms = tokenizarLinhaComEmoji(paragrafo);
-        todasLinhas.push(...quebrarLinhasComEmoji(ctx, atoms, maxWidth));
+        const { tipo, conteudo } = analisarEstiloLinha(paragrafo);
+        const larguraDisponivel = tipo === 'quote' ? maxWidth - QUOTE_INDENT : maxWidth;
+
+        const atoms = tokenizarLinhaComEmoji(conteudo);
+        const linhasQuebradas = quebrarLinhasComEmoji(ctx, atoms, larguraDisponivel, tipo);
+
+        for (const linhaAtoms of linhasQuebradas) {
+            todasLinhas.push({ tipo, atoms: linhaAtoms });
+        }
     }
 
     return todasLinhas;
@@ -773,16 +1002,16 @@ function breakText(ctx, text, maxWidth) {
 
 }
 
-function calculateHeight(lineCount) {
+function calculateHeight(linhasOuContagem) {
 
     const HEADER =
     PADDING_TOP +
     AVATAR_SIZE +
     14;
 
-    const MESSAGE =
-        lineCount *
-        MESSAGE_LINE_HEIGHT;
+    const MESSAGE = Array.isArray(linhasOuContagem)
+        ? linhasOuContagem.reduce((soma, linha) => soma + (ALTURA_LINHA_BLOCO[linha?.tipo] ?? MESSAGE_LINE_HEIGHT), 0)
+        : (linhasOuContagem || 0) * MESSAGE_LINE_HEIGHT;
 
     const FOOTER = 65;
 
@@ -870,8 +1099,8 @@ async function gerarCardTellonym({
     // ---- Pré-carrega os emojis usados na mensagem ----
     const urlsEmoji = new Set();
     for (const linha of linhas) {
-        for (const atom of linha) {
-            if (atom.type === 'emoji') urlsEmoji.add(atom.url);
+        for (const atom of linha.atoms) {
+            if (atom.type === 'emoji' && !atom.spoiler) urlsEmoji.add(atom.url);
         }
     }
     const imagensEmoji = new Map();
@@ -883,7 +1112,7 @@ async function gerarCardTellonym({
         }
     }));
 
-    const cardHeight = calculateHeight(linhas.length);
+    const cardHeight = calculateHeight(linhas);
     const canvas = createCanvas(CARD_WIDTH * SCALE, cardHeight * SCALE);
     const ctx = canvas.getContext("2d");
     ctx.scale(SCALE, SCALE);
@@ -968,29 +1197,96 @@ async function gerarCardTellonym({
     }
 
     ctx.fillStyle = "#090b0b";
-    ctx.font = `${MESSAGE_SIZE}px Arial`;
+    ctx.font = `${MESSAGE_SIZE}px "${FONTE_REGULAR}"`;
 
     let textY = PADDING_TOP + AVATAR_SIZE + 18;
-    const espacoLargura = ctx.measureText(' ').width;
 
     for (const linha of linhas) {
-        let cursorX = PADDING_X;
-        for (const atom of linha) {
-            if (atom.type === 'space') {
-                cursorX += espacoLargura;
-            } else if (atom.type === 'emoji') {
-                const img = imagensEmoji.get(atom.url);
-                const tam = atom.custom ? EMOJI_SIZE_CUSTOM : EMOJI_SIZE;
-                if (img) {
-                    ctx.drawImage(img, cursorX, textY + (MESSAGE_LINE_HEIGHT - tam) / 2 - 4, tam, tam);
+        const altura = ALTURA_LINHA_BLOCO[linha.tipo] ?? MESSAGE_LINE_HEIGHT;
+        const baseX = linha.tipo === 'quote' ? PADDING_X + QUOTE_INDENT : PADDING_X;
+        const tamanhoFonte = TAMANHOS_BLOCO[linha.tipo] ?? MESSAGE_SIZE;
+
+        // ---- pré-calcula a posição/largura de cada átomo da linha ----
+        const posicoes = [];
+        let cursorMedida = baseX;
+        for (const atom of linha.atoms) {
+            const largura = larguraDoAtom(ctx, atom, linha.tipo);
+            posicoes.push({ atom, x: cursorMedida, largura });
+            cursorMedida += largura;
+        }
+
+        // ---- barra lateral da citação (estilo Discord) ----
+        if (linha.tipo === 'quote') {
+            ctx.fillStyle = "#D9DCE0";
+            roundedRect(ctx, PADDING_X, textY + 2, 3, Math.max(altura - 6, 4), 1.5);
+            ctx.fill();
+        }
+
+        // ---- fundos de código/spoiler, agrupando átomos vizinhos do mesmo tipo ----
+        let idx = 0;
+        while (idx < posicoes.length) {
+            const atomAtual = posicoes[idx].atom;
+            if (atomAtual.type !== 'space' && (atomAtual.codigo || atomAtual.spoiler)) {
+                let fim = idx;
+                while (
+                    fim < posicoes.length &&
+                    !!posicoes[fim].atom.codigo === !!atomAtual.codigo &&
+                    !!posicoes[fim].atom.spoiler === !!atomAtual.spoiler
+                ) fim++;
+
+                const inicioX = posicoes[idx].x;
+                const fimX = posicoes[fim - 1].x + posicoes[fim - 1].largura;
+
+                if (atomAtual.spoiler) {
+                    ctx.fillStyle = "#585C63";
+                    roundedRect(ctx, inicioX - 3, textY - 2, (fimX - inicioX) + 6, altura - 4, 4);
+                    ctx.fill();
+                } else if (atomAtual.codigo) {
+                    ctx.fillStyle = "#EEF0F2";
+                    roundedRect(ctx, inicioX - 3, textY - 2, (fimX - inicioX) + 6, altura - 4, 4);
+                    ctx.fill();
                 }
-                cursorX += tam;
+
+                idx = fim;
             } else {
-                ctx.fillText(atom.value, cursorX, textY);
-                cursorX += ctx.measureText(atom.value).width;
+                idx++;
             }
         }
-        textY += MESSAGE_LINE_HEIGHT;
+
+        // ---- desenha texto/emoji e decorações (sublinhado/riscado) ----
+        for (const { atom, x, largura } of posicoes) {
+            if (atom.type === 'emoji') {
+                if (!atom.spoiler) {
+                    const img = imagensEmoji.get(atom.url);
+                    const tam = atom.custom ? EMOJI_SIZE_CUSTOM : EMOJI_SIZE;
+                    if (img) {
+                        ctx.drawImage(img, x, textY + (altura - tam) / 2 - 4, tam, tam);
+                    }
+                }
+            } else if (atom.type === 'text' && !atom.spoiler) {
+                ctx.font = fontePorAtom(atom, linha.tipo);
+                ctx.fillStyle =
+                    linha.tipo === 'subtext' ? "#9CA2AB" :
+                    atom.codigo ? "#B3435B" :
+                    "#090b0b";
+
+                ctx.fillText(atom.value, x, textY);
+
+                if (atom.sublinhado || atom.riscado) {
+                    const linhaY = atom.riscado
+                        ? textY + tamanhoFonte * 0.55
+                        : textY + tamanhoFonte + 2;
+                    ctx.strokeStyle = ctx.fillStyle;
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    ctx.moveTo(x, linhaY);
+                    ctx.lineTo(x + largura, linhaY);
+                    ctx.stroke();
+                }
+            }
+        }
+
+        textY += altura;
     }
 
     const dividerY = cardHeight - DIVIDER_BOTTOM;
@@ -6971,6 +7267,8 @@ module.exports = {
     agendarExpiracaoMsgCriador,
     agendarFimMuteCargo,
     aguardarEBuscarAuditLog,
+    analisarEstiloLinha,
+    analisarEstilosInline,
     aplicarMuteCargo,
     assumirTicket,
     atualizarPainelBotCallAuto,
@@ -7017,6 +7315,7 @@ module.exports = {
     finalizarSessaoVoiceSorteio,
     flushBufferMensagens,
     flushSessoesVoiceSorteio,
+    fontePorAtom,
     formatarBytes,
     formatarConteudoComMencoes,
     formatarDataBR,
@@ -7044,6 +7343,7 @@ module.exports = {
     incrementarConviteStats,
     inicializarSessoesVoiceSorteio,
     iniciarSessaoVoiceSorteio,
+    larguraDoAtom,
     limitarCache,
     limiteNukeAcao,
     limiteNukeAcaoExtra,
