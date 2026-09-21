@@ -910,8 +910,8 @@ async function obterCompletionComRetry(mensagens, ferramentas) {
     }
 
     const tentativas = [
-        () => tentar(groq, MODELO_ANA),
-        () => tentar(groq, MODELO_ANA),
+        () => tentar(groq, MODELO_ANA, { reasoning_effort: 'low' }),
+        () => tentar(groq, MODELO_ANA, { reasoning_effort: 'low' }),
         () => tentar(bazaarlink, MODELO_ANA_FALLBACK),
         () => tentar(bazaarlink, MODELO_ANA_FALLBACK)
     ];
