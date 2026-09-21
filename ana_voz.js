@@ -159,7 +159,10 @@ disponíveis de verdade pra executar o que ela pedir — você tem acesso a um c
 ferramentas administrativas, então praticamente qualquer pedido de gerenciamento do servidor que uma
 pessoa autorizada fizer, você consegue executar de verdade, não só falar que vai fazer. Se ninguém
 mencionou diretamente o cargo ou canal que a pessoa quer (só falou o nome), você pode listar os cargos
-ou canais do servidor pra achar o ID certo antes de agir. Quando a pessoa NÃO tem essa permissão e pede
+ou canais do servidor pra achar o ID certo antes de agir. Se você mesma acabou de criar um cargo ou
+canal nessa conversa e precisa usá-lo em seguida (dar pra alguém, editar, etc.), use o ID que já foi
+te devolvido na criação — nunca crie de novo um cargo ou canal só porque não lembra o ID; se
+esquecer, use listar_cargos_servidor pra achar. Quando a pessoa NÃO tem essa permissão e pede
 uma ação administrativa, você recusa educadamente, na sua personalidade, sem revelar os detalhes
 técnicos de por que não pode.
 
@@ -249,7 +252,7 @@ const FERRAMENTAS_ADMIN_ANA = [
             parameters: {
                 type: 'object',
                 properties: {
-                    usuario_id: { type: 'string', description: 'ID do usuário a ser expulso (extraído de uma menção <@id>)' },
+                    usuario_id: { type: 'string', description: 'ID do usuário a ser expulso (extraído de uma menção <@id>, ou o ID de quem está falando com você agora se ela pedir a ação nela mesma)' },
                     motivo: { type: 'string', description: 'Motivo da expulsão (opcional)' }
                 },
                 required: ['usuario_id']
@@ -264,7 +267,7 @@ const FERRAMENTAS_ADMIN_ANA = [
             parameters: {
                 type: 'object',
                 properties: {
-                    usuario_id: { type: 'string', description: 'ID do usuário a ser banido (extraído de uma menção <@id>)' },
+                    usuario_id: { type: 'string', description: 'ID do usuário a ser banido (extraído de uma menção <@id>, ou o ID de quem está falando com você agora se ela pedir a ação nela mesma)' },
                     motivo: { type: 'string', description: 'Motivo do banimento (opcional)' },
                     dias_deletar_mensagens: { type: 'number', description: 'Quantos dias de mensagens desse usuário apagar junto (0 a 7, opcional)' }
                 },
@@ -280,7 +283,7 @@ const FERRAMENTAS_ADMIN_ANA = [
             parameters: {
                 type: 'object',
                 properties: {
-                    usuario_id: { type: 'string', description: 'ID do usuário a ser mutado (extraído de uma menção <@id>)' },
+                    usuario_id: { type: 'string', description: 'ID do usuário a ser mutado (extraído de uma menção <@id>, ou o ID de quem está falando com você agora se ela pedir a ação nela mesma)' },
                     minutos: { type: 'number', description: 'Duração do mute em minutos' },
                     motivo: { type: 'string', description: 'Motivo do mute (opcional)' }
                 },
@@ -296,7 +299,7 @@ const FERRAMENTAS_ADMIN_ANA = [
             parameters: {
                 type: 'object',
                 properties: {
-                    usuario_id: { type: 'string', description: 'ID do usuário a ser desmutado (extraído de uma menção <@id>)' }
+                    usuario_id: { type: 'string', description: 'ID do usuário a ser desmutado (extraído de uma menção <@id>, ou o ID de quem está falando com você agora se ela pedir a ação nela mesma)' }
                 },
                 required: ['usuario_id']
             }
@@ -323,7 +326,7 @@ const FERRAMENTAS_ADMIN_ANA = [
             parameters: {
                 type: 'object',
                 properties: {
-                    usuario_id: { type: 'string', description: 'ID do usuário que vai receber o cargo (extraído de uma menção <@id>)' },
+                    usuario_id: { type: 'string', description: 'ID do usuário que vai receber o cargo (extraído de uma menção <@id>, ou o ID de quem está falando com você agora se ela pedir a ação nela mesma)' },
                     cargo_id: { type: 'string', description: 'ID do cargo a ser adicionado (extraído de uma menção <@&id>)' }
                 },
                 required: ['usuario_id', 'cargo_id']
@@ -338,7 +341,7 @@ const FERRAMENTAS_ADMIN_ANA = [
             parameters: {
                 type: 'object',
                 properties: {
-                    usuario_id: { type: 'string', description: 'ID do usuário que vai perder o cargo (extraído de uma menção <@id>)' },
+                    usuario_id: { type: 'string', description: 'ID do usuário que vai perder o cargo (extraído de uma menção <@id>, ou o ID de quem está falando com você agora se ela pedir a ação nela mesma)' },
                     cargo_id: { type: 'string', description: 'ID do cargo a ser removido (extraído de uma menção <@&id>)' }
                 },
                 required: ['usuario_id', 'cargo_id']
@@ -473,7 +476,7 @@ const FERRAMENTAS_ADMIN_ANA = [
             parameters: {
                 type: 'object',
                 properties: {
-                    usuario_id: { type: 'string', description: 'ID do usuário (extraído de uma menção <@id>)' },
+                    usuario_id: { type: 'string', description: 'ID do usuário (extraído de uma menção <@id>, ou o ID de quem está falando com você agora se ela pedir a ação nela mesma)' },
                     novo_apelido: { type: 'string', description: 'Novo apelido. Use uma string vazia pra remover o apelido e voltar ao nome original.' }
                 },
                 required: ['usuario_id', 'novo_apelido']
@@ -488,7 +491,7 @@ const FERRAMENTAS_ADMIN_ANA = [
             parameters: {
                 type: 'object',
                 properties: {
-                    usuario_id: { type: 'string', description: 'ID do usuário a mover (extraído de uma menção <@id>)' },
+                    usuario_id: { type: 'string', description: 'ID do usuário a mover (extraído de uma menção <@id>, ou o ID de quem está falando com você agora se ela pedir a ação nela mesma)' },
                     canal_voz_id: { type: 'string', description: 'ID do canal de voz de destino (extraído de uma menção <#id>)' }
                 },
                 required: ['usuario_id', 'canal_voz_id']
@@ -503,7 +506,7 @@ const FERRAMENTAS_ADMIN_ANA = [
             parameters: {
                 type: 'object',
                 properties: {
-                    usuario_id: { type: 'string', description: 'ID do usuário a desconectar (extraído de uma menção <@id>)' }
+                    usuario_id: { type: 'string', description: 'ID do usuário a desconectar (extraído de uma menção <@id>, ou o ID de quem está falando com você agora se ela pedir a ação nela mesma)' }
                 },
                 required: ['usuario_id']
             }
@@ -593,7 +596,7 @@ const FERRAMENTAS_ADMIN_ANA = [
                 type: 'object',
                 properties: {
                     canal_id: { type: 'string', description: 'ID do canal onde apagar as mensagens' },
-                    usuario_id: { type: 'string', description: 'ID do usuário cujas mensagens serão apagadas (extraído de uma menção <@id>)' },
+                    usuario_id: { type: 'string', description: 'ID do usuário cujas mensagens serão apagadas (extraído de uma menção <@id>, ou o ID de quem está falando com você agora se ela pedir a ação nela mesma)' },
                     quantidade: { type: 'number', description: 'Quantas mensagens desse usuário apagar, no máximo (padrão 20, máximo 100)' }
                 },
                 required: ['canal_id', 'usuario_id']
@@ -688,7 +691,7 @@ async function executarFerramentaAna(nome, args, guildId, contexto = {}) {
                 name: args.nome,
                 type: tipoDiscord
             }, 'Criado pela Ana a pedido de um usuário autorizado');
-            return `Canal "${canal.name}" criado com sucesso.`;
+            return `Canal "${canal.name}" criado com sucesso (ID: ${canal.id}). Use esse ID diretamente se precisar mexer nesse canal agora — não crie o canal de novo.`;
         }
         case 'deletar_canal': {
             await chamarDiscordAPI('DELETE', `/channels/${args.canal_id}`, null, 'Deletado pela Ana a pedido de um usuário autorizado');
@@ -700,19 +703,17 @@ async function executarFerramentaAna(nome, args, guildId, contexto = {}) {
                 color: args.cor_hex ? parseInt(args.cor_hex.replace('#', ''), 16) : undefined,
                 mentionable: !!args.mencionavel
             }, 'Criado pela Ana a pedido de um usuário autorizado');
-            return `Cargo "${cargo.name}" criado com sucesso.`;
+            return `Cargo "${cargo.name}" criado com sucesso (ID: ${cargo.id}). Use esse ID diretamente se precisar dar/tirar esse cargo de alguém agora — não crie o cargo de novo.`;
         }
         case 'deletar_cargo': {
             await chamarDiscordAPI('DELETE', `/guilds/${guildId}/roles/${args.cargo_id}`, null, 'Deletado pela Ana a pedido de um usuário autorizado');
             return 'Cargo deletado com sucesso.';
         }
         case 'kickar_membro': {
-            if (args.usuario_id === DONO_ID) return 'Não posso expulsar o dono do servidor.';
             await chamarDiscordAPI('DELETE', `/guilds/${guildId}/members/${args.usuario_id}`, null, args.motivo || 'Expulso pela Ana a pedido de um usuário autorizado');
             return 'Membro expulso com sucesso.';
         }
         case 'banir_membro': {
-            if (args.usuario_id === DONO_ID) return 'Não posso banir o dono do servidor.';
             const dias = Math.min(Math.max(args.dias_deletar_mensagens || 0, 0), 7);
             await chamarDiscordAPI('PUT', `/guilds/${guildId}/bans/${args.usuario_id}`, {
                 delete_message_seconds: dias * 86400
@@ -720,7 +721,6 @@ async function executarFerramentaAna(nome, args, guildId, contexto = {}) {
             return 'Membro banido com sucesso.';
         }
         case 'mutar_membro': {
-            if (args.usuario_id === DONO_ID) return 'Não posso mutar o dono do servidor.';
             const minutos = Math.min(Math.max(args.minutos || 5, 1), 40320); // máximo 28 dias, limite do Discord
             const ate = new Date(Date.now() + minutos * 60000).toISOString();
             await chamarDiscordAPI('PATCH', `/guilds/${guildId}/members/${args.usuario_id}`, {
@@ -743,12 +743,10 @@ async function executarFerramentaAna(nome, args, guildId, contexto = {}) {
             return entradas.length ? entradas.join(' | ') : 'Nenhum registro recente encontrado.';
         }
         case 'adicionar_cargo_membro': {
-            if (args.usuario_id === DONO_ID) return 'Não vou mexer nos cargos do dono do servidor.';
             await chamarDiscordAPI('PUT', `/guilds/${guildId}/members/${args.usuario_id}/roles/${args.cargo_id}`, null, 'Cargo adicionado pela Ana a pedido de um usuário autorizado');
             return 'Cargo adicionado com sucesso.';
         }
         case 'remover_cargo_membro': {
-            if (args.usuario_id === DONO_ID) return 'Não vou mexer nos cargos do dono do servidor.';
             await chamarDiscordAPI('DELETE', `/guilds/${guildId}/members/${args.usuario_id}/roles/${args.cargo_id}`, null, 'Cargo removido pela Ana a pedido de um usuário autorizado');
             return 'Cargo removido com sucesso.';
         }
@@ -815,7 +813,6 @@ async function executarFerramentaAna(nome, args, guildId, contexto = {}) {
             return segundos > 0 ? `Slowmode desse canal ajustado pra ${segundos} segundo(s).` : 'Slowmode desativado nesse canal.';
         }
         case 'alterar_apelido': {
-            if (args.usuario_id === DONO_ID) return 'Não vou mexer no apelido do dono do servidor.';
             await chamarDiscordAPI('PATCH', `/guilds/${guildId}/members/${args.usuario_id}`, {
                 nick: args.novo_apelido || null
             }, 'Apelido alterado pela Ana a pedido de um usuário autorizado');
@@ -828,7 +825,6 @@ async function executarFerramentaAna(nome, args, guildId, contexto = {}) {
             return 'Membro movido de canal de voz com sucesso.';
         }
         case 'desconectar_membro_voz': {
-            if (args.usuario_id === DONO_ID) return 'Não vou desconectar o dono do servidor da call.';
             await chamarDiscordAPI('PATCH', `/guilds/${guildId}/members/${args.usuario_id}`, {
                 channel_id: null
             }, 'Desconectado pela Ana a pedido de um usuário autorizado');
@@ -866,7 +862,6 @@ async function executarFerramentaAna(nome, args, guildId, contexto = {}) {
             return `${ids.length} mensagem(ns) apagada(s) com sucesso.`;
         }
         case 'apagar_mensagens_usuario': {
-            if (args.usuario_id === DONO_ID) return 'Não vou apagar as mensagens do dono do servidor.';
             const limite = Math.min(Math.max(args.quantidade || 20, 1), 100);
             const mensagensCanal = await chamarDiscordAPI('GET', `/channels/${args.canal_id}/messages?limit=100`);
             const doUsuario = (mensagensCanal || [])
@@ -1009,12 +1004,14 @@ async function obterCompletionComRetry(mensagens, ferramentas) {
         ? '\n\nImportante: a pessoa falando com você agora é seu dono/criador, quem te fez existir. Trate com um carinho especial e pode reconhecer isso quando fizer sentido na conversa, sem ficar repetindo isso toda hora.'
         : '';
 
+    const infoAutor = `\n\nImportante: o ID Discord de quem está falando com você agora é ${userId}. Quando ela pedir pra você fazer alguma ação nela mesma (dar ou tirar cargo, mutar, mudar apelido, mover de call, etc.), usando termos como "em mim", "comigo", "pra mim", "me dá", "me tira" e afins, use ${userId} como o ID do usuário na ferramenta direto — nunca peça pra ela te mandar a menção (@) ou o ID dela, você já sabe quem ela é.`;
+
     const infoPermissao = autorizado
         ? '\n\nImportante: quem tá falando com você agora TEM permissão administrativa. Você pode usar as ferramentas disponíveis pra executar de verdade o que ela pedir (criar/apagar canal ou cargo, moderar membro, ver auditoria) quando fizer sentido no pedido dela.'
         : '\n\nImportante: quem tá falando com você agora NÃO tem permissão administrativa nem acesso a informações internas suas. Se ela pedir uma ação administrativa ou informação técnica interna, recuse com naturalidade, sem entrar em detalhe técnico do motivo.';
 
     const mensagens = [
-        { role: 'system', content: PERSONA_ANA + infoDono + infoPermissao + infoResultadoConfirmacao },
+        { role: 'system', content: PERSONA_ANA + infoDono + infoAutor + infoPermissao + infoResultadoConfirmacao },
         ...historico.slice(-20).map(m => ({ role: m.role, content: m.content })),
         { role: 'user', content: (notaContexto ? notaContexto + '\n\n' : '') + textoUsuario }
     ];
