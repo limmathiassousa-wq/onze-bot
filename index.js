@@ -42,7 +42,7 @@ MessageClass.prototype.delete = function (...args) {
 };
 
 const { anaResponderComAudio, DONO_ID: DONO_ID_ANA } = require('./ana_voz');
-const CANAIS_VOZ_ANA = ['1550979191040909402', '1548578896054718474'];
+const CANAIS_VOZ_ANA = ['1548489854038581308', '1548578896054718474'];
 
 
 const mongoConectado = mongoose.connect(MONGO_URI)
@@ -6107,6 +6107,13 @@ if (interaction.isButton() && interaction.customId === 'lock_destravar') {
     return interaction.editReply({ components: [montarPainelLock(interaction.guild.id)], flags: [MessageFlags.IsComponentsV2] });
 }
 
+if (interaction.isButton() && interaction.customId === 'lock_antinuke') {
+    if (!interaction.member.permissions.has('Administrator') && !interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
+        return interaction.reply({ content: 'Apenas administradores podem usar isso!', flags: [MessageFlags.Ephemeral] });
+    }
+
+    return interaction.update({ components: [montarPainelAntiNuke()], flags: [MessageFlags.IsComponentsV2] });
+}
   
 
 if (interaction.isButton() && interaction.customId === 'protecao_ef_config_antibot') {
