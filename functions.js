@@ -16,7 +16,7 @@ const crypto = require('crypto');
 const { comandos, montarPainelBotCall } = require('./commands');
 const { botCallDB, botCallPaineis, msgCriadorDB } = require('./state');
 const { esperar, containerTexto, comRetry, xpNecessario, somarSaldo, getXP, setXP, urlValida } = require('./helpers');
-const { logarAntiLink, logarAntiSpam, logarPunicaoCargosStaff } = require('./logger');
+const { logarAntiLink, logarAntiSpam, logarPunicaoCargosStaff, logarAntiNukeCanais } = require('./logger');
 const redis = require('./redis');
 const { supabase } = require('./supabase');
 const {
@@ -2319,11 +2319,10 @@ async function montarPainelStatus(botClient) {
     const uptimeTexto = formatarDuracaoMs(botClient.uptime);
     const ping = Math.round(botClient.ws.ping);
 
-    const servidores = botClient.guilds.cache.size;
     const usuarios = botClient.guilds.cache.reduce((acc, g) => acc + (g.memberCount || 0), 0);
 
     const container = new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## Status do Nino`))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## Status da aninha`))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
             `**CPU**\n\`\`\`${gerarBarraProgresso(cpuUso)}  ${cpuUso}%\`\`\``
@@ -2341,7 +2340,6 @@ async function montarPainelStatus(botClient) {
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
             `**Ping:** \`${ping}ms\`\n` +
             `**Uptime:** \`${uptimeTexto}\`\n` +
-            `**Servidores:** \`${servidores}\`\n` +
             `**Usuários:** \`${usuarios}\`\n` +
             `**Node.js:** \`${process.version}\``
         ));
@@ -4692,22 +4690,19 @@ function registrarRelatorioAntiNukeCanais(guild, tipo, texto, executor) {
 }
 
 async function enviarRelatorioAntiNukeCanais(guild, r) {
-    const listar = (lista) => {
-        const nomes = lista.slice(0, 15).map(n => `\`${n}\``).join(', ');
-        return lista.length > 15 ? `${nomes} e mais ${lista.length - 15}` : nomes;
-    };
-    const linhas = [];
-    if (r.restaurados.length) linhas.push(`**Canais restaurados (${r.restaurados.length}):** ${listar(r.restaurados)}`);
-    if (r.revertidos.length) linhas.push(`**Edições revertidas (${r.revertidos.length}):** ${listar(r.revertidos)}`);
-    if (r.falhas.length) linhas.push(`**Não consegui devolver (${r.falhas.length}):** ${listar(r.falhas)} — confira minhas permissões`);
-    if (!linhas.length) return;
+    if (!r.restaurados.length && !r.revertidos.length && !r.falhas.length) return;
 
-    const executores = [...r.executores.values()];
-    linhas.push(executores.length
-        ? `**Responsável:** ${executores.map(e => `<@${e.id}>${e.bot ? ' (bot)' : ''}`).join(', ')}`
-        : '**Responsável:** `não identificado`');
+    // Mesmo formato/estilo dos outros logs (Executado por, Motivo, timestamp) — antes isso
+    // caía num alerta genérico sem essas informações, por isso destoava do resto dos logs.
+    const executores = [...r.executores.values()].map(e => ({ ...e, acao: e.acao || 'nenhuma' }));
 
-    await enviarAlertaProtecao(guild, 'ANTI NUKE: CANAIS PROTEGIDOS', linhas, executores[0]?.user?.displayAvatarURL({ extension: 'png', size: 256 }));
+    await logarAntiNukeCanais({
+        guild,
+        executores,
+        restaurados: r.restaurados,
+        revertidos: r.revertidos,
+        falhas: r.falhas
+    });
 }
 
 // ---- restauração de canal apagado ----
