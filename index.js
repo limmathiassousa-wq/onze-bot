@@ -727,7 +727,7 @@ setInterval(() => {
 
     client.once('clientReady', async () => {
     console.log(`Logado como ${client.user.tag}!`);
-    client.user.setActivity(`Prefixo: ${PREFIXO}`, { type: ActivityType.Streaming, url: 'https://youtu.be/XTDH7gSqwiQ?si=_Y7GWvC5q0ANTsmC' });
+    client.user.setActivity(`Prefixo: ${PREFIXO}`, { type: ActivityType.Streaming, url: 'https://Twitch.tv/discord' });
 
     
 carregarTellonymPendentes();
