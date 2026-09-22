@@ -8,7 +8,7 @@ try {
     conteudo = conteudo.replace(/noCallHome:\s*true,?\s*/g, '');
     conteudo = conteudo.replace(
         /noWarnings:\s*true,/g,
-        "noWarnings: true, extractorArgs: 'youtube:player_client=android,web', cookies: process.env.YTDLP_COOKIES_PATH,"
+        "noWarnings: true, extractorArgs: 'youtube:player_client=tv,ios,android,web', cookies: process.env.YTDLP_COOKIES_PATH,"
     );
 
     if (conteudo !== antes) {
