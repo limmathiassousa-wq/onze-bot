@@ -7263,29 +7263,30 @@ function registrarHistoricoMusica(guildId, song) {
 // (uma env var com o cookies.txt exportado do navegador) em disco, e o
 // patch-ytdlp.js injeta o caminho na configuração do yt-dlp via
 // YTDLP_COOKIES_PATH (ver scripts/patch-ytdlp.js).
-function atualizarYtDlp() {
-    try {
-        const versaoAntes = execSync('yt-dlp --version').toString().trim();
-        execSync('yt-dlp -U', { stdio: 'inherit' });
-        const versaoDepois = execSync('yt-dlp --version').toString().trim();
-        console.log(`[YT-DLP] versão antes: ${versaoAntes} | depois: ${versaoDepois}`);
-    } catch (e) {
-        console.error('--- Erro ao atualizar yt-dlp ---', e.message);
-    }
-}
 
 function prepararCookiesYoutube() {
-    if (!process.env.YOUTUBE_COOKIES) {
-        console.log('[YT-DLP] YOUTUBE_COOKIES não configurada — seguindo sem cookies (mais chance de bloqueio do YouTube).');
+    const cookies = String(process.env.YOUTUBE_COOKIES || '').trim();
+
+    if (!cookies) {
+        delete process.env.YTDLP_COOKIES_PATH;
+        console.log('[YT-DLP] YOUTUBE_COOKIES não configurada.');
         return;
     }
-    const caminho = path.join(__dirname, 'cookies.txt');
+
+    const caminho = path.join(os.tmpdir(), 'youtube-cookies.txt');
+
     try {
-        fs.writeFileSync(caminho, process.env.YOUTUBE_COOKIES, 'utf8');
+        fs.writeFileSync(caminho, cookies, {
+            encoding: 'utf8',
+            mode: 0o600
+        });
+
         process.env.YTDLP_COOKIES_PATH = caminho;
-        console.log('[YT-DLP] cookies.txt escrito em', caminho);
-    } catch (e) {
-        console.error('--- Erro ao escrever cookies.txt para o yt-dlp ---', e);
+
+        console.log('[YT-DLP] Cookies preparados em:', caminho);
+    } catch (err) {
+        delete process.env.YTDLP_COOKIES_PATH;
+        console.error('[YT-DLP] Erro ao preparar cookies:', err);
     }
 }
 
@@ -7294,73 +7295,78 @@ function prepararCookiesYoutube() {
 // Chame isso UMA vez no index.js, logo depois de criar o client, e guarde o
 // resultado em client.distube.
 function inicializarMusica(clienteDiscord) {
-    atualizarYtDlp();
     prepararCookiesYoutube();
 
     const distube = new DisTube(clienteDiscord, {
         emitNewSongOnly: true,
-        // SpotifyPlugin e SoundCloudPlugin foram removidos daqui:
-        // - Links do Spotify agora são resolvidos manualmente via API oficial
-        //   (resolverSpotifyParaQuery) antes de chegar no distube.play, e viram
-        //   uma busca de texto que o YtDlpPlugin resolve no YouTube.
-        // - Links do SoundCloud ficam a cargo do YtDlpPlugin também, que usa o
-        //   extractor do yt-dlp em vez do pipeline HLS/AAC do @distube/soundcloud
-        //   (que estava corrompendo o áudio e derrubando o FFmpeg com SIGKILL).
+
         plugins: [
-            new YtDlpPlugin({ update: true })
+            new YtDlpPlugin({
+                update: false
+            })
         ]
     });
-    
+
     distube.on('ffmpegDebug', (debug) => {
-    console.log('[FFMPEG_DEBUG]', debug);
-});
+        console.log('[FFMPEG_DEBUG]', debug);
+    });
 
-distube.on('debug', (debug) => {
-    console.log('[DISTUBE_DEBUG]', debug);
-});
+    distube.on('debug', (debug) => {
+        console.log('[DISTUBE_DEBUG]', debug);
+    });
 
-    // Toda fila nova começa no volume padrão (45%), sem autoplay automático do DisTube
-    // (o botão "avançar" cuida disso manualmente quando a fila está vazia) e com o
-    // histórico/fila contínua zerados para essa nova sessão.
     distube.on('initQueue', (queue) => {
         queue.setVolume(VOLUME_PADRAO_MUSICA);
         queue.autoplay = false;
+
         filaContinuaDB.delete(queue.id);
         historicoMusicaDB.delete(queue.id);
     });
 
-    // Sempre que uma música começa a tocar (primeira vez, skip, voltar, próxima
-    // automática, música parecida...), registra no histórico e recria o painel público
-    // (apaga o antigo e manda um novo, pra ele sempre ficar como a última mensagem do canal).
     distube.on('playSong', (queue) => {
         registrarHistoricoMusica(queue.id, queue.songs[0]);
-        atualizarPainelMusica(clienteDiscord, queue).catch(err => console.error('--- Erro ao atualizar painel de música ---', err));
+
+        atualizarPainelMusica(
+            clienteDiscord,
+            queue
+        ).catch(err => {
+            console.error(
+                '--- Erro ao atualizar painel de música ---',
+                err
+            );
+        });
     });
 
-    // Quando a fila é destruída por qualquer motivo, esquece o painel salvo
-    // (a próxima /play vai criar um painel novo em vez de tentar editar um antigo).
     distube.on('deleteQueue', (queue) => {
         painelMusicaDB.delete(queue.id);
     });
 
-    // Quando a fila acaba naturalmente: se "fila contínua" estiver ativa, busca uma
-    // música parecida pra continuar tocando; senão, sai da call como antes.
     distube.on('finish', async (queue) => {
         if (filaContinuaDB.get(queue.id)) {
             try {
                 await queue.addRelatedSong();
                 return;
             } catch (err) {
-                console.error('--- Erro ao buscar música parecida (fila contínua) ---', err);
+                console.error(
+                    '--- Erro ao buscar música parecida (fila contínua) ---',
+                    err
+                );
             }
         }
+
         queue.voice.leave();
     });
 
     distube.on('error', (err, queue) => {
-        console.error('--- Erro no sistema de música ---', err);
+        console.error(
+            '--- Erro no sistema de música ---',
+            err
+        );
+
         if (queue?.textChannel) {
-            queue.textChannel.send({ content: 'Ocorreu um erro ao tocar essa música. Tente novamente.' }).catch(() => null);
+            queue.textChannel.send({
+                content: 'Ocorreu um erro ao tocar essa música. Tente novamente.'
+            }).catch(() => null);
         }
     });
 
