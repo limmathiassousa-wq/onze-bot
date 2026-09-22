@@ -7174,14 +7174,30 @@ const { SoundCloudPlugin } = require('@distube/soundcloud');
 
 const VOLUME_PADRAO_MUSICA = 45;
 
-const EMOJI_MUSICA_VOLTAR = '1551792510810984569';
+const EMOJI_MUSICA_VOLTAR = '1551792590431715328';
 const EMOJI_MUSICA_PAUSE = '1551794465000136755';
 const EMOJI_MUSICA_PLAY = '1551794618381639782';
-const EMOJI_MUSICA_AVANCAR = '1551792590431715328';
+const EMOJI_MUSICA_AVANCAR = '1551792510810984569';
 const EMOJI_MUSICA_SAIR = '1551796338365300786';
 
 // guildId -> { channelId, messageId } do painel de controle (não efêmero) atual
 const painelMusicaDB = new Map();
+
+// guildId -> array de músicas tocadas nesta sessão (mais recente primeiro)
+const historicoMusicaDB = new Map();
+const HISTORICO_MUSICA_MAX = 15;
+
+// guildId -> boolean (fila contínua: busca música parecida quando a fila acaba)
+const filaContinuaDB = new Map();
+
+const MUSICAS_POR_PAGINA_FILA = 10;
+
+function registrarHistoricoMusica(guildId, song) {
+    const lista = historicoMusicaDB.get(guildId) || [];
+    lista.unshift({ nome: song.name, uploader: song.uploader?.name || 'Desconhecido' });
+    if (lista.length > HISTORICO_MUSICA_MAX) lista.length = HISTORICO_MUSICA_MAX;
+    historicoMusicaDB.set(guildId, lista);
+}
 
 // Cria a instância do DisTube, registra os plugins (YouTube, Spotify, SoundCloud)
 // e os listeners que mantêm o painel público sincronizado com a fila.
@@ -7197,16 +7213,21 @@ function inicializarMusica(clienteDiscord) {
         ]
     });
 
-    // Toda fila nova começa no volume padrão (45%) e sem autoplay automático do DisTube
-    // (o botão "avançar" cuida disso manualmente quando a fila está vazia).
+    // Toda fila nova começa no volume padrão (45%), sem autoplay automático do DisTube
+    // (o botão "avançar" cuida disso manualmente quando a fila está vazia) e com o
+    // histórico/fila contínua zerados para essa nova sessão.
     distube.on('initQueue', (queue) => {
         queue.setVolume(VOLUME_PADRAO_MUSICA);
         queue.autoplay = false;
+        filaContinuaDB.delete(queue.id);
+        historicoMusicaDB.delete(queue.id);
     });
 
     // Sempre que uma música começa a tocar (primeira vez, skip, voltar, próxima
-    // automática, música parecida...), o painel público é criado/atualizado.
+    // automática, música parecida...), registra no histórico e recria o painel público
+    // (apaga o antigo e manda um novo, pra ele sempre ficar como a última mensagem do canal).
     distube.on('playSong', (queue) => {
+        registrarHistoricoMusica(queue.id, queue.songs[0]);
         atualizarPainelMusica(clienteDiscord, queue).catch(err => console.error('--- Erro ao atualizar painel de música ---', err));
     });
 
@@ -7216,8 +7237,17 @@ function inicializarMusica(clienteDiscord) {
         painelMusicaDB.delete(queue.id);
     });
 
-    // Quando a fila acaba naturalmente (sem repeat/autoplay), sai da call.
-    distube.on('finish', (queue) => {
+    // Quando a fila acaba naturalmente: se "fila contínua" estiver ativa, busca uma
+    // música parecida pra continuar tocando; senão, sai da call como antes.
+    distube.on('finish', async (queue) => {
+        if (filaContinuaDB.get(queue.id)) {
+            try {
+                await queue.addRelatedSong();
+                return;
+            } catch (err) {
+                console.error('--- Erro ao buscar música parecida (fila contínua) ---', err);
+            }
+        }
         queue.voice.leave();
     });
 
@@ -7258,6 +7288,25 @@ function montarPainelAdicionadaEfemero(song, posicao) {
         ));
 }
 
+function montarSelectOpcoesMusica(queue, buscando = false) {
+    const filaContinuaAtiva = !!filaContinuaDB.get(queue.id);
+    const loopAtivo = queue.repeatMode === 1;
+
+    return new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+            .setCustomId('musica_select_opcoes')
+            .setPlaceholder('Mais opções')
+            .setDisabled(buscando)
+            .addOptions(
+                { label: 'Histórico', value: 'historico', description: 'Veja as últimas músicas tocadas', emoji: '📜' },
+                { label: `Fila contínua (${filaContinuaAtiva ? '✅️ Ativo' : 'Desativado'})`, value: 'fila_continua', description: 'Busca músicas parecidas quando a fila acabar', emoji: '🔁' },
+                { label: `Loop (${loopAtivo ? '✅️ Ativo' : 'Desativado'})`, value: 'loop', description: 'Repete a música atual sem parar', emoji: '🔂' },
+                { label: 'Adicionar à fila', value: 'adicionar', description: 'Adiciona uma nova música à fila', emoji: '➕' },
+                { label: 'Fila', value: 'fila', description: 'Veja as músicas que estão na fila', emoji: '📋' }
+            )
+    );
+}
+
 function montarPainelControleMusica(queue, buscando = false) {
     const song = queue.songs[0];
     const pausado = queue.paused;
@@ -7266,7 +7315,7 @@ function montarPainelControleMusica(queue, buscando = false) {
         .addSectionComponents(
             new SectionBuilder()
                 .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-                    `### Tocando agora\n**${song.name}** — **${song.uploader?.name || 'Desconhecido'}**`
+                    `### Tocando agora\n-# **${song.formattedDuration}**\n**${song.name}** — **${song.uploader?.name || 'Desconhecido'}**`
                 ))
                 .setThumbnailAccessory(new ThumbnailBuilder().setURL(song.thumbnail || IMG_DISCORD_LOGO))
         )
@@ -7283,7 +7332,8 @@ function montarPainelControleMusica(queue, buscando = false) {
                 new ButtonBuilder().setCustomId('musica_volume_abrir').setLabel(`Volume ${queue.volume}%`).setStyle(ButtonStyle.Secondary).setDisabled(buscando),
                 new ButtonBuilder().setCustomId('musica_sair').setEmoji(EMOJI_MUSICA_SAIR).setStyle(ButtonStyle.Danger).setDisabled(buscando)
             )
-        );
+        )
+        .addActionRowComponents(montarSelectOpcoesMusica(queue, buscando));
 }
 
 function montarPainelControleMusicaDesabilitado(queue) {
@@ -7292,7 +7342,7 @@ function montarPainelControleMusicaDesabilitado(queue) {
         .addSectionComponents(
             new SectionBuilder()
                 .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-                    `### Tocando agora\n**${song.name}** — **${song.uploader?.name || 'Desconhecido'}**`
+                    `### Tocando agora\n-# **${song.formattedDuration}**\n**${song.name}** — **${song.uploader?.name || 'Desconhecido'}**`
                 ))
                 .setThumbnailAccessory(new ThumbnailBuilder().setURL(song.thumbnail || IMG_DISCORD_LOGO))
         )
@@ -7309,7 +7359,8 @@ function montarPainelControleMusicaDesabilitado(queue) {
                 new ButtonBuilder().setCustomId('musica_volume_abrir').setLabel(`Volume ${queue.volume}%`).setStyle(ButtonStyle.Secondary).setDisabled(true),
                 new ButtonBuilder().setCustomId('musica_sair').setEmoji(EMOJI_MUSICA_SAIR).setStyle(ButtonStyle.Danger).setDisabled(true)
             )
-        );
+        )
+        .addActionRowComponents(montarSelectOpcoesMusica(queue, true));
 }
 
 function montarPainelTchauMusica() {
@@ -7319,7 +7370,88 @@ function montarPainelTchauMusica() {
         .addTextDisplayComponents(new TextDisplayBuilder().setContent('-# **até mais**'));
 }
 
-// Cria ou edita (se já existir) o painel público de controle no canal de texto da fila.
+function montarPainelHistoricoEfemero(guildId) {
+    const lista = historicoMusicaDB.get(guildId) || [];
+    const container = new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('### Últimas tocadas'));
+
+    if (lista.length === 0) {
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent('-# **Nenhuma música tocada ainda nesta sessão.**'));
+    } else {
+        const linhas = lista.map((item, i) => `${i + 1}. **${item.nome}**`).join('\n');
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(linhas));
+    }
+
+    return container;
+}
+
+// Painel efêmero da fila, com paginação e (se houver músicas além da que está tocando)
+// um select menu pra remover uma delas.
+function montarPainelFilaEfemero(queue, pagina = 0) {
+    const totalMusicas = queue.songs.length;
+    const totalPaginas = Math.max(1, Math.ceil(totalMusicas / MUSICAS_POR_PAGINA_FILA));
+    pagina = Math.min(Math.max(pagina, 0), totalPaginas - 1);
+
+    const inicio = pagina * MUSICAS_POR_PAGINA_FILA;
+    const musicasPagina = queue.songs.slice(inicio, inicio + MUSICAS_POR_PAGINA_FILA);
+
+    const container = new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('### Fila de músicas'))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            `-# ${totalMusicas} música(s) na fila  •  -# página: ${pagina + 1}/${totalPaginas}`
+        ))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+
+    if (musicasPagina.length === 0) {
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent('-# **Nenhuma música na fila.**'));
+    } else {
+        const linhas = musicasPagina.map((song, i) => {
+            const posicaoGlobal = inicio + i + 1;
+            const quemPediu = song.user?.tag || song.member?.user?.tag || 'Desconhecido';
+            return `**${posicaoGlobal}.** ${song.name} • ${song.formattedDuration} • ${quemPediu}`;
+        }).join('\n');
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(linhas));
+    }
+
+    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+
+    if (totalPaginas > 1) {
+        container.addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId(`musica_fila_pag_${pagina - 1}`).setLabel('Anterior').setStyle(ButtonStyle.Secondary).setDisabled(pagina === 0),
+                new ButtonBuilder().setCustomId(`musica_fila_pag_${pagina + 1}`).setLabel('Próxima').setStyle(ButtonStyle.Secondary).setDisabled(pagina >= totalPaginas - 1)
+            )
+        );
+    }
+
+    // Só entram no select de remoção as músicas que ainda não estão tocando (posição > 0).
+    const removiveis = musicasPagina
+        .map((song, i) => ({ song, indexGlobal: inicio + i }))
+        .filter(({ indexGlobal }) => indexGlobal > 0);
+
+    if (removiveis.length > 0) {
+        container.addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new StringSelectMenuBuilder()
+                    .setCustomId('musica_remover_da_fila')
+                    .setPlaceholder('Remover uma música da fila')
+                    .addOptions(
+                        removiveis.map(({ song, indexGlobal }) => ({
+                            label: song.name.slice(0, 100),
+                            description: `Posição ${indexGlobal + 1} • ${song.formattedDuration}`.slice(0, 100),
+                            value: String(indexGlobal)
+                        }))
+                    )
+            )
+        );
+    }
+
+    return container;
+}
+
+// Cria o painel público de controle no canal de texto da fila. Sempre que uma música
+// nova começa, apaga o painel anterior (se existir) e manda um novo — assim a embed
+// principal fica sempre como a última mensagem do canal.
 async function atualizarPainelMusica(clienteDiscord, queue) {
     const guildId = queue.id;
     const container = montarPainelControleMusica(queue);
@@ -7327,13 +7459,13 @@ async function atualizarPainelMusica(clienteDiscord, queue) {
 
     const dados = painelMusicaDB.get(guildId);
     if (dados) {
+        painelMusicaDB.delete(guildId);
         try {
             const canal = await clienteDiscord.channels.fetch(dados.channelId);
-            const msg = await canal.messages.fetch(dados.messageId);
-            await msg.edit(payload);
-            return;
+            const msgAntiga = await canal.messages.fetch(dados.messageId);
+            await msgAntiga.delete().catch(() => null);
         } catch (err) {
-            painelMusicaDB.delete(guildId);
+            // painel antigo já não existe (canal ou mensagem apagada) — ignora
         }
     }
 
@@ -7429,6 +7561,58 @@ async function musicaAvancar(interaction) {
     }
 }
 
+// Chamada pelo select menu 'musica_select_opcoes' (exceto a opção 'adicionar', que
+// abre um modal e é tratada direto no index.js, já que precisa de ModalBuilder).
+async function musicaSelecionarOpcao(interaction, opcao) {
+    const queue = interaction.client.distube.getQueue(interaction.guild.id);
+    if (!queue) return interaction.reply({ content: 'Não há nada tocando no momento.', flags: [MessageFlags.Ephemeral] });
+
+    if (opcao === 'historico') {
+        return interaction.reply({ components: [montarPainelHistoricoEfemero(interaction.guild.id)], flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral] });
+    }
+
+    if (opcao === 'fila_continua') {
+        filaContinuaDB.set(queue.id, !filaContinuaDB.get(queue.id));
+        return interaction.update({ components: [montarPainelControleMusica(queue)], flags: [MessageFlags.IsComponentsV2] });
+    }
+
+    if (opcao === 'loop') {
+        queue.setRepeatMode(queue.repeatMode === 1 ? 0 : 1);
+        return interaction.update({ components: [montarPainelControleMusica(queue)], flags: [MessageFlags.IsComponentsV2] });
+    }
+
+    if (opcao === 'fila') {
+        return interaction.reply({ components: [montarPainelFilaEfemero(queue, 0)], flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral] });
+    }
+}
+
+// Botões 'Anterior'/'Próxima' do painel efêmero da fila.
+async function musicaMostrarFila(interaction, pagina) {
+    const queue = interaction.client.distube.getQueue(interaction.guild.id);
+    if (!queue) return interaction.reply({ content: 'Não há nada tocando no momento.', flags: [MessageFlags.Ephemeral] });
+    return interaction.update({ components: [montarPainelFilaEfemero(queue, pagina)], flags: [MessageFlags.IsComponentsV2] });
+}
+
+// Select menu 'musica_remover_da_fila' dentro do painel efêmero da fila.
+async function musicaRemoverDaFila(interaction) {
+    const queue = interaction.client.distube.getQueue(interaction.guild.id);
+    if (!queue) return interaction.reply({ content: 'Não há nada tocando no momento.', flags: [MessageFlags.Ephemeral] });
+
+    const index = parseInt(interaction.values[0], 10);
+    const song = queue.songs[index];
+    if (!song || index === 0) {
+        return interaction.reply({ content: 'Essa música não está mais na fila.', flags: [MessageFlags.Ephemeral] });
+    }
+
+    queue.songs.splice(index, 1);
+
+    const container = new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('## Música removida'))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**${song.name}** foi removida.`));
+
+    return interaction.reply({ components: [container], flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral] });
+}
+
 // Chamada a partir do submit do modal de volume (musica_modal_volume).
 async function musicaDefinirVolume(interaction) {
     const queue = interaction.client.distube.getQueue(interaction.guild.id);
@@ -7472,6 +7656,9 @@ module.exports = {
     musicaAvancar,
     musicaDefinirVolume,
     musicaSair,
+    musicaSelecionarOpcao,
+    musicaMostrarFila,
+    musicaRemoverDaFila,
 
     // --- anti nuke de canais ---
     alternarAntiNukeCanais,
