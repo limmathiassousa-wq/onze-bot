@@ -7264,39 +7264,11 @@ function registrarHistoricoMusica(guildId, song) {
 // patch-ytdlp.js injeta o caminho na configuração do yt-dlp via
 // YTDLP_COOKIES_PATH (ver scripts/patch-ytdlp.js).
 
-// Caminho do arquivo de config global do yt-dlp. Esse arquivo é lido
-// automaticamente pelo PRÓPRIO yt-dlp em toda execução (não depende de env
-// var nem de argumento passado na chamada) — é o único jeito de garantir que
-// os cookies também sejam usados nas chamadas que o YtDlpPlugin do DisTube
-// dispara internamente (o construtor dele só aceita { update }, sem opção
-// de cookies/args extras).
-function caminhoConfigYtdlp() {
-    return path.join(os.homedir(), '.config', 'yt-dlp', 'config');
-}
-
 function prepararCookiesYoutube() {
     const cookies = String(process.env.YOUTUBE_COOKIES || '').trim();
-    const potUrl = String(process.env.POT_PROVIDER_URL || '').trim();
-    const configPath = caminhoConfigYtdlp();
-
-    // Linha do PO token provider (bgutil) é independente de ter cookie ou
-    // não — sempre inclui se a env var estiver setada.
-    const linhaPot = potUrl
-        ? `--extractor-args "youtube:getpot_bgutil_server=${potUrl}"\n`
-        : '';
 
     if (!cookies) {
         delete process.env.YTDLP_COOKIES_PATH;
-
-        try {
-            if (linhaPot) {
-                fs.mkdirSync(path.dirname(configPath), { recursive: true });
-                fs.writeFileSync(configPath, linhaPot, { encoding: 'utf8', mode: 0o600 });
-            } else if (fs.existsSync(configPath)) {
-                fs.unlinkSync(configPath);
-            }
-        } catch {}
-
         console.log('[YT-DLP] YOUTUBE_COOKIES não configurada.');
         return;
     }
@@ -7311,25 +7283,67 @@ function prepararCookiesYoutube() {
 
         process.env.YTDLP_COOKIES_PATH = caminho;
 
-        // Escreve o config global lido automaticamente pelo yt-dlp, cobrindo
-        // também as chamadas internas do YtDlpPlugin (que não recebem
-        // --cookies explicitamente). Junta cookies + PO token provider (se
-        // configurado) no mesmo arquivo.
-        fs.mkdirSync(path.dirname(configPath), { recursive: true });
-        fs.writeFileSync(configPath, `--cookies ${caminho}\n${linhaPot}`, {
-            encoding: 'utf8',
-            mode: 0o600
-        });
-
-        console.log(
-            '[YT-DLP] Cookies preparados em:', caminho,
-            '| config global:', configPath,
-            '| PO provider:', potUrl || '(não configurado)'
-        );
+        console.log('[YT-DLP] Cookies preparados em:', caminho);
     } catch (err) {
         delete process.env.YTDLP_COOKIES_PATH;
         console.error('[YT-DLP] Erro ao preparar cookies:', err);
     }
+}
+
+// Roteia yt-dlp E ffmpeg pelo mesmo proxy (env YTDLP_PROXY_URL, ex:
+// "http://usuario:senha@host:porta" ou "socks5://host:porta").
+//
+// Isso cobre os dois pontos onde o IP de datacenter da Render é bloqueado:
+//
+// 1) yt-dlp: adicionamos "--proxy" no arquivo de config do yt-dlp (o mesmo
+//    onde os cookies já são injetados), então TODA chamada ao yt-dlp sai
+//    pelo proxy — tanto a do YtDlpPlugin do DisTube quanto as chamadas
+//    diretas (debugExtracaoYoutube, extrairPrimeiraFaixaYoutube).
+//
+// 2) ffmpeg: a URL de áudio que o yt-dlp devolve (googlevideo.com) costuma
+//    ficar travada no IP de quem a resolveu. Se o yt-dlp resolver pelo proxy
+//    mas o ffmpeg baixar o áudio direto pelo IP da Render, a extração passa
+//    mas o play falha com 403. Por isso setamos HTTP(S)_PROXY no processo do
+//    Node: o ffmpeg é um processo filho (spawnado pelo DisTube) e herda
+//    essas env vars — o protocolo http do ffmpeg (libavformat) respeita
+//    http_proxy/https_proxy nativamente.
+function configurarProxyYoutube() {
+    const proxy = String(process.env.YTDLP_PROXY_URL || '').trim();
+
+    if (!proxy) {
+        console.log('[YT-DLP] YTDLP_PROXY_URL não configurada, seguindo sem proxy.');
+        return;
+    }
+
+    // --- 1) yt-dlp: injeta --proxy no arquivo de config dele ---
+    const caminhoConfig = path.join(os.homedir(), '.config', 'yt-dlp', 'config');
+
+    try {
+        fs.mkdirSync(path.dirname(caminhoConfig), { recursive: true });
+
+        let linhas = [];
+        try {
+            linhas = fs.readFileSync(caminhoConfig, 'utf8')
+                .split('\n')
+                .filter(l => l.trim() && !l.trim().startsWith('--proxy'));
+        } catch {}
+
+        linhas.push(`--proxy ${proxy}`);
+
+        fs.writeFileSync(caminhoConfig, linhas.join('\n') + '\n', 'utf8');
+
+        console.log('[YT-DLP] Proxy adicionado ao config:', caminhoConfig);
+    } catch (err) {
+        console.error('[YT-DLP] Erro ao escrever --proxy no config:', err);
+    }
+
+    // --- 2) ffmpeg: proxy via env vars herdadas pelo processo filho ---
+    process.env.HTTP_PROXY = proxy;
+    process.env.HTTPS_PROXY = proxy;
+    process.env.http_proxy = proxy;
+    process.env.https_proxy = proxy;
+
+    console.log('[YT-DLP] Proxy configurado para yt-dlp e ffmpeg.');
 }
 
 // Localiza o binário do yt-dlp que o @distube/yt-dlp já baixa sozinho dentro
@@ -7441,6 +7455,10 @@ function extrairPrimeiraFaixaYoutube(url, timeoutMs = 15000) {
             args.push('--cookies', process.env.YTDLP_COOKIES_PATH);
         }
 
+        if (process.env.YTDLP_PROXY_URL) {
+            args.push('--proxy', process.env.YTDLP_PROXY_URL);
+        }
+
         args.push(url);
 
         execFile(BINARIO_YTDLP || 'yt-dlp', args, { timeout: timeoutMs }, (err, stdout, stderr) => {
@@ -7510,6 +7528,10 @@ function debugExtracaoYoutube(url) {
             args.push('--cookies', process.env.YTDLP_COOKIES_PATH);
         }
 
+        if (process.env.YTDLP_PROXY_URL) {
+            args.push('--proxy', process.env.YTDLP_PROXY_URL);
+        }
+
         args.push(url);
 
         execFile(BINARIO_YTDLP || 'yt-dlp', args, { timeout: 30000, maxBuffer: 1024 * 1024 * 10 }, (err, stdout, stderr) => {
@@ -7530,6 +7552,7 @@ function debugExtracaoYoutube(url) {
 // resultado em client.distube.
 function inicializarMusica(clienteDiscord) {
     prepararCookiesYoutube();
+    configurarProxyYoutube();
 
     const distube = new DisTube(clienteDiscord, {
         emitNewSongOnly: true,
