@@ -7290,6 +7290,85 @@ function prepararCookiesYoutube() {
     }
 }
 
+// Localiza o binário do yt-dlp que o @distube/yt-dlp já baixa sozinho dentro
+// do node_modules (via yt-dlp-exec, no postinstall). Não existe 'yt-dlp' no
+// PATH do sistema no Render, então não dá pra chamar só pelo nome.
+function localizarBinarioYtDlp() {
+    const candidatos = [];
+
+    if (process.env.YTDLP_BIN_PATH) {
+        candidatos.push(process.env.YTDLP_BIN_PATH);
+    }
+
+    try {
+        const dir = path.dirname(require.resolve('yt-dlp-exec/package.json'));
+        candidatos.push(path.join(dir, 'bin', 'yt-dlp'));
+    } catch {}
+
+    candidatos.push(
+        path.join(__dirname, 'node_modules', 'yt-dlp-exec', 'bin', 'yt-dlp'),
+        path.join(__dirname, 'node_modules', '@distube', 'yt-dlp', 'bin', 'yt-dlp'),
+        path.join(__dirname, 'node_modules', '.bin', 'yt-dlp')
+    );
+
+    for (const c of candidatos) {
+        try {
+            if (c && fs.existsSync(c)) {
+                return c;
+            }
+        } catch {}
+    }
+
+    return null;
+}
+
+// Fallback: se os caminhos "chutados" não baterem, varre o node_modules
+// procurando qualquer arquivo com "yt-dlp" no nome, pra descobrir o caminho
+// real sem precisar de acesso a shell no host (só olhando o log).
+function buscarBinarioYtDlpNoNodeModules(raiz, limite = 20) {
+    const encontrados = [];
+    const pilha = [raiz];
+
+    while (pilha.length && encontrados.length < limite) {
+        const atual = pilha.pop();
+        let entradas;
+
+        try {
+            entradas = fs.readdirSync(atual, { withFileTypes: true });
+        } catch {
+            continue;
+        }
+
+        for (const entrada of entradas) {
+            const caminhoCompleto = path.join(atual, entrada.name);
+
+            if (entrada.isDirectory()) {
+                // não entra em node_modules aninhado de terceiros pra não demorar demais
+                if (entrada.name === '.bin' || entrada.name === 'bin' || /yt-dlp/i.test(entrada.name)) {
+                    pilha.push(caminhoCompleto);
+                } else if (path.basename(atual) === 'node_modules') {
+                    pilha.push(caminhoCompleto);
+                }
+            } else if (/yt-dlp/i.test(entrada.name)) {
+                encontrados.push(caminhoCompleto);
+                if (encontrados.length >= limite) break;
+            }
+        }
+    }
+
+    return encontrados;
+}
+
+const BINARIO_YTDLP = localizarBinarioYtDlp();
+
+if (BINARIO_YTDLP) {
+    console.log('[YT-DLP] Binário localizado em:', BINARIO_YTDLP);
+} else {
+    console.log('[YT-DLP] Binário NÃO encontrado nos caminhos esperados. Varrendo node_modules...');
+    const achados = buscarBinarioYtDlpNoNodeModules(path.join(__dirname, 'node_modules'));
+    console.log('[YT-DLP] Arquivos com "yt-dlp" no node_modules:', achados.length ? achados : 'nenhum encontrado');
+}
+
 // Detecta links de Radio/Mix do YouTube (playlist?list=RD...), que são gerados
 // dinamicamente por usuário e costumam travar o YtDlpPlugin ao tentar extrair
 // a playlist inteira.
@@ -7322,10 +7401,12 @@ function extrairPrimeiraFaixaYoutube(url, timeoutMs = 15000) {
 
         args.push(url);
 
-        execFile('yt-dlp', args, { timeout: timeoutMs }, (err, stdout, stderr) => {
+        execFile(BINARIO_YTDLP || 'yt-dlp', args, { timeout: timeoutMs }, (err, stdout, stderr) => {
             if (err) {
                 return reject(new Error(
-                    err.killed
+                    err.code === 'ENOENT'
+                        ? 'Binário do yt-dlp não encontrado (BINARIO_YTDLP null). Confira o log de boot [YT-DLP] Binário localizado em: ...'
+                        : err.killed
                         ? `yt-dlp travou ao extrair a Radio (timeout de ${timeoutMs}ms)`
                         : (stderr || err.message)
                 ));
