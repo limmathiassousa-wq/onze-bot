@@ -1,12 +1,4 @@
 require('dotenv').config();
-
-// Garante que o binário do Deno (instalado pelo Build Command via
-// deno.land/install.sh, necessário pro yt-dlp extrair vídeos do YouTube)
-// esteja no PATH do processo. Isso é feito aqui, em código, porque o painel
-// de Environment Variables do Render NÃO expande "$PATH" como shell faz —
-// ele trata como texto literal e acaba SUBSTITUINDO o PATH original inteiro
-// (apagando curl, npm, sh, etc). Prependendo aqui, pegamos o PATH real do
-// processo e mantemos tudo que já existia nele.
 process.env.PATH = `${process.env.HOME || '/opt/render'}/.deno/bin:${process.env.PATH}`;
 
 const express = require('express');
@@ -29,6 +21,18 @@ const fs = require('fs');
 const path = require("path");
 const os = require('os');
 const crypto = require('crypto');
+
+// --- DEBUG TEMPORÁRIO: inspecionar @distube/yt-dlp ---
+try {
+    const ytdlpSrc = fs.readFileSync(require.resolve('@distube/yt-dlp/dist/index.js'), 'utf8');
+    const termo = ytdlpSrc.includes('call-home') ? 'call-home' : 'noCallHome';
+    const idx = ytdlpSrc.indexOf(termo);
+    console.log('--- @distube/yt-dlp trecho relevante (termo: ' + termo + ') ---');
+    console.log(idx === -1 ? 'Termo não encontrado no arquivo.' : ytdlpSrc.slice(Math.max(0, idx - 1000), idx + 1000));
+} catch (e) {
+    console.error('--- Erro ao inspecionar @distube/yt-dlp ---', e);
+}
+// --- FIM DEBUG TEMPORÁRIO ---
 
 const { comandos, montarPainelBotCall, registrarPainelBotCall, montarPainelPD, obterPrimeirasDamas, montarPainelMuteInicial, montarPainelMuteTimeout, montarPainelMuteCargo } = require('./commands');
 const { botCallDB, botCallPaineis, confirmacaoModeracaoDB, msgCriadorDB, sorteioDraftDB, muteDraftDB } = require('./state');
