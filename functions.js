@@ -10,6 +10,7 @@ const { joinVoiceChannel, getVoiceConnection, VoiceConnectionStatus, entersState
 const { createCanvas, loadImage, GlobalFonts } = require("@napi-rs/canvas");
 const { getUserPerfil } = require('./bio_fetcher.js');
 const fs = require('fs');
+const { execSync } = require('child_process');
 const path = require("path");
 const os = require('os');
 const crypto = require('crypto');
@@ -7262,6 +7263,17 @@ function registrarHistoricoMusica(guildId, song) {
 // (uma env var com o cookies.txt exportado do navegador) em disco, e o
 // patch-ytdlp.js injeta o caminho na configuração do yt-dlp via
 // YTDLP_COOKIES_PATH (ver scripts/patch-ytdlp.js).
+function atualizarYtDlp() {
+    try {
+        const versaoAntes = execSync('yt-dlp --version').toString().trim();
+        execSync('yt-dlp -U', { stdio: 'inherit' });
+        const versaoDepois = execSync('yt-dlp --version').toString().trim();
+        console.log(`[YT-DLP] versão antes: ${versaoAntes} | depois: ${versaoDepois}`);
+    } catch (e) {
+        console.error('--- Erro ao atualizar yt-dlp ---', e.message);
+    }
+}
+
 function prepararCookiesYoutube() {
     if (!process.env.YOUTUBE_COOKIES) {
         console.log('[YT-DLP] YOUTUBE_COOKIES não configurada — seguindo sem cookies (mais chance de bloqueio do YouTube).');
@@ -7282,6 +7294,7 @@ function prepararCookiesYoutube() {
 // Chame isso UMA vez no index.js, logo depois de criar o client, e guarde o
 // resultado em client.distube.
 function inicializarMusica(clienteDiscord) {
+    atualizarYtDlp();
     prepararCookiesYoutube();
 
     const distube = new DisTube(clienteDiscord, {
