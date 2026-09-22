@@ -24,7 +24,9 @@ const crypto = require('crypto');
 
 // --- DEBUG TEMPORÁRIO: inspecionar @distube/yt-dlp ---
 try {
-    const ytdlpSrc = fs.readFileSync(require.resolve('@distube/yt-dlp/dist/index.js'), 'utf8');
+    const mainPath = require.resolve('@distube/yt-dlp');
+    console.log('--- @distube/yt-dlp resolvido em:', mainPath, '---');
+    const ytdlpSrc = fs.readFileSync(mainPath, 'utf8');
     const termo = ytdlpSrc.includes('call-home') ? 'call-home' : 'noCallHome';
     const idx = ytdlpSrc.indexOf(termo);
     console.log('--- @distube/yt-dlp trecho relevante (termo: ' + termo + ') ---');
