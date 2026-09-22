@@ -7168,7 +7168,7 @@ function setEventoMoedasAtivo(valor) {
 // ============ SISTEMA DE MÚSICA (/play) ============
 // ============================================================
 const { DisTube } = require('distube');
-const { YouTubePlugin } = require('@distube/youtube');
+const { YtDlpPlugin } = require('@distube/yt-dlp');
 const { SpotifyPlugin } = require('@distube/spotify');
 const { SoundCloudPlugin } = require('@distube/soundcloud');
 
@@ -7191,9 +7191,9 @@ function inicializarMusica(clienteDiscord) {
     const distube = new DisTube(clienteDiscord, {
         emitNewSongOnly: true,
         plugins: [
-            new YouTubePlugin(),
             new SpotifyPlugin(),
-            new SoundCloudPlugin()
+            new SoundCloudPlugin(),
+            new YtDlpPlugin({ update: true })
         ]
     });
 
