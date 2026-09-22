@@ -7169,8 +7169,65 @@ function setEventoMoedasAtivo(valor) {
 // ============================================================
 const { DisTube } = require('distube');
 const { YtDlpPlugin } = require('@distube/yt-dlp');
-const { SpotifyPlugin } = require('@distube/spotify');
-const { SoundCloudPlugin } = require('@distube/soundcloud');
+
+// Cache do token de acesso da API oficial do Spotify (Client Credentials Flow).
+// Usado para resolver links do Spotify em "artista - música" e mandar essa busca
+// pro YtDlpPlugin, em vez de depender do scraping da página de embed do Spotify
+// (que o @distube/spotify usa e que tem ficado instável / retornando
+// "URL is private or unavailable" mesmo para links públicos válidos).
+let spotifyTokenCache = { token: null, expiresAt: 0 };
+
+async function obterTokenSpotify() {
+    if (spotifyTokenCache.token && Date.now() < spotifyTokenCache.expiresAt) {
+        return spotifyTokenCache.token;
+    }
+    const auth = Buffer.from(`${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`).toString('base64');
+    const resp = await fetch('https://accounts.spotify.com/api/token', {
+        method: 'POST',
+        headers: {
+            Authorization: `Basic ${auth}`,
+            'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: 'grant_type=client_credentials'
+    });
+    if (!resp.ok) throw new Error(`Falha ao autenticar na API do Spotify (status ${resp.status})`);
+    const data = await resp.json();
+    spotifyTokenCache = { token: data.access_token, expiresAt: Date.now() + (data.expires_in - 60) * 1000 };
+    return spotifyTokenCache.token;
+}
+
+// Recebe uma URL do Spotify (track, album ou playlist) e devolve um array de
+// strings "artista - música" prontas pra serem usadas como busca no DisTube.
+// Retorna null se a URL não for do Spotify ou não puder ser resolvida.
+async function resolverSpotifyParaQuery(url) {
+    const match = url.match(/spotify\.com\/(track|album|playlist)\/([a-zA-Z0-9]+)/);
+    if (!match) return null;
+    const [, tipo, id] = match;
+
+    const token = await obterTokenSpotify();
+
+    if (tipo === 'track') {
+        const resp = await fetch(`https://api.spotify.com/v1/tracks/${id}`, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!resp.ok) return null;
+        const dados = await resp.json();
+        if (!dados?.name) return null;
+        return [`${dados.artists.map(a => a.name).join(', ')} - ${dados.name}`];
+    }
+
+    const endpoint = tipo === 'playlist'
+        ? `https://api.spotify.com/v1/playlists/${id}/tracks?limit=100`
+        : `https://api.spotify.com/v1/albums/${id}/tracks?limit=50`;
+    const resp = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` } });
+    if (!resp.ok) return null;
+    const dados = await resp.json();
+    const itens = dados.items || [];
+    return itens
+        .map(item => item.track || item)
+        .filter(faixa => faixa?.name)
+        .map(faixa => `${faixa.artists.map(a => a.name).join(', ')} - ${faixa.name}`);
+}
 
 const VOLUME_PADRAO_MUSICA = 45;
 
@@ -7206,13 +7263,14 @@ function registrarHistoricoMusica(guildId, song) {
 function inicializarMusica(clienteDiscord) {
     const distube = new DisTube(clienteDiscord, {
         emitNewSongOnly: true,
+        // SpotifyPlugin e SoundCloudPlugin foram removidos daqui:
+        // - Links do Spotify agora são resolvidos manualmente via API oficial
+        //   (resolverSpotifyParaQuery) antes de chegar no distube.play, e viram
+        //   uma busca de texto que o YtDlpPlugin resolve no YouTube.
+        // - Links do SoundCloud ficam a cargo do YtDlpPlugin também, que usa o
+        //   extractor do yt-dlp em vez do pipeline HLS/AAC do @distube/soundcloud
+        //   (que estava corrompendo o áudio e derrubando o FFmpeg com SIGKILL).
         plugins: [
-            new SpotifyPlugin(
-                process.env.SPOTIFY_CLIENT_ID && process.env.SPOTIFY_CLIENT_SECRET
-                    ? { api: { clientId: process.env.SPOTIFY_CLIENT_ID, clientSecret: process.env.SPOTIFY_CLIENT_SECRET } }
-                    : {}
-            ),
-            new SoundCloudPlugin(),
             new YtDlpPlugin({ update: true })
         ]
     });
@@ -7505,10 +7563,25 @@ async function processarAdicaoMusica(interaction, canalVoz, query) {
     }
 
     try {
-        await distube.play(canalVoz, query, {
-            member: interaction.member,
-            textChannel: interaction.channel
-        });
+        let queries = [query];
+
+        // Link do Spotify: resolve pra "artista - música" via API oficial e
+        // toca isso como busca de texto (o Spotify em si nunca é usado pra
+        // extrair áudio, só pra descobrir nome da faixa).
+        if (/open\.spotify\.com/.test(query)) {
+            const resolvido = await resolverSpotifyParaQuery(query).catch(err => {
+                console.error('--- Erro ao resolver link do Spotify ---', err);
+                return null;
+            });
+            if (resolvido && resolvido.length) queries = resolvido;
+        }
+
+        for (const q of queries) {
+            await distube.play(canalVoz, q, {
+                member: interaction.member,
+                textChannel: interaction.channel
+            });
+        }
     } catch (err) {
         console.error('--- Erro ao processar /play ---', err);
         return interaction.editReply({
