@@ -7190,7 +7190,10 @@ async function obterTokenSpotify() {
         },
         body: 'grant_type=client_credentials'
     });
-    if (!resp.ok) throw new Error(`Falha ao autenticar na API do Spotify (status ${resp.status})`);
+    if (!resp.ok) {
+        const corpo = await resp.text().catch(() => '');
+        throw new Error(`Falha ao autenticar na API do Spotify (status ${resp.status}): ${corpo}`);
+    }
     const data = await resp.json();
     spotifyTokenCache = { token: data.access_token, expiresAt: Date.now() + (data.expires_in - 60) * 1000 };
     return spotifyTokenCache.token;
@@ -7204,15 +7207,22 @@ async function resolverSpotifyParaQuery(url) {
     if (!match) return null;
     const [, tipo, id] = match;
 
+    if (!process.env.SPOTIFY_CLIENT_ID || !process.env.SPOTIFY_CLIENT_SECRET) {
+        throw new Error('SPOTIFY_CLIENT_ID e/ou SPOTIFY_CLIENT_SECRET não estão configuradas no ambiente.');
+    }
+
     const token = await obterTokenSpotify();
 
     if (tipo === 'track') {
         const resp = await fetch(`https://api.spotify.com/v1/tracks/${id}`, {
             headers: { Authorization: `Bearer ${token}` }
         });
-        if (!resp.ok) return null;
+        if (!resp.ok) {
+            const corpo = await resp.text().catch(() => '');
+            throw new Error(`Falha ao buscar a faixa no Spotify (status ${resp.status}): ${corpo}`);
+        }
         const dados = await resp.json();
-        if (!dados?.name) return null;
+        if (!dados?.name) throw new Error('Resposta da API do Spotify não trouxe nome da faixa.');
         return [`${dados.artists.map(a => a.name).join(', ')} - ${dados.name}`];
     }
 
@@ -7220,7 +7230,10 @@ async function resolverSpotifyParaQuery(url) {
         ? `https://api.spotify.com/v1/playlists/${id}/tracks?limit=100`
         : `https://api.spotify.com/v1/albums/${id}/tracks?limit=50`;
     const resp = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` } });
-    if (!resp.ok) return null;
+    if (!resp.ok) {
+        const corpo = await resp.text().catch(() => '');
+        throw new Error(`Falha ao buscar a ${tipo} no Spotify (status ${resp.status}): ${corpo}`);
+    }
     const dados = await resp.json();
     const itens = dados.items || [];
     return itens
@@ -7573,7 +7586,14 @@ async function processarAdicaoMusica(interaction, canalVoz, query) {
                 console.error('--- Erro ao resolver link do Spotify ---', err);
                 return null;
             });
-            if (resolvido && resolvido.length) queries = resolvido;
+            // Links do Spotify nunca funcionam direto no YtDlpPlugin (DRM), então
+            // se a resolução via API oficial falhar, é melhor avisar o usuário
+            // com uma mensagem clara do que deixar cair na URL crua e o yt-dlp
+            // estourar um erro de DRM sem explicação.
+            if (!resolvido || !resolvido.length) {
+                throw new Error('Não foi possível resolver o link do Spotify (ver log acima para o motivo exato).');
+            }
+            queries = resolvido;
         }
 
         for (const q of queries) {
