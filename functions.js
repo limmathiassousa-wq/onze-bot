@@ -6,7 +6,7 @@ const {
     ChannelType, EmbedBuilder, SlashCommandBuilder, StringSelectMenuBuilder, UserSelectMenuBuilder,
     ChannelSelectMenuBuilder, RoleSelectMenuBuilder, Routes, PermissionFlagsBits, AuditLogEvent, OverwriteType
 } = require('discord.js');
-const { joinVoiceChannel, VoiceConnectionStatus, entersState } = require('@discordjs/voice');
+const { joinVoiceChannel, getVoiceConnection, VoiceConnectionStatus, entersState } = require('@discordjs/voice');
 const { createCanvas, loadImage, GlobalFonts } = require("@napi-rs/canvas");
 const { getUserPerfil } = require('./bio_fetcher.js');
 const fs = require('fs');
@@ -7349,6 +7349,16 @@ async function processarAdicaoMusica(interaction, canalVoz, query) {
     const distube = interaction.client.distube;
     const guildId = interaction.guild.id;
     const filaExistiaAntes = !!distube.getQueue(guildId);
+
+    // Se o BotCall (ou outra função) deixou uma conexão de voz "crua" (fora do controle
+    // do DisTube) nesse servidor, ela bloqueia distube.play com VOICE_ALREADY_CREATED.
+    // Só destruímos se o DisTube ainda não tiver fila/conexão própria aqui.
+    if (!filaExistiaAntes) {
+        const conexaoCrua = getVoiceConnection(guildId);
+        if (conexaoCrua) {
+            conexaoCrua.destroy();
+        }
+    }
 
     try {
         await distube.play(canalVoz, query, {
