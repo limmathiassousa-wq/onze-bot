@@ -1,5 +1,5 @@
 
-// ============ IMPORTS ============
+// =========== IMPORTS ============
 const {
     MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, ContainerBuilder, TextDisplayBuilder,
     SeparatorBuilder, MediaGalleryBuilder, MediaGalleryItemBuilder, ThumbnailBuilder, SectionBuilder,
