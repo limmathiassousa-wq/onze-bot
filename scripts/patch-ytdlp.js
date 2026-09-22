@@ -6,10 +6,14 @@ try {
     const antes = conteudo;
 
     conteudo = conteudo.replace(/noCallHome:\s*true,?\s*/g, '');
+    conteudo = conteudo.replace(
+        /noWarnings:\s*true,/g,
+        "noWarnings: true, extractorArgs: 'youtube:player_client=android,web',"
+    );
 
     if (conteudo !== antes) {
         fs.writeFileSync(mainPath, conteudo, 'utf8');
-        console.log('[patch-ytdlp] "noCallHome" removido de', mainPath);
+        console.log('[patch-ytdlp] Patch aplicado com sucesso em', mainPath);
     } else {
         console.log('[patch-ytdlp] Nenhuma ocorrência encontrada (pacote pode ter mudado).');
     }
