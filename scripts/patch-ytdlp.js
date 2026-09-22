@@ -20,3 +20,14 @@ try {
 } catch (e) {
     console.error('[patch-ytdlp] Falha ao aplicar patch:', e);
 }
+// --- DEBUG: inspecionar @distube/spotify ---
+try {
+    const spotifyPath = require.resolve('@distube/spotify');
+    const spotifySrc = fs.readFileSync(spotifyPath, 'utf8');
+    const idx = spotifySrc.indexOf('function apiError');
+    console.log('[patch-ytdlp] @distube/spotify resolvido em:', spotifyPath);
+    console.log('[patch-ytdlp] trecho apiError:', idx === -1 ? 'não encontrado' : spotifySrc.slice(idx, idx + 600));
+} catch (e) {
+    console.error('[patch-ytdlp] Falha ao inspecionar @distube/spotify:', e);
+}
+// --- FIM DEBUG ---
