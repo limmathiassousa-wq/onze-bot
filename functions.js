@@ -7264,11 +7264,27 @@ function registrarHistoricoMusica(guildId, song) {
 // patch-ytdlp.js injeta o caminho na configuração do yt-dlp via
 // YTDLP_COOKIES_PATH (ver scripts/patch-ytdlp.js).
 
+// Caminho do arquivo de config global do yt-dlp. Esse arquivo é lido
+// automaticamente pelo PRÓPRIO yt-dlp em toda execução (não depende de env
+// var nem de argumento passado na chamada) — é o único jeito de garantir que
+// os cookies também sejam usados nas chamadas que o YtDlpPlugin do DisTube
+// dispara internamente (o construtor dele só aceita { update }, sem opção
+// de cookies/args extras).
+function caminhoConfigYtdlp() {
+    return path.join(os.homedir(), '.config', 'yt-dlp', 'config');
+}
+
 function prepararCookiesYoutube() {
     const cookies = String(process.env.YOUTUBE_COOKIES || '').trim();
+    const configPath = caminhoConfigYtdlp();
 
     if (!cookies) {
         delete process.env.YTDLP_COOKIES_PATH;
+
+        try {
+            if (fs.existsSync(configPath)) fs.unlinkSync(configPath);
+        } catch {}
+
         console.log('[YT-DLP] YOUTUBE_COOKIES não configurada.');
         return;
     }
@@ -7283,7 +7299,16 @@ function prepararCookiesYoutube() {
 
         process.env.YTDLP_COOKIES_PATH = caminho;
 
-        console.log('[YT-DLP] Cookies preparados em:', caminho);
+        // Escreve o config global lido automaticamente pelo yt-dlp, cobrindo
+        // também as chamadas internas do YtDlpPlugin (que não recebem
+        // --cookies explicitamente).
+        fs.mkdirSync(path.dirname(configPath), { recursive: true });
+        fs.writeFileSync(configPath, `--cookies ${caminho}\n`, {
+            encoding: 'utf8',
+            mode: 0o600
+        });
+
+        console.log('[YT-DLP] Cookies preparados em:', caminho, '| config global:', configPath);
     } catch (err) {
         delete process.env.YTDLP_COOKIES_PATH;
         console.error('[YT-DLP] Erro ao preparar cookies:', err);
