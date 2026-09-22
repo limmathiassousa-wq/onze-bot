@@ -1,4 +1,14 @@
 require('dotenv').config();
+
+// Garante que o binário do Deno (instalado pelo Build Command via
+// deno.land/install.sh, necessário pro yt-dlp extrair vídeos do YouTube)
+// esteja no PATH do processo. Isso é feito aqui, em código, porque o painel
+// de Environment Variables do Render NÃO expande "$PATH" como shell faz —
+// ele trata como texto literal e acaba SUBSTITUINDO o PATH original inteiro
+// (apagando curl, npm, sh, etc). Prependendo aqui, pegamos o PATH real do
+// processo e mantemos tudo que já existia nele.
+process.env.PATH = `${process.env.HOME || '/opt/render'}/.deno/bin:${process.env.PATH}`;
+
 const express = require('express');
 const app = express();
 app.get('/', (req, res) => res.send('Bot Online!'));
