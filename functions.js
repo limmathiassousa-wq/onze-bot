@@ -7255,11 +7255,35 @@ function registrarHistoricoMusica(guildId, song) {
     historicoMusicaDB.set(guildId, lista);
 }
 
+// O YouTube costuma bloquear/limitar requisições vindas de IPs de datacenter
+// (Render, AWS, etc.), tanto pra busca de texto quanto pra extração de vídeos
+// específicos. A forma gratuita de contornar isso é usando cookies de uma
+// sessão real do YouTube. Aqui a gente escreve o conteúdo de YOUTUBE_COOKIES
+// (uma env var com o cookies.txt exportado do navegador) em disco, e o
+// patch-ytdlp.js injeta o caminho na configuração do yt-dlp via
+// YTDLP_COOKIES_PATH (ver scripts/patch-ytdlp.js).
+function prepararCookiesYoutube() {
+    if (!process.env.YOUTUBE_COOKIES) {
+        console.log('[YT-DLP] YOUTUBE_COOKIES não configurada — seguindo sem cookies (mais chance de bloqueio do YouTube).');
+        return;
+    }
+    const caminho = path.join(__dirname, 'cookies.txt');
+    try {
+        fs.writeFileSync(caminho, process.env.YOUTUBE_COOKIES, 'utf8');
+        process.env.YTDLP_COOKIES_PATH = caminho;
+        console.log('[YT-DLP] cookies.txt escrito em', caminho);
+    } catch (e) {
+        console.error('--- Erro ao escrever cookies.txt para o yt-dlp ---', e);
+    }
+}
+
 // Cria a instância do DisTube, registra os plugins (YouTube, Spotify, SoundCloud)
 // e os listeners que mantêm o painel público sincronizado com a fila.
 // Chame isso UMA vez no index.js, logo depois de criar o client, e guarde o
 // resultado em client.distube.
 function inicializarMusica(clienteDiscord) {
+    prepararCookiesYoutube();
+
     const distube = new DisTube(clienteDiscord, {
         emitNewSongOnly: true,
         // SpotifyPlugin e SoundCloudPlugin foram removidos daqui:
