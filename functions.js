@@ -7188,9 +7188,12 @@ function extrairMetaTag(html, propriedade) {
 async function buscarPaginaSpotify(url) {
     const resp = await fetch(url, {
         headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.9,pt-BR;q=0.8,pt;q=0.7'
+            // Spotify só manda a página pré-renderizada com as meta tags certas
+            // pra user-agents de bots de preview de link (Facebook, WhatsApp,
+            // Slack...). Pra navegadores normais ele manda a casca do app React
+            // sem o título, que só é preenchido via JS no cliente.
+            'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
         }
     });
     if (!resp.ok) throw new Error(`Falha ao acessar a página do Spotify (status ${resp.status})`);
