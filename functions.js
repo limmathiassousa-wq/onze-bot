@@ -10,7 +10,7 @@ const { joinVoiceChannel, getVoiceConnection, VoiceConnectionStatus, entersState
 const { createCanvas, loadImage, GlobalFonts } = require("@napi-rs/canvas");
 const { getUserPerfil } = require('./bio_fetcher.js');
 const fs = require('fs');
-const { execSync, execFileSync } = require('child_process');
+const { execSync, execFileSync, execFile } = require('child_process');
 const path = require("path");
 const os = require('os');
 const crypto = require('crypto');
@@ -7290,6 +7290,64 @@ function prepararCookiesYoutube() {
     }
 }
 
+// Detecta links de Radio/Mix do YouTube (playlist?list=RD...), que são gerados
+// dinamicamente por usuário e costumam travar o YtDlpPlugin ao tentar extrair
+// a playlist inteira.
+function ehRadioYoutube(url) {
+    try {
+        const u = new URL(url);
+        const list = u.searchParams.get('list') || '';
+        return /youtube\.com$|youtu\.be$/i.test(u.hostname.replace(/^www\./, '')) && /^RD/.test(list);
+    } catch {
+        return false;
+    }
+}
+
+// Chama o yt-dlp diretamente (fora do DisTube) só pra pegar a URL do vídeo
+// atual de uma Radio/Mix, usando --flat-playlist (não extrai cada faixa,
+// só id+título, muito mais rápido) e um timeout curto pra nunca travar o bot.
+function extrairPrimeiraFaixaYoutube(url, timeoutMs = 15000) {
+    return new Promise((resolve, reject) => {
+        const args = [
+            '--flat-playlist',
+            '--playlist-end', '1',
+            '--dump-single-json',
+            '--no-warnings',
+            '--extractor-args', 'youtube:player_client=android,web'
+        ];
+
+        if (process.env.YTDLP_COOKIES_PATH) {
+            args.push('--cookies', process.env.YTDLP_COOKIES_PATH);
+        }
+
+        args.push(url);
+
+        execFile('yt-dlp', args, { timeout: timeoutMs }, (err, stdout, stderr) => {
+            if (err) {
+                return reject(new Error(
+                    err.killed
+                        ? `yt-dlp travou ao extrair a Radio (timeout de ${timeoutMs}ms)`
+                        : (stderr || err.message)
+                ));
+            }
+
+            try {
+                const dados = JSON.parse(stdout);
+                const primeira = dados.entries?.[0] || dados;
+                const urlReal = primeira?.url || primeira?.webpage_url || primeira?.original_url;
+
+                if (!urlReal) {
+                    return reject(new Error('yt-dlp não retornou uma URL de vídeo válida para a Radio.'));
+                }
+
+                resolve(urlReal);
+            } catch (e) {
+                reject(new Error('Falha ao parsear JSON do yt-dlp: ' + e.message));
+            }
+        });
+    });
+}
+
 // Cria a instância do DisTube, registra os plugins (YouTube, Spotify, SoundCloud)
 // e os listeners que mantêm o painel público sincronizado com a fila.
 // Chame isso UMA vez no index.js, logo depois de criar o client, e guarde o
@@ -7619,6 +7677,21 @@ async function processarAdicaoMusica(interaction, canalVoz, query) {
             }
 
             queries = resolvido;
+        } else if (ehRadioYoutube(query)) {
+            console.log(`[MÚSICA] Link de Radio/Mix do YouTube detectado, extraindo faixa real: ${query}`);
+
+            const urlReal = await extrairPrimeiraFaixaYoutube(query).catch(err => {
+                console.error('--- Erro ao extrair Radio do YouTube ---', err);
+                return null;
+            });
+
+            if (!urlReal) {
+                throw new Error(
+                    'Não foi possível extrair a música dessa Radio/Mix do YouTube.'
+                );
+            }
+
+            queries = [urlReal];
         }
 
         for (const q of queries) {
