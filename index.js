@@ -165,7 +165,8 @@ const {
     alternarAntiNukeCanais, antiNukeCanalCriado, antiNukeCanalDeletado, antiNukeCanalEditado,
     definirBypassAntiNukeCanais, inicializarAntiNukeCanais, marcarAcaoPropriaCanal,
     marcarCanalTemporarioAntiNuke, montarPainelAntiNukeCanais, pausarAntiNukeCanais, retomarAntiNukeCanais, inicializarMusica, processarAdicaoMusica, musicaVoltar,
-    musicaPausarRetomar, musicaAvancar, musicaDefinirVolume, musicaSair
+    musicaPausarRetomar, musicaAvancar, musicaDefinirVolume, musicaSair,
+    musicaSelecionarOpcao, musicaMostrarFila, musicaRemoverDaFila
 } = require('./functions');
 
 
@@ -1602,7 +1603,11 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
     }
 
     // atualiza o cache com o texto novo, pra próxima edição/apagada já pegar o atual
-    await supabase.from('mensagens_cache').update({ conteudo: newMessage.content }).eq('mensagem_id', newMessage.id).catch(() => null);
+    try {
+        await supabase.from('mensagens_cache').update({ conteudo: newMessage.content }).eq('mensagem_id', newMessage.id);
+    } catch (err) {
+        console.error('--- Erro ao atualizar cache de mensagem no Supabase ---', err);
+    }
 });
 
 // ============ LOG: MENSAGEM APAGADA ============
@@ -1646,7 +1651,7 @@ client.on('messageDelete', async (message) => {
                 }).catch(() => null);
             }
 
-            await supabase.from('mensagens_cache').delete().eq('mensagem_id', message.id).catch(() => null);
+            await supabase.from('mensagens_cache').delete().eq('mensagem_id', message.id);
             return;
         }
 
@@ -1675,7 +1680,7 @@ client.on('messageDelete', async (message) => {
             mensagemId: message.id,
             conteudo: message.content
         });
-        await supabase.from('mensagens_cache').delete().eq('mensagem_id', message.id).catch(() => null);
+        await supabase.from('mensagens_cache').delete().eq('mensagem_id', message.id);
     } catch (err) {
         console.error('--- Erro ao processar log de mensagem apagada ---', err);
     }
@@ -1683,13 +1688,17 @@ client.on('messageDelete', async (message) => {
 
 client.on('messageCreate', async (message) => {
     if (!message.guild || message.author.bot) return;
-    await supabase.from('mensagens_cache').upsert({
-        mensagem_id: message.id,
-        canal_id: message.channel.id,
-        autor_id: message.author.id,
-        autor_tag: message.author.tag,
-        conteudo: message.content
-    }).catch(err => console.error('--- Erro ao cachear mensagem no Supabase ---', err));
+    try {
+        await supabase.from('mensagens_cache').upsert({
+            mensagem_id: message.id,
+            canal_id: message.channel.id,
+            autor_id: message.author.id,
+            autor_tag: message.author.tag,
+            conteudo: message.content
+        });
+    } catch (err) {
+        console.error('--- Erro ao cachear mensagem no Supabase ---', err);
+    }
 });
 
 client.on('messageCreate', async (message) => {
@@ -4331,6 +4340,26 @@ if (interaction.isModalSubmit() && interaction.customId === 'musica_modal_volume
 
 if (interaction.isButton() && interaction.customId === 'musica_sair') {
     return musicaSair(interaction);
+}
+
+if (interaction.isStringSelectMenu() && interaction.customId === 'musica_select_opcoes') {
+    const valor = interaction.values[0];
+    if (valor === 'adicionar') {
+        const modal = new ModalBuilder().setCustomId('musica_modal_add').setTitle('Adicionar música');
+        const inputMusica = new TextInputBuilder().setCustomId('musica').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(200).setPlaceholder('Nome ou link da música');
+        modal.addLabelComponents(new LabelBuilder().setLabel('Música').setDescription('Digite o nome ou cole o link (YouTube, Spotify, etc)').setTextInputComponent(inputMusica));
+        return interaction.showModal(modal);
+    }
+    return musicaSelecionarOpcao(interaction, valor);
+}
+
+if (interaction.isButton() && interaction.customId.startsWith('musica_fila_pag_')) {
+    const pagina = parseInt(interaction.customId.replace('musica_fila_pag_', ''), 10);
+    return musicaMostrarFila(interaction, pagina);
+}
+
+if (interaction.isStringSelectMenu() && interaction.customId === 'musica_remover_da_fila') {
+    return musicaRemoverDaFila(interaction);
 }
 
 if (interaction.isChatInputCommand() && comandos.has(interaction.commandName)) {
