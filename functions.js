@@ -10,7 +10,7 @@ const { joinVoiceChannel, getVoiceConnection, VoiceConnectionStatus, entersState
 const { createCanvas, loadImage, GlobalFonts } = require("@napi-rs/canvas");
 const { getUserPerfil } = require('./bio_fetcher.js');
 const fs = require('fs');
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 const path = require("path");
 const os = require('os');
 const crypto = require('crypto');
@@ -7587,18 +7587,71 @@ async function atualizarPainelMusica(clienteDiscord, queue) {
     painelMusicaDB.set(guildId, { channelId: novaMsg.channel.id, messageId: novaMsg.id });
 }
 
+function resolverBuscaYoutube(query) {
+    const texto = String(query || '').trim();
+
+    if (!texto) {
+        throw new Error('Busca vazia.');
+    }
+
+    // Se já for um link, não precisa pesquisar.
+    if (/^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//i.test(texto)) {
+        return texto;
+    }
+
+    console.log(`[YT-DLP] Pesquisando: ${texto}`);
+
+    try {
+        const resultado = execFileSync(
+            'yt-dlp',
+            [
+                `ytsearch1:${texto}`,
+                '--flat-playlist',
+                '--print',
+                '%(webpage_url)s',
+                '--skip-download',
+                '--no-warnings'
+            ],
+            {
+                encoding: 'utf8',
+                timeout: 30000,
+                stdio: ['ignore', 'pipe', 'pipe']
+            }
+        ).trim();
+
+        const url = resultado
+            .split(/\r?\n/)
+            .map(linha => linha.trim())
+            .find(linha =>
+                /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//i.test(linha)
+            );
+
+        if (!url) {
+            throw new Error(
+                `yt-dlp não encontrou resultado para "${texto}". Saída: ${resultado.slice(0, 500)}`
+            );
+        }
+
+        console.log(`[YT-DLP] Resultado encontrado: ${url}`);
+
+        return url;
+    } catch (err) {
+        console.error('[YT-DLP] Erro na pesquisa:', err.stderr || err.message);
+        throw new Error(`Não foi possível pesquisar no YouTube: ${texto}`);
+    }
+}
+
 // Função central usada tanto pelo /play quanto pelo botão "Adicionar música".
 // Pressupõe que a interaction já foi deferida (deferReply ou deferUpdate) antes de chamar.
 async function processarAdicaoMusica(interaction, canalVoz, query) {
     const distube = interaction.client.distube;
     const guildId = interaction.guild.id;
+
     const filaExistiaAntes = !!distube.getQueue(guildId);
 
-    // Se o BotCall (ou outra função) deixou uma conexão de voz "crua" (fora do controle
-    // do DisTube) nesse servidor, ela bloqueia distube.play com VOICE_ALREADY_CREATED.
-    // Só destruímos se o DisTube ainda não tiver fila/conexão própria aqui.
     if (!filaExistiaAntes) {
         const conexaoCrua = getVoiceConnection(guildId);
+
         if (conexaoCrua) {
             conexaoCrua.destroy();
         }
@@ -7607,52 +7660,79 @@ async function processarAdicaoMusica(interaction, canalVoz, query) {
     try {
         let queries = [query];
 
-        // Link do Spotify: resolve pra "artista - música" via API oficial e
-        // toca isso como busca de texto (o Spotify em si nunca é usado pra
-        // extrair áudio, só pra descobrir nome da faixa).
+        // Spotify continua usando o seu resolvedor atual.
         if (/open\.spotify\.com/.test(query)) {
             const resolvido = await resolverSpotifyParaQuery(query).catch(err => {
                 console.error('--- Erro ao resolver link do Spotify ---', err);
                 return null;
             });
-            // Links do Spotify nunca funcionam direto no YtDlpPlugin (DRM), então
-            // se a resolução via API oficial falhar, é melhor avisar o usuário
-            // com uma mensagem clara do que deixar cair na URL crua e o yt-dlp
-            // estourar um erro de DRM sem explicação.
+
             if (!resolvido || !resolvido.length) {
-                throw new Error('Não foi possível resolver o link do Spotify (ver log acima para o motivo exato).');
+                throw new Error(
+                    'Não foi possível resolver o link do Spotify.'
+                );
             }
+
             queries = resolvido;
         }
 
         for (const q of queries) {
-            await distube.play(canalVoz, q, {
+            let entrada = q;
+
+            // Para pesquisa por nome, resolve primeiro pelo yt-dlp.
+            // Assim o DisTube recebe uma URL real em vez de
+            // tentar fazer a pesquisa de texto sozinho.
+            if (
+                !/^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//i.test(q) &&
+                !/open\.spotify\.com/i.test(q)
+            ) {
+                entrada = resolverBuscaYoutube(q);
+            }
+
+            console.log(`[MÚSICA] Enviando para DisTube: ${entrada}`);
+
+            await distube.play(canalVoz, entrada, {
                 member: interaction.member,
                 textChannel: interaction.channel
             });
         }
     } catch (err) {
         console.error('--- Erro ao processar /play ---', err);
+
         return interaction.editReply({
-            content: 'Não consegui encontrar ou tocar essa música. Verifique o nome/link e tente novamente.',
+            content: `Não consegui tocar essa música.\n\`\`\`${err.message}\`\`\``,
             components: []
         });
     }
 
     const queue = distube.getQueue(guildId);
+
     if (!queue) {
-        return interaction.editReply({ content: 'Não consegui tocar essa música.', components: [] });
+        return interaction.editReply({
+            content: 'Não consegui tocar essa música.',
+            components: []
+        });
     }
 
     let container;
+
     if (!filaExistiaAntes) {
-        container = montarPainelTocandoAgoraEfemero(queue.songs[0]);
+        container = montarPainelTocandoAgoraEfemero(
+            queue.songs[0]
+        );
     } else {
         const posicao = queue.songs.length - 1;
-        container = montarPainelAdicionadaEfemero(queue.songs[posicao], posicao);
+
+        container = montarPainelAdicionadaEfemero(
+            queue.songs[posicao],
+            posicao
+        );
     }
 
-    return interaction.editReply({ components: [container], flags: [MessageFlags.IsComponentsV2] });
+    return interaction.editReply({
+        components: [container],
+        flags: [MessageFlags.IsComponentsV2]
+    });
 }
 
 async function musicaVoltar(interaction) {
