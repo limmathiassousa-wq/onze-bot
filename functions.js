@@ -7207,11 +7207,23 @@ function inicializarMusica(clienteDiscord) {
     const distube = new DisTube(clienteDiscord, {
         emitNewSongOnly: true,
         plugins: [
-            new SpotifyPlugin(),
+            new SpotifyPlugin(
+                process.env.SPOTIFY_CLIENT_ID && process.env.SPOTIFY_CLIENT_SECRET
+                    ? { api: { clientId: process.env.SPOTIFY_CLIENT_ID, clientSecret: process.env.SPOTIFY_CLIENT_SECRET } }
+                    : {}
+            ),
             new SoundCloudPlugin(),
             new YtDlpPlugin({ update: true })
         ]
     });
+    
+    distube.on('ffmpegDebug', (debug) => {
+    console.log('[FFMPEG_DEBUG]', debug);
+});
+
+distube.on('debug', (debug) => {
+    console.log('[DISTUBE_DEBUG]', debug);
+});
 
     // Toda fila nova começa no volume padrão (45%), sem autoplay automático do DisTube
     // (o botão "avançar" cuida disso manualmente quando a fila está vazia) e com o
