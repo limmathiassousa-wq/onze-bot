@@ -6,7 +6,8 @@
   "license": "UNLICENSED",
   "private": true,
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "postinstall": "node scripts/patch-ytdlp.js"
   },
   "dependencies": {
     "openai": "^6.0.0",
