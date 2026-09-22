@@ -4308,7 +4308,11 @@ if (interaction.isModalSubmit() && interaction.customId === 'musica_modal_add') 
         return interaction.reply({ content: 'Você precisa estar em um canal de voz para adicionar uma música!', flags: [MessageFlags.Ephemeral] });
     }
     const query = interaction.fields.getTextInputValue('musica').trim();
-    await interaction.deferUpdate();
+    // deferReply (em vez de deferUpdate) cria uma resposta efêmera nova e independente,
+    // sem editar a mensagem original que tinha o botão/select que abriu o modal — senão,
+    // quando o modal é aberto pelo select do painel público, a resposta acaba sobrescrevendo
+    // o próprio painel público em vez de aparecer como uma mensagem efêmera separada.
+    await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
     return processarAdicaoMusica(interaction, canalVoz, query);
 }
 
