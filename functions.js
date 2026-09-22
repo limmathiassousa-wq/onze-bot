@@ -7452,6 +7452,36 @@ function atualizarYtDlp() {
 
 atualizarYtDlp();
 
+// --- DIAGNÓSTICO TEMPORÁRIO: roda o yt-dlp com -v (verbose) direto numa URL,
+// pra ver o erro detalhado de CADA player_client tentado, sem o resumo que o
+// DisTube mostra. Remover depois de resolver o problema de extração.
+function debugExtracaoYoutube(url) {
+    return new Promise((resolve) => {
+        const args = [
+            '-v',
+            '--extractor-args', 'youtube:player_client=tv,ios,android,web',
+            '--dump-json',
+            '--no-warnings'
+        ];
+
+        if (process.env.YTDLP_COOKIES_PATH) {
+            args.push('--cookies', process.env.YTDLP_COOKIES_PATH);
+        }
+
+        args.push(url);
+
+        execFile(BINARIO_YTDLP || 'yt-dlp', args, { timeout: 30000, maxBuffer: 1024 * 1024 * 10 }, (err, stdout, stderr) => {
+            console.log('[DEBUG-YTDLP] ===== INÍCIO STDERR =====');
+            console.log(stderr || '(vazio)');
+            console.log('[DEBUG-YTDLP] ===== FIM STDERR =====');
+            if (err) {
+                console.log('[DEBUG-YTDLP] Erro:', err.message);
+            }
+            resolve();
+        });
+    });
+}
+
 // Cria a instância do DisTube, registra os plugins (YouTube, Spotify, SoundCloud)
 // e os listeners que mantêm o painel público sincronizado com a fila.
 // Chame isso UMA vez no index.js, logo depois de criar o client, e guarde o
@@ -7754,6 +7784,12 @@ async function atualizarPainelMusica(clienteDiscord, queue) {
 async function processarAdicaoMusica(interaction, canalVoz, query) {
     const distube = interaction.client.distube;
     const guildId = interaction.guild.id;
+
+    // --- DIAGNÓSTICO TEMPORÁRIO ---
+    if (/youtu\.?be/i.test(query)) {
+        await debugExtracaoYoutube(query);
+    }
+    // --- FIM DIAGNÓSTICO ---
 
     const filaExistiaAntes = !!distube.getQueue(guildId);
 
