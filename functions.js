@@ -7188,7 +7188,9 @@ function extrairMetaTag(html, propriedade) {
 async function buscarPaginaSpotify(url) {
     const resp = await fetch(url, {
         headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9,pt-BR;q=0.8,pt;q=0.7'
         }
     });
     if (!resp.ok) throw new Error(`Falha ao acessar a página do Spotify (status ${resp.status})`);
@@ -7205,7 +7207,13 @@ async function resolverSpotifyParaQuery(url) {
 
     const html = await buscarPaginaSpotify(`https://open.spotify.com/${tipo}/${id}`);
     const titulo = extrairMetaTag(html, 'og:title');
-    if (!titulo) throw new Error('Não consegui extrair o título dessa página do Spotify (formato da página pode ter mudado).');
+    if (!titulo) {
+        // Loga um pedaço do HTML recebido pra diagnosticar se o Spotify está
+        // bloqueando/redirecionando a requisição do servidor (comum com IPs
+        // de datacenter tipo Render/AWS).
+        console.error('--- HTML recebido do Spotify não tinha og:title. Trecho recebido: ---', html.slice(0, 800));
+        throw new Error('Não consegui extrair o título dessa página do Spotify (formato da página pode ter mudado).');
+    }
 
     if (tipo === 'track') {
         const artistas = extrairMetaTag(html, 'music:musician_description');
