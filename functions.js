@@ -7429,6 +7429,29 @@ function extrairPrimeiraFaixaYoutube(url, timeoutMs = 15000) {
     });
 }
 
+// Atualiza o binário do yt-dlp que o @distube/yt-dlp usa (o mesmo caminho
+// resolvido em BINARIO_YTDLP). Roda de forma síncrona no boot, ANTES de
+// qualquer /play, pra garantir que a versão que extrai os vídeos está em dia
+// com as mudanças recentes do YouTube — "Failed to extract any player
+// response" é o erro clássico de binário desatualizado.
+function atualizarYtDlp() {
+    if (!BINARIO_YTDLP) {
+        console.error('[YT-DLP] Não foi possível atualizar: binário não localizado.');
+        return;
+    }
+
+    try {
+        const versaoAntes = execFileSync(BINARIO_YTDLP, ['--version']).toString().trim();
+        execFileSync(BINARIO_YTDLP, ['-U'], { stdio: 'inherit' });
+        const versaoDepois = execFileSync(BINARIO_YTDLP, ['--version']).toString().trim();
+        console.log(`[YT-DLP] versão antes: ${versaoAntes} | depois: ${versaoDepois}`);
+    } catch (e) {
+        console.error('--- Erro ao atualizar yt-dlp ---', e.message);
+    }
+}
+
+atualizarYtDlp();
+
 // Cria a instância do DisTube, registra os plugins (YouTube, Spotify, SoundCloud)
 // e os listeners que mantêm o painel público sincronizado com a fila.
 // Chame isso UMA vez no index.js, logo depois de criar o client, e guarde o
