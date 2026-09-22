@@ -7302,7 +7302,7 @@ function inicializarMusica(clienteDiscord) {
 
         plugins: [
             new YtDlpPlugin({
-                update: false
+                update: true
             })
         ]
     });
@@ -7587,60 +7587,6 @@ async function atualizarPainelMusica(clienteDiscord, queue) {
     painelMusicaDB.set(guildId, { channelId: novaMsg.channel.id, messageId: novaMsg.id });
 }
 
-function resolverBuscaYoutube(query) {
-    const texto = String(query || '').trim();
-
-    if (!texto) {
-        throw new Error('Busca vazia.');
-    }
-
-    // Se já for um link, não precisa pesquisar.
-    if (/^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//i.test(texto)) {
-        return texto;
-    }
-
-    console.log(`[YT-DLP] Pesquisando: ${texto}`);
-
-    try {
-        const resultado = execFileSync(
-            'yt-dlp',
-            [
-                `ytsearch1:${texto}`,
-                '--flat-playlist',
-                '--print',
-                '%(webpage_url)s',
-                '--skip-download',
-                '--no-warnings'
-            ],
-            {
-                encoding: 'utf8',
-                timeout: 30000,
-                stdio: ['ignore', 'pipe', 'pipe']
-            }
-        ).trim();
-
-        const url = resultado
-            .split(/\r?\n/)
-            .map(linha => linha.trim())
-            .find(linha =>
-                /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//i.test(linha)
-            );
-
-        if (!url) {
-            throw new Error(
-                `yt-dlp não encontrou resultado para "${texto}". Saída: ${resultado.slice(0, 500)}`
-            );
-        }
-
-        console.log(`[YT-DLP] Resultado encontrado: ${url}`);
-
-        return url;
-    } catch (err) {
-        console.error('[YT-DLP] Erro na pesquisa:', err.stderr || err.message);
-        throw new Error(`Não foi possível pesquisar no YouTube: ${texto}`);
-    }
-}
-
 // Função central usada tanto pelo /play quanto pelo botão "Adicionar música".
 // Pressupõe que a interaction já foi deferida (deferReply ou deferUpdate) antes de chamar.
 async function processarAdicaoMusica(interaction, canalVoz, query) {
@@ -7660,8 +7606,7 @@ async function processarAdicaoMusica(interaction, canalVoz, query) {
     try {
         let queries = [query];
 
-        // Spotify continua usando o seu resolvedor atual.
-        if (/open\.spotify\.com/.test(query)) {
+        if (/open\.spotify\.com/i.test(query)) {
             const resolvido = await resolverSpotifyParaQuery(query).catch(err => {
                 console.error('--- Erro ao resolver link do Spotify ---', err);
                 return null;
@@ -7677,21 +7622,9 @@ async function processarAdicaoMusica(interaction, canalVoz, query) {
         }
 
         for (const q of queries) {
-            let entrada = q;
+            console.log(`[MÚSICA] Enviando para DisTube: ${q}`);
 
-            // Para pesquisa por nome, resolve primeiro pelo yt-dlp.
-            // Assim o DisTube recebe uma URL real em vez de
-            // tentar fazer a pesquisa de texto sozinho.
-            if (
-                !/^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//i.test(q) &&
-                !/open\.spotify\.com/i.test(q)
-            ) {
-                entrada = resolverBuscaYoutube(q);
-            }
-
-            console.log(`[MÚSICA] Enviando para DisTube: ${entrada}`);
-
-            await distube.play(canalVoz, entrada, {
+            await distube.play(canalVoz, q, {
                 member: interaction.member,
                 textChannel: interaction.channel
             });
@@ -7700,7 +7633,9 @@ async function processarAdicaoMusica(interaction, canalVoz, query) {
         console.error('--- Erro ao processar /play ---', err);
 
         return interaction.editReply({
-            content: `Não consegui tocar essa música.\n\`\`\`${err.message}\`\`\``,
+            content:
+                'Não consegui tocar essa música.\n' +
+                `\`\`\`${err?.message || err}\`\`\``,
             components: []
         });
     }
