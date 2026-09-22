@@ -665,4 +665,28 @@ registrar(
     }
 );
 
+registrar(
+    new SlashCommandBuilder()
+        .setName('play')
+        .setDescription('Toca uma música no seu canal de voz')
+        .addStringOption(o =>
+            o.setName('musica')
+                .setDescription('Nome ou link da música (YouTube, Spotify, SoundCloud...)')
+                .setRequired(true)
+        ),
+    async (interaction) => {
+        const canalVoz = interaction.member.voice.channel;
+        if (!canalVoz) {
+            return interaction.reply({ content: 'Você precisa estar em um canal de voz para tocar uma música!', flags: [MessageFlags.Ephemeral] });
+        }
+
+        const query = interaction.options.getString('musica');
+        await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
+
+        // processarAdicaoMusica vive no functions.js, mas é injetada no client (index.js)
+        // pra evitar dependência circular entre commands.js e functions.js.
+        return interaction.client.musica.processarAdicaoMusica(interaction, canalVoz, query);
+    }
+);
+
 module.exports = { comandos, montarPainelBotCall, registrarPainelBotCall, montarPainelPD, obterPrimeirasDamas, montarPainelMuteInicial, montarPainelMuteTimeout, montarPainelMuteCargo };
