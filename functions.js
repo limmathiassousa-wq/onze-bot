@@ -7170,76 +7170,51 @@ function setEventoMoedasAtivo(valor) {
 const { DisTube } = require('distube');
 const { YtDlpPlugin } = require('@distube/yt-dlp');
 
-// Cache do token de acesso da API oficial do Spotify (Client Credentials Flow).
-// Usado para resolver links do Spotify em "artista - música" e mandar essa busca
-// pro YtDlpPlugin, em vez de depender do scraping da página de embed do Spotify
-// (que o @distube/spotify usa e que tem ficado instável / retornando
-// "URL is private or unavailable" mesmo para links públicos válidos).
-let spotifyTokenCache = { token: null, expiresAt: 0 };
+// Resolve links do Spotify (track, album, playlist) pra "artista - música"
+// usando só as páginas públicas do open.spotify.com — sem API oficial, sem
+// client credentials, sem conta Premium. As páginas trazem meta tags (og:title,
+// music:musician_description) que dão nome da faixa e artista de graça.
+//
+// Limitação: pra album/playlist só conseguimos o título do próprio recurso
+// (não a lista de faixas dentro dele, que só vem via API paga/JS renderizado),
+// então esses casos tocam como uma busca única pelo nome da playlist/álbum.
 
-async function obterTokenSpotify() {
-    if (spotifyTokenCache.token && Date.now() < spotifyTokenCache.expiresAt) {
-        return spotifyTokenCache.token;
-    }
-    const auth = Buffer.from(`${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`).toString('base64');
-    const resp = await fetch('https://accounts.spotify.com/api/token', {
-        method: 'POST',
+function extrairMetaTag(html, propriedade) {
+    const regex = new RegExp(`<meta[^>]+property=["']${propriedade}["'][^>]+content=["']([^"']*)["']`, 'i');
+    const m = html.match(regex);
+    return m ? m[1] : null;
+}
+
+async function buscarPaginaSpotify(url) {
+    const resp = await fetch(url, {
         headers: {
-            Authorization: `Basic ${auth}`,
-            'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        body: 'grant_type=client_credentials'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
+        }
     });
-    if (!resp.ok) {
-        const corpo = await resp.text().catch(() => '');
-        throw new Error(`Falha ao autenticar na API do Spotify (status ${resp.status}): ${corpo}`);
-    }
-    const data = await resp.json();
-    spotifyTokenCache = { token: data.access_token, expiresAt: Date.now() + (data.expires_in - 60) * 1000 };
-    return spotifyTokenCache.token;
+    if (!resp.ok) throw new Error(`Falha ao acessar a página do Spotify (status ${resp.status})`);
+    return resp.text();
 }
 
 // Recebe uma URL do Spotify (track, album ou playlist) e devolve um array de
-// strings "artista - música" prontas pra serem usadas como busca no DisTube.
-// Retorna null se a URL não for do Spotify ou não puder ser resolvida.
+// strings prontas pra serem usadas como busca no DisTube.
+// Retorna null se a URL não for do Spotify.
 async function resolverSpotifyParaQuery(url) {
     const match = url.match(/spotify\.com\/(track|album|playlist)\/([a-zA-Z0-9]+)/);
     if (!match) return null;
     const [, tipo, id] = match;
 
-    if (!process.env.SPOTIFY_CLIENT_ID || !process.env.SPOTIFY_CLIENT_SECRET) {
-        throw new Error('SPOTIFY_CLIENT_ID e/ou SPOTIFY_CLIENT_SECRET não estão configuradas no ambiente.');
-    }
-
-    const token = await obterTokenSpotify();
+    const html = await buscarPaginaSpotify(`https://open.spotify.com/${tipo}/${id}`);
+    const titulo = extrairMetaTag(html, 'og:title');
+    if (!titulo) throw new Error('Não consegui extrair o título dessa página do Spotify (formato da página pode ter mudado).');
 
     if (tipo === 'track') {
-        const resp = await fetch(`https://api.spotify.com/v1/tracks/${id}`, {
-            headers: { Authorization: `Bearer ${token}` }
-        });
-        if (!resp.ok) {
-            const corpo = await resp.text().catch(() => '');
-            throw new Error(`Falha ao buscar a faixa no Spotify (status ${resp.status}): ${corpo}`);
-        }
-        const dados = await resp.json();
-        if (!dados?.name) throw new Error('Resposta da API do Spotify não trouxe nome da faixa.');
-        return [`${dados.artists.map(a => a.name).join(', ')} - ${dados.name}`];
+        const artistas = extrairMetaTag(html, 'music:musician_description');
+        return [artistas ? `${artistas} - ${titulo}` : titulo];
     }
 
-    const endpoint = tipo === 'playlist'
-        ? `https://api.spotify.com/v1/playlists/${id}/tracks?limit=100`
-        : `https://api.spotify.com/v1/albums/${id}/tracks?limit=50`;
-    const resp = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` } });
-    if (!resp.ok) {
-        const corpo = await resp.text().catch(() => '');
-        throw new Error(`Falha ao buscar a ${tipo} no Spotify (status ${resp.status}): ${corpo}`);
-    }
-    const dados = await resp.json();
-    const itens = dados.items || [];
-    return itens
-        .map(item => item.track || item)
-        .filter(faixa => faixa?.name)
-        .map(faixa => `${faixa.artists.map(a => a.name).join(', ')} - ${faixa.name}`);
+    // Álbum/playlist: só temos o nome do recurso, então tocamos isso como
+    // uma única busca (ex: "NOME DA PLAYLIST playlist").
+    return [titulo];
 }
 
 const VOLUME_PADRAO_MUSICA = 45;
