@@ -14,7 +14,7 @@
     "@discordjs/voice": "^0.19.2",
     "@distube/soundcloud": "^2.0.4",
     "@distube/spotify": "^2.0.0",
-    "@distube/youtube": "^1.2.0",
+    "@distube/youtube": "^1.0.4",
     "@napi-rs/canvas": "^0.1.53",
     "@qnaplus/node-curl-impersonate": "^1.0.2",
     "@supabase/supabase-js": "^2.45.4",
