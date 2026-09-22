@@ -7276,13 +7276,25 @@ function caminhoConfigYtdlp() {
 
 function prepararCookiesYoutube() {
     const cookies = String(process.env.YOUTUBE_COOKIES || '').trim();
+    const potUrl = String(process.env.POT_PROVIDER_URL || '').trim();
     const configPath = caminhoConfigYtdlp();
+
+    // Linha do PO token provider (bgutil) é independente de ter cookie ou
+    // não — sempre inclui se a env var estiver setada.
+    const linhaPot = potUrl
+        ? `--extractor-args "youtube:getpot_bgutil_server=${potUrl}"\n`
+        : '';
 
     if (!cookies) {
         delete process.env.YTDLP_COOKIES_PATH;
 
         try {
-            if (fs.existsSync(configPath)) fs.unlinkSync(configPath);
+            if (linhaPot) {
+                fs.mkdirSync(path.dirname(configPath), { recursive: true });
+                fs.writeFileSync(configPath, linhaPot, { encoding: 'utf8', mode: 0o600 });
+            } else if (fs.existsSync(configPath)) {
+                fs.unlinkSync(configPath);
+            }
         } catch {}
 
         console.log('[YT-DLP] YOUTUBE_COOKIES não configurada.');
@@ -7301,14 +7313,19 @@ function prepararCookiesYoutube() {
 
         // Escreve o config global lido automaticamente pelo yt-dlp, cobrindo
         // também as chamadas internas do YtDlpPlugin (que não recebem
-        // --cookies explicitamente).
+        // --cookies explicitamente). Junta cookies + PO token provider (se
+        // configurado) no mesmo arquivo.
         fs.mkdirSync(path.dirname(configPath), { recursive: true });
-        fs.writeFileSync(configPath, `--cookies ${caminho}\n`, {
+        fs.writeFileSync(configPath, `--cookies ${caminho}\n${linhaPot}`, {
             encoding: 'utf8',
             mode: 0o600
         });
 
-        console.log('[YT-DLP] Cookies preparados em:', caminho, '| config global:', configPath);
+        console.log(
+            '[YT-DLP] Cookies preparados em:', caminho,
+            '| config global:', configPath,
+            '| PO provider:', potUrl || '(não configurado)'
+        );
     } catch (err) {
         delete process.env.YTDLP_COOKIES_PATH;
         console.error('[YT-DLP] Erro ao preparar cookies:', err);
