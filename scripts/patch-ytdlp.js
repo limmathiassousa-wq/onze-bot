@@ -6,10 +6,23 @@ try {
     const antes = conteudo;
 
     conteudo = conteudo.replace(/noCallHome:\s*true,?\s*/g, '');
-    conteudo = conteudo.replace(
-        /noWarnings:\s*true,/g,
-        "noWarnings: true, extractorArgs: 'youtube:player_client=tv,ios,android,web', cookies: process.env.YTDLP_COOKIES_PATH,"
-    );
+
+    const NOVO_TRECHO = "extractorArgs: 'youtube:player_client=tv,ios,android,web', cookies: process.env.YTDLP_COOKIES_PATH,";
+
+    if (/extractorArgs:\s*'[^']*',\s*cookies:\s*process\.env\.YTDLP_COOKIES_PATH,/.test(conteudo)) {
+        // Já foi patchado antes (por essa versão ou uma anterior do script):
+        // substitui o trecho existente em vez de duplicar.
+        conteudo = conteudo.replace(
+            /extractorArgs:\s*'[^']*',\s*cookies:\s*process\.env\.YTDLP_COOKIES_PATH,/g,
+            NOVO_TRECHO
+        );
+    } else {
+        // Primeira vez rodando nesse node_modules: insere depois de noWarnings.
+        conteudo = conteudo.replace(
+            /noWarnings:\s*true,/g,
+            `noWarnings: true, ${NOVO_TRECHO}`
+        );
+    }
 
     if (conteudo !== antes) {
         fs.writeFileSync(mainPath, conteudo, 'utf8');
