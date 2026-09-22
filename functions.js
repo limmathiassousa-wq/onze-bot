@@ -7164,6 +7164,288 @@ function setEventoMoedasAtivo(valor) {
     eventoMoedasAtivo = valor;
 }
 
+// ============================================================
+// ============ SISTEMA DE MÚSICA (/play) ============
+// ============================================================
+const { DisTube } = require('distube');
+const { YouTubePlugin } = require('@distube/youtube');
+const { SpotifyPlugin } = require('@distube/spotify');
+const { SoundCloudPlugin } = require('@distube/soundcloud');
+
+const VOLUME_PADRAO_MUSICA = 45;
+
+const EMOJI_MUSICA_VOLTAR = '1551792510810984569';
+const EMOJI_MUSICA_PAUSE = '1551794465000136755';
+const EMOJI_MUSICA_PLAY = '1551794618381639782';
+const EMOJI_MUSICA_AVANCAR = '1551792590431715328';
+const EMOJI_MUSICA_SAIR = '1551796338365300786';
+
+// guildId -> { channelId, messageId } do painel de controle (não efêmero) atual
+const painelMusicaDB = new Map();
+
+// Cria a instância do DisTube, registra os plugins (YouTube, Spotify, SoundCloud)
+// e os listeners que mantêm o painel público sincronizado com a fila.
+// Chame isso UMA vez no index.js, logo depois de criar o client, e guarde o
+// resultado em client.distube.
+function inicializarMusica(clienteDiscord) {
+    const distube = new DisTube(clienteDiscord, {
+        emitNewSongOnly: true,
+        plugins: [
+            new YouTubePlugin(),
+            new SpotifyPlugin(),
+            new SoundCloudPlugin()
+        ]
+    });
+
+    // Toda fila nova começa no volume padrão (45%) e sem autoplay automático do DisTube
+    // (o botão "avançar" cuida disso manualmente quando a fila está vazia).
+    distube.on('initQueue', (queue) => {
+        queue.setVolume(VOLUME_PADRAO_MUSICA);
+        queue.autoplay = false;
+    });
+
+    // Sempre que uma música começa a tocar (primeira vez, skip, voltar, próxima
+    // automática, música parecida...), o painel público é criado/atualizado.
+    distube.on('playSong', (queue) => {
+        atualizarPainelMusica(clienteDiscord, queue).catch(err => console.error('--- Erro ao atualizar painel de música ---', err));
+    });
+
+    // Quando a fila é destruída por qualquer motivo, esquece o painel salvo
+    // (a próxima /play vai criar um painel novo em vez de tentar editar um antigo).
+    distube.on('deleteQueue', (queue) => {
+        painelMusicaDB.delete(queue.id);
+    });
+
+    // Quando a fila acaba naturalmente (sem repeat/autoplay), sai da call.
+    distube.on('finish', (queue) => {
+        queue.voice.leave();
+    });
+
+    distube.on('error', (err, queue) => {
+        console.error('--- Erro no sistema de música ---', err);
+        if (queue?.textChannel) {
+            queue.textChannel.send({ content: 'Ocorreu um erro ao tocar essa música. Tente novamente.' }).catch(() => null);
+        }
+    });
+
+    return distube;
+}
+
+function montarPainelTocandoAgoraEfemero(song) {
+    return new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            `### Tocando agora\n**Tocando ${song.name} — (${song.uploader?.name || 'Desconhecido'}) agora**`
+        ))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# **${song.formattedDuration}**`))
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('musica_abrir_modal_add').setLabel('Adicionar música').setStyle(ButtonStyle.Secondary)
+            )
+        );
+}
+
+function montarPainelAdicionadaEfemero(song, posicao) {
+    return new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`### ${song.name} adicionada com sucesso!`))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            posicao === 1
+                ? `**Assim que a música atual acabar, ${song.name} irá começar.**`
+                : `**${song.name} foi adicionada à fila!**`
+        ))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            `-# **Posição: ${posicao}**\n-# **Duração: ${song.formattedDuration}**`
+        ));
+}
+
+function montarPainelControleMusica(queue, buscando = false) {
+    const song = queue.songs[0];
+    const pausado = queue.paused;
+
+    return new ContainerBuilder()
+        .addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+                    `### Tocando agora\n**${song.name}** — **${song.uploader?.name || 'Desconhecido'}**`
+                ))
+                .setThumbnailAccessory(new ThumbnailBuilder().setURL(song.thumbnail || IMG_DISCORD_LOGO))
+        )
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('musica_voltar').setEmoji(EMOJI_MUSICA_VOLTAR).setStyle(ButtonStyle.Secondary).setDisabled(buscando || queue.previousSongs.length === 0),
+                new ButtonBuilder().setCustomId('musica_pause').setEmoji(pausado ? EMOJI_MUSICA_PLAY : EMOJI_MUSICA_PAUSE).setStyle(ButtonStyle.Secondary).setDisabled(buscando),
+                new ButtonBuilder().setCustomId('musica_avancar').setEmoji(EMOJI_MUSICA_AVANCAR).setStyle(ButtonStyle.Secondary).setDisabled(buscando)
+            )
+        )
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('musica_volume_abrir').setLabel(`Volume ${queue.volume}%`).setStyle(ButtonStyle.Secondary).setDisabled(buscando),
+                new ButtonBuilder().setCustomId('musica_sair').setEmoji(EMOJI_MUSICA_SAIR).setStyle(ButtonStyle.Danger).setDisabled(buscando)
+            )
+        );
+}
+
+function montarPainelControleMusicaDesabilitado(queue) {
+    const song = queue.songs[0];
+    return new ContainerBuilder()
+        .addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+                    `### Tocando agora\n**${song.name}** — **${song.uploader?.name || 'Desconhecido'}**`
+                ))
+                .setThumbnailAccessory(new ThumbnailBuilder().setURL(song.thumbnail || IMG_DISCORD_LOGO))
+        )
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('musica_voltar').setEmoji(EMOJI_MUSICA_VOLTAR).setStyle(ButtonStyle.Secondary).setDisabled(true),
+                new ButtonBuilder().setCustomId('musica_pause').setEmoji(queue.paused ? EMOJI_MUSICA_PLAY : EMOJI_MUSICA_PAUSE).setStyle(ButtonStyle.Secondary).setDisabled(true),
+                new ButtonBuilder().setCustomId('musica_avancar').setEmoji(EMOJI_MUSICA_AVANCAR).setStyle(ButtonStyle.Secondary).setDisabled(true)
+            )
+        )
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('musica_volume_abrir').setLabel(`Volume ${queue.volume}%`).setStyle(ButtonStyle.Secondary).setDisabled(true),
+                new ButtonBuilder().setCustomId('musica_sair').setEmoji(EMOJI_MUSICA_SAIR).setStyle(ButtonStyle.Danger).setDisabled(true)
+            )
+        );
+}
+
+function montarPainelTchauMusica() {
+    return new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('### Tchau tchau'))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('**Você encerrou esta sessão!**'))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('-# **até mais**'));
+}
+
+// Cria ou edita (se já existir) o painel público de controle no canal de texto da fila.
+async function atualizarPainelMusica(clienteDiscord, queue) {
+    const guildId = queue.id;
+    const container = montarPainelControleMusica(queue);
+    const payload = { components: [container], flags: [MessageFlags.IsComponentsV2] };
+
+    const dados = painelMusicaDB.get(guildId);
+    if (dados) {
+        try {
+            const canal = await clienteDiscord.channels.fetch(dados.channelId);
+            const msg = await canal.messages.fetch(dados.messageId);
+            await msg.edit(payload);
+            return;
+        } catch (err) {
+            painelMusicaDB.delete(guildId);
+        }
+    }
+
+    const canalTexto = queue.textChannel;
+    if (!canalTexto) return;
+    const novaMsg = await canalTexto.send(payload);
+    painelMusicaDB.set(guildId, { channelId: novaMsg.channel.id, messageId: novaMsg.id });
+}
+
+// Função central usada tanto pelo /play quanto pelo botão "Adicionar música".
+// Pressupõe que a interaction já foi deferida (deferReply ou deferUpdate) antes de chamar.
+async function processarAdicaoMusica(interaction, canalVoz, query) {
+    const distube = interaction.client.distube;
+    const guildId = interaction.guild.id;
+    const filaExistiaAntes = !!distube.getQueue(guildId);
+
+    try {
+        await distube.play(canalVoz, query, {
+            member: interaction.member,
+            textChannel: interaction.channel
+        });
+    } catch (err) {
+        console.error('--- Erro ao processar /play ---', err);
+        return interaction.editReply({
+            content: 'Não consegui encontrar ou tocar essa música. Verifique o nome/link e tente novamente.',
+            components: []
+        });
+    }
+
+    const queue = distube.getQueue(guildId);
+    if (!queue) {
+        return interaction.editReply({ content: 'Não consegui tocar essa música.', components: [] });
+    }
+
+    let container;
+    if (!filaExistiaAntes) {
+        container = montarPainelTocandoAgoraEfemero(queue.songs[0]);
+    } else {
+        const posicao = queue.songs.length - 1;
+        container = montarPainelAdicionadaEfemero(queue.songs[posicao], posicao);
+    }
+
+    return interaction.editReply({ components: [container], flags: [MessageFlags.IsComponentsV2] });
+}
+
+async function musicaVoltar(interaction) {
+    const queue = interaction.client.distube.getQueue(interaction.guild.id);
+    if (!queue) return interaction.reply({ content: 'Não há nada tocando no momento.', flags: [MessageFlags.Ephemeral] });
+    if (!queue.previousSongs.length) return interaction.reply({ content: 'Não há uma música anterior para voltar.', flags: [MessageFlags.Ephemeral] });
+
+    await interaction.deferUpdate();
+    await queue.previous().catch(err => console.error('--- Erro ao voltar música ---', err));
+}
+
+async function musicaPausarRetomar(interaction) {
+    const queue = interaction.client.distube.getQueue(interaction.guild.id);
+    if (!queue) return interaction.reply({ content: 'Não há nada tocando no momento.', flags: [MessageFlags.Ephemeral] });
+
+    if (queue.paused) await queue.resume(); else await queue.pause();
+    return interaction.update({ components: [montarPainelControleMusica(queue)], flags: [MessageFlags.IsComponentsV2] });
+}
+
+async function musicaAvancar(interaction) {
+    const queue = interaction.client.distube.getQueue(interaction.guild.id);
+    if (!queue) return interaction.reply({ content: 'Não há nada tocando no momento.', flags: [MessageFlags.Ephemeral] });
+
+    if (queue.songs.length > 1) {
+        await interaction.deferUpdate();
+        await queue.skip().catch(err => console.error('--- Erro ao avançar música ---', err));
+        return;
+    }
+
+    // Não há próxima música na fila: desativa os botões enquanto busca uma parecida.
+    await interaction.update({ components: [montarPainelControleMusica(queue, true)], flags: [MessageFlags.IsComponentsV2] });
+
+    try {
+        await queue.addRelatedSong();
+        await queue.skip();
+    } catch (err) {
+        console.error('--- Erro ao buscar música parecida ---', err);
+        await interaction.editReply({ components: [montarPainelControleMusica(queue)], flags: [MessageFlags.IsComponentsV2] }).catch(() => null);
+        if (queue.textChannel) queue.textChannel.send({ content: 'Não encontrei nenhuma música parecida para tocar.' }).catch(() => null);
+    }
+}
+
+// Chamada a partir do submit do modal de volume (musica_modal_volume).
+async function musicaDefinirVolume(interaction) {
+    const queue = interaction.client.distube.getQueue(interaction.guild.id);
+    if (!queue) return interaction.reply({ content: 'Não há nada tocando no momento.', flags: [MessageFlags.Ephemeral] });
+
+    const valor = parseInt(interaction.fields.getTextInputValue('volume').trim(), 10);
+    if (isNaN(valor) || valor < 1 || valor > 100) {
+        return interaction.reply({ content: 'Digite um número válido entre 1 e 100.', flags: [MessageFlags.Ephemeral] });
+    }
+
+    queue.setVolume(valor);
+    return interaction.update({ components: [montarPainelControleMusica(queue)], flags: [MessageFlags.IsComponentsV2] });
+}
+
+async function musicaSair(interaction) {
+    const queue = interaction.client.distube.getQueue(interaction.guild.id);
+    if (!queue) return interaction.reply({ content: 'Não há nada tocando no momento.', flags: [MessageFlags.Ephemeral] });
+
+    await interaction.update({ components: [montarPainelControleMusicaDesabilitado(queue)], flags: [MessageFlags.IsComponentsV2] });
+
+    await queue.stop().catch(() => null);
+    queue.voice.leave();
+
+    const msgTchau = await interaction.followUp({ components: [montarPainelTchauMusica()], flags: [MessageFlags.IsComponentsV2] });
+    setTimeout(() => msgTchau.delete().catch(() => null), 2 * 60 * 1000);
+}
+
 // ============ EXPORTS ============
 
 module.exports = {
@@ -7171,6 +7453,15 @@ module.exports = {
     setClient,
     getEventoMoedasAtivo,
     setEventoMoedasAtivo,
+
+    // --- sistema de música ---
+    inicializarMusica,
+    processarAdicaoMusica,
+    musicaVoltar,
+    musicaPausarRetomar,
+    musicaAvancar,
+    musicaDefinirVolume,
+    musicaSair,
 
     // --- anti nuke de canais ---
     alternarAntiNukeCanais,
