@@ -7247,7 +7247,16 @@ class SpotifyViaSoundCloud extends SpotifyPlugin {
             }
 
             console.log(`--- [Spotify fallback] Faixa identificada via oEmbed: "${oembed.title}", buscando no SoundCloud ---`);
-            return this.search(oembed.title);
+            const song = await this.search(oembed.title);
+
+            // Nem todo upload no SoundCloud tem capa própria — quando o
+            // Spotify tem uma (é quase sempre), usamos ela em vez de deixar
+            // a música sem capa (ou com a capa genérica do uploader).
+            if (song && oembed.thumbnail_url) {
+                song.thumbnail = oembed.thumbnail_url;
+            }
+
+            return song;
         }
     }
 
