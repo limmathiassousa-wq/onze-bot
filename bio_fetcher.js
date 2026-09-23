@@ -379,6 +379,7 @@ async function getUserPerfil(userId, guildId /* agora pode ser null */, { force 
 
         const data = await extrairJson(response);
         let resultado = interpretar(data);
+        console.log('[DEBUG perfil] JSON com guild:', JSON.stringify(data));
 
         // ------------------------------------------------------------
         // Fallback: pediu com guild_id mas o usuário NÃO está nesse
@@ -390,6 +391,7 @@ async function getUserPerfil(userId, guildId /* agora pode ser null */, { force 
 
           if (obterStatus(resp2) === 200) {
             const data2 = await extrairJson(resp2);
+            console.log('[DEBUG perfil] JSON sem guild:', JSON.stringify(data2));
             const r2 = interpretar(data2);
 
             if (r2.bio.trim()) {
