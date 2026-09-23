@@ -7178,7 +7178,73 @@ const { SpotifyPlugin } = require('@distube/spotify');
 // do DisTube de trocar a fonte de busca do plugin de Spotify.
 const scPlugin = new SoundCloudPlugin();
 
+// Token de acesso à API oficial do Spotify usando sua conta pessoal
+// (via refresh_token), em vez do client credentials genérico. Guardado
+// em memória e renovado automaticamente quando expira.
+let spotifyUserToken = { value: null, expiresAt: 0 };
+
+async function getSpotifyUserAccessToken() {
+    if (spotifyUserToken.value && Date.now() < spotifyUserToken.expiresAt) {
+        return spotifyUserToken.value;
+    }
+
+    const basic = Buffer.from(
+        `${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`
+    ).toString('base64');
+
+    const resp = await fetch('https://accounts.spotify.com/api/token', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            Authorization: `Basic ${basic}`
+        },
+        body: new URLSearchParams({
+            grant_type: 'refresh_token',
+            refresh_token: process.env.SPOTIFY_REFRESH_TOKEN
+        })
+    });
+
+    if (!resp.ok) {
+        throw new Error(`Falha ao renovar token do Spotify: ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    spotifyUserToken = {
+        value: data.access_token,
+        expiresAt: Date.now() + (data.expires_in - 60) * 1000
+    };
+    return spotifyUserToken.value;
+}
+
 class SpotifyViaSoundCloud extends SpotifyPlugin {
+    // Links diretos de faixa (open.spotify.com/track/...) passam pelo
+    // resolve() nativo do plugin, que não sobrescrevemos antes — só o
+    // search() (usado por playlists/álbuns). Se o resolve nativo falhar
+    // (ex: SPOTIFY_API_ERROR "URL is private or unavailable"), tenta de
+    // novo usando o token da nossa conta pessoal pra pegar nome/artista
+    // da faixa e busca o equivalente no SoundCloud.
+    async resolve(url, options) {
+        try {
+            return await super.resolve(url, options);
+        } catch (err) {
+            console.error('--- Resolve nativo do Spotify falhou, tentando com token de usuário ---', err?.message || err);
+
+            const match = url.match(/track\/([a-zA-Z0-9]+)/);
+            if (!match) throw err;
+
+            const token = await getSpotifyUserAccessToken();
+            const trackResp = await fetch(`https://api.spotify.com/v1/tracks/${match[1]}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            }).catch(() => null);
+
+            if (!trackResp?.ok) throw err;
+
+            const track = await trackResp.json();
+            const nomeBusca = `${track.name} ${track.artists.map(a => a.name).join(' ')}`;
+            return this.search(nomeBusca);
+        }
+    }
+
     async search(query) {
         try {
             // Antes buscava só 1 resultado e usava ele direto — se aquele upload
