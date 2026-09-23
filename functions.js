@@ -7438,10 +7438,13 @@ function ehRadioYoutube(url) {
     }
 }
 
-// Chama o yt-dlp diretamente (fora do DisTube) só pra pegar a URL do vídeo
-// atual de uma Radio/Mix, usando --flat-playlist (não extrai cada faixa,
-// só id+título, muito mais rápido) e um timeout curto pra nunca travar o bot.
-function extrairPrimeiraFaixaYoutube(url, timeoutMs = 15000) {
+// Chama o yt-dlp diretamente (fora do DisTube) só pra pegar a URL de um
+// vídeo real a partir de um "alvo" que pode ser:
+// - uma URL de Radio/Mix do YouTube (playlist?list=RD...)
+// - uma busca no formato "ytsearchN:termo" (sintaxe nativa do yt-dlp)
+// Usa --flat-playlist (não extrai cada faixa, só id+título, muito mais
+// rápido) e um timeout curto pra nunca travar o bot.
+function resolverUrlYoutube(alvo, timeoutMs = 15000) {
     return new Promise((resolve, reject) => {
         const args = [
             '--flat-playlist',
@@ -7459,7 +7462,7 @@ function extrairPrimeiraFaixaYoutube(url, timeoutMs = 15000) {
             args.push('--proxy', process.env.YTDLP_PROXY_URL);
         }
 
-        args.push(url);
+        args.push(alvo);
 
         execFile(BINARIO_YTDLP || 'yt-dlp', args, { timeout: timeoutMs }, (err, stdout, stderr) => {
             if (err) {
@@ -7467,7 +7470,7 @@ function extrairPrimeiraFaixaYoutube(url, timeoutMs = 15000) {
                     err.code === 'ENOENT'
                         ? 'Binário do yt-dlp não encontrado (BINARIO_YTDLP null). Confira o log de boot [YT-DLP] Binário localizado em: ...'
                         : err.killed
-                        ? `yt-dlp travou ao extrair a Radio (timeout de ${timeoutMs}ms)`
+                        ? `yt-dlp travou ao resolver "${alvo}" (timeout de ${timeoutMs}ms)`
                         : (stderr || err.message)
                 ));
             }
@@ -7475,10 +7478,11 @@ function extrairPrimeiraFaixaYoutube(url, timeoutMs = 15000) {
             try {
                 const dados = JSON.parse(stdout);
                 const primeira = dados.entries?.[0] || dados;
-                const urlReal = primeira?.url || primeira?.webpage_url || primeira?.original_url;
+                const urlReal = primeira?.url || primeira?.webpage_url || primeira?.original_url
+                    || (primeira?.id ? `https://www.youtube.com/watch?v=${primeira.id}` : null);
 
                 if (!urlReal) {
-                    return reject(new Error('yt-dlp não retornou uma URL de vídeo válida para a Radio.'));
+                    return reject(new Error(`yt-dlp não retornou uma URL de vídeo válida para "${alvo}".`));
                 }
 
                 resolve(urlReal);
@@ -7487,6 +7491,19 @@ function extrairPrimeiraFaixaYoutube(url, timeoutMs = 15000) {
             }
         });
     });
+}
+
+// Mantido com o nome antigo por compatibilidade (usado pra Radio/Mix).
+function extrairPrimeiraFaixaYoutube(url, timeoutMs = 15000) {
+    return resolverUrlYoutube(url, timeoutMs);
+}
+
+// Busca por texto (ex: "Vida Loka Pt2 Racionais") e devolve a URL do
+// primeiro resultado. O YtDlpPlugin do DisTube não sabe buscar (só resolver
+// URLs diretas), então resolvemos a busca por fora, com o próprio yt-dlp,
+// antes de entregar pro distube.play().
+function buscarPrimeiraMusicaYoutube(query, timeoutMs = 15000) {
+    return resolverUrlYoutube(`ytsearch1:${query}`, timeoutMs);
 }
 
 // Atualiza o binário do yt-dlp que o @distube/yt-dlp usa (o mesmo caminho
@@ -7906,13 +7923,24 @@ async function processarAdicaoMusica(interaction, canalVoz, query) {
         } else if (!/^https?:\/\//i.test(query)) {
             // Não é uma URL (Spotify já foi tratado acima, Radio/Mix também) —
             // é uma busca por nome/texto solto (ex: "Vida Loka, Pt. 2"). O
-            // YtDlpPlugin do DisTube só sabe resolver URLs diretas, então sem
-            // isso ele manda a string crua pro yt-dlp e cai em NO_RESULT.
-            // "ytsearchN:" é a sintaxe nativa do yt-dlp pra busca — ele
-            // pesquisa no YouTube e devolve o resultado como se fosse uma URL
-            // normal, sem precisar de nenhum plugin de busca separado.
+            // YtDlpPlugin do DisTube só sabe RESOLVER urls, não BUSCAR — ele
+            // não implementa o método search() do DisTube. Por isso a busca
+            // é feita aqui fora, com o yt-dlp direto, e só a URL real do
+            // primeiro resultado é entregue pro distube.play().
             console.log(`[MÚSICA] Query sem URL detectada, buscando via yt-dlp: ${query}`);
-            queries = [`ytsearch1:${query}`];
+
+            const urlEncontrada = await buscarPrimeiraMusicaYoutube(query).catch(err => {
+                console.error('--- Erro ao buscar música no YouTube ---', err);
+                return null;
+            });
+
+            if (!urlEncontrada) {
+                throw new Error(
+                    'Não encontrei nenhuma música com esse nome no YouTube.'
+                );
+            }
+
+            queries = [urlEncontrada];
         }
 
         for (const q of queries) {
