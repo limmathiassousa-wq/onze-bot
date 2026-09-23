@@ -83,8 +83,8 @@ async function escolherUrlMidia(foto) {
         try {
             const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
             await r.body?.cancel().catch(() => {});
-            console.log(`[INSTA] teste de mídia ${host} -> HTTP ${r.status} em ${Date.now() - t0}ms`);
             if (r.ok) return url;
+            console.log(`[INSTA] teste de mídia ${host} -> HTTP ${r.status} em ${Date.now() - t0}ms`);
         } catch (e) {
             console.log(`[INSTA] teste de mídia ${host} falhou em ${Date.now() - t0}ms: ${e.cause?.code || e.name}`);
         }
@@ -1758,11 +1758,7 @@ client.on('messageCreate', async (message) => {
     try {
         if (message.author.bot) return;
 
-        // [DEBUG-ANA] Mostra TODA mensagem que chega em qualquer canal, pra confirmar se o listener roda
-        console.log(`[DEBUG-ANA] messageCreate recebido | canal=${message.channel.id} | autor=${message.author.id} | conteudo="${message.content}"`);
-
         if (!CANAIS_VOZ_ANA.includes(message.channel.id)) {
-            console.log(`[DEBUG-ANA] Ignorado: canal ${message.channel.id} não está em CANAIS_VOZ_ANA (${CANAIS_VOZ_ANA.join(', ')})`);
             return;
         }
 
@@ -2897,7 +2893,6 @@ const motivoAfkBruto = await getAfk(message.author.id);
     if (CANAIS_INSTA.includes(message.channel.id)) {
         if (message.attachments.size > 0) {
             const foto = message.attachments.first();
-            console.log(`[INSTA] anexo recebido | autor=${message.author.id} | tipo=${foto?.contentType} | nome=${foto?.name} | tamanho=${foto?.size}`);
             if (foto && (foto.contentType?.startsWith('image/') || foto.contentType?.startsWith('video/'))) {
                 try {
                     const urlMidia = await escolherUrlMidia(foto);
@@ -2960,11 +2955,7 @@ const motivoAfkBruto = await getAfk(message.author.id);
                     }).catch(() => null);
                     if (aviso) setTimeout(() => aviso.delete().catch(() => {}), 8000);
                 }
-            } else {
-                console.log(`[INSTA] anexo ignorado (tipo não é imagem/vídeo): ${foto?.contentType}`);
             }
-        } else {
-            console.log(`[INSTA] mensagem sem anexo no canal de insta | autor=${message.author.id}`);
         }
         return;
     }
