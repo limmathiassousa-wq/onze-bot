@@ -44,6 +44,21 @@ MessageClass.prototype.delete = function (...args) {
     return _messageDeleteOriginal.apply(this, args);
 };
 
+// Retry pra queda de conexão (undici/fetch). O undici às vezes joga o código do erro
+// dentro de err.cause ("fetch failed") e o comRetry só olha err.code — aqui a gente
+// copia o código pra fora antes de deixar o comRetry decidir se tenta de novo.
+function comRetryRede(fn, tentativas = 5, delayBase = 1000) {
+    return comRetry(async () => {
+        try {
+            return await fn();
+        } catch (err) {
+            if (err && !err.code && err.cause?.code) err.code = err.cause.code;
+            if (err && !err.code && /other side closed|fetch failed|socket hang up/i.test(err.message || '')) err.code = 'ECONNRESET';
+            throw err;
+        }
+    }, tentativas, delayBase);
+}
+
 const { anaResponderComAudio, DONO_ID: DONO_ID_ANA } = require('./ana_voz');
 const CANAIS_VOZ_ANA = ['1548489854038581308', '1548578896054718474'];
 
@@ -2864,7 +2879,7 @@ const motivoAfkBruto = await getAfk(message.author.id);
                             montarBotoesInsta({ curtidas: [], comentarios: [], instagramUser: null })
                         );
 
-                    const postMsg = await comRetry(() => enviarWebhook(message.channel, {
+                    const postMsg = await comRetryRede(() => enviarWebhook(message.channel, {
                         username: message.member?.displayName || message.author.username,
                         avatarURL: message.author.displayAvatarURL({ dynamic: true }),
                         components: [container],
@@ -2885,6 +2900,13 @@ const motivoAfkBruto = await getAfk(message.author.id);
                     await message.delete().catch(() => {});
                 } catch (err) {
                     console.error('--- Erro no Sistema Insta ---', err);
+                    // a mensagem original NÃO foi apagada — avisa o autor pra tentar de novo
+                    const aviso = await message.reply({
+                        components: containerTexto('Não consegui postar agora (erro de conexão). Envie de novo.'),
+                        flags: [MessageFlags.IsComponentsV2],
+                        allowedMentions: { repliedUser: false }
+                    }).catch(() => null);
+                    if (aviso) setTimeout(() => aviso.delete().catch(() => {}), 8000);
                 }
             }
         }
