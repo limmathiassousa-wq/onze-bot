@@ -7181,8 +7181,28 @@ const scPlugin = new SoundCloudPlugin();
 class SpotifyViaSoundCloud extends SpotifyPlugin {
     async search(query) {
         try {
-            const resultados = await scPlugin.search(query, 'track', 1);
-            return resultados[0] || null;
+            // Antes buscava só 1 resultado e usava ele direto — se aquele upload
+            // específico fosse privado/restrito (SoundCloud Go+, bloqueio de
+            // região etc.), a música toda falhava com 403. Agora busca alguns
+            // candidatos e resolve (scPlugin.resolve, que já é o método que o
+            // DisTube usa por baixo dos panos pra links soundcloud.com) cada um
+            // até achar um que realmente esteja disponível.
+            const resultados = await scPlugin.search(query, 'track', 5);
+            if (!resultados || !resultados.length) return null;
+
+            for (const candidato of resultados) {
+                try {
+                    return await scPlugin.resolve(candidato.url, {});
+                } catch (err) {
+                    console.error(
+                        `--- Candidato do SoundCloud indisponível ("${candidato.name}"), tentando o próximo ---`,
+                        err?.message || err
+                    );
+                }
+            }
+
+            console.error('--- Nenhum dos candidatos do SoundCloud pôde ser tocado ---', query);
+            return null;
         } catch (err) {
             console.error('--- Erro ao buscar no SoundCloud (via Spotify) ---', err);
             return null;
@@ -7551,7 +7571,7 @@ async function processarAdicaoMusica(interaction, canalVoz, query) {
             // a URL real do primeiro resultado pro distube.play().
             console.log(`[MÚSICA] Query sem URL detectada, buscando no SoundCloud: ${query}`);
 
-            const resultados = await scPlugin.search(query, 'track', 1).catch(err => {
+            const resultados = await scPlugin.search(query, 'track', 5).catch(err => {
                 console.error('--- Erro ao buscar música no SoundCloud ---', err);
                 return null;
             });
@@ -7562,15 +7582,38 @@ async function processarAdicaoMusica(interaction, canalVoz, query) {
                 );
             }
 
-            queryFinal = resultados[0].url;
+            // Antes só pegava resultados[0] e mandava direto pro distube.play().
+            // Se aquele upload específico fosse privado/restrito, dava 403 (ou
+            // o ffmpeg tentava decodificar a página de erro e explodia com
+            // erros de AAC). Agora tenta os candidatos em ordem até um tocar.
+            let ultimoErro;
+            for (const candidato of resultados) {
+                try {
+                    console.log(`[MÚSICA] Enviando para DisTube: ${candidato.url}`);
+                    await distube.play(canalVoz, candidato.url, {
+                        member: interaction.member,
+                        textChannel: interaction.channel
+                    });
+                    ultimoErro = null;
+                    break;
+                } catch (err) {
+                    ultimoErro = err;
+                    console.error(
+                        `--- Candidato "${candidato.name}" falhou, tentando o próximo ---`,
+                        err?.message || err
+                    );
+                }
+            }
+
+            if (ultimoErro) throw ultimoErro;
+        } else {
+            console.log(`[MÚSICA] Enviando para DisTube: ${queryFinal}`);
+
+            await distube.play(canalVoz, queryFinal, {
+                member: interaction.member,
+                textChannel: interaction.channel
+            });
         }
-
-        console.log(`[MÚSICA] Enviando para DisTube: ${queryFinal}`);
-
-        await distube.play(canalVoz, queryFinal, {
-            member: interaction.member,
-            textChannel: interaction.channel
-        });
     } catch (err) {
         console.error('--- Erro ao processar /play ---', err);
 

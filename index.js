@@ -23,20 +23,6 @@ const { spawn } = require('child_process');
 const os = require('os');
 const crypto = require('crypto');
 
-// --- DEBUG TEMPORÁRIO: inspecionar @distube/yt-dlp ---
-try {
-    const mainPath = require.resolve('@distube/yt-dlp');
-    console.log('--- @distube/yt-dlp resolvido em:', mainPath, '---');
-    const ytdlpSrc = fs.readFileSync(mainPath, 'utf8');
-    const termo = ytdlpSrc.includes('call-home') ? 'call-home' : 'noCallHome';
-    const idx = ytdlpSrc.indexOf(termo);
-    console.log('--- @distube/yt-dlp trecho relevante (termo: ' + termo + ') ---');
-    console.log(idx === -1 ? 'Termo não encontrado no arquivo.' : ytdlpSrc.slice(Math.max(0, idx - 1000), idx + 1000));
-} catch (e) {
-    console.error('--- Erro ao inspecionar @distube/yt-dlp ---', e);
-}
-// --- FIM DEBUG TEMPORÁRIO ---
-
 const { comandos, montarPainelBotCall, registrarPainelBotCall, montarPainelPD, obterPrimeirasDamas, montarPainelMuteInicial, montarPainelMuteTimeout, montarPainelMuteCargo } = require('./commands');
 const { botCallDB, botCallPaineis, confirmacaoModeracaoDB, msgCriadorDB, sorteioDraftDB, muteDraftDB } = require('./state');
 
