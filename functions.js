@@ -7903,6 +7903,16 @@ async function processarAdicaoMusica(interaction, canalVoz, query) {
             }
 
             queries = [urlReal];
+        } else if (!/^https?:\/\//i.test(query)) {
+            // Não é uma URL (Spotify já foi tratado acima, Radio/Mix também) —
+            // é uma busca por nome/texto solto (ex: "Vida Loka, Pt. 2"). O
+            // YtDlpPlugin do DisTube só sabe resolver URLs diretas, então sem
+            // isso ele manda a string crua pro yt-dlp e cai em NO_RESULT.
+            // "ytsearchN:" é a sintaxe nativa do yt-dlp pra busca — ele
+            // pesquisa no YouTube e devolve o resultado como se fosse uma URL
+            // normal, sem precisar de nenhum plugin de busca separado.
+            console.log(`[MÚSICA] Query sem URL detectada, buscando via yt-dlp: ${query}`);
+            queries = [`ytsearch1:${query}`];
         }
 
         for (const q of queries) {
