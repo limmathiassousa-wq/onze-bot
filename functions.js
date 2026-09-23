@@ -5808,6 +5808,40 @@ async function enviarWebhook(channel, options) {
     }
 }
 
+// Envia o post do Insta pelo webhook usando o fetch/FormData nativos do Node, sem passar
+// pelo upload do discord.js (que está travando aqui). Baixa a imagem do CDN e sobe direto,
+// tudo com timeout. Nada fica guardado depois do envio.
+async function enviarWebhookComArquivo(channel, { username, avatarURL, container, urlArquivo, nomeArquivo = 'post.png', timeoutMs = 15000 }) {
+    const webhook = await obterWebhookInsta(channel);
+
+    const respArquivo = await fetch(urlArquivo, { signal: AbortSignal.timeout(timeoutMs) });
+    if (!respArquivo.ok) throw new Error(`download da mídia HTTP ${respArquivo.status}`);
+    const blob = await respArquivo.blob();
+
+    const form = new FormData();
+    form.append('payload_json', JSON.stringify({
+        username,
+        avatar_url: avatarURL,
+        flags: MessageFlags.IsComponentsV2,
+        components: [container.toJSON()],
+        attachments: [{ id: 0, filename: nomeArquivo }]
+    }));
+    form.append('files[0]', blob, nomeArquivo);
+
+    const resp = await fetch(
+        `https://discord.com/api/v10/webhooks/${webhook.id}/${webhook.token}?wait=true&with_components=true`,
+        { method: 'POST', body: form, signal: AbortSignal.timeout(timeoutMs) }
+    );
+
+    if (!resp.ok) {
+        const corpo = await resp.text().catch(() => '');
+        if (resp.status === 404) cacheWebhookInsta.delete(channel.id); // webhook apagado
+        throw new Error(`webhook HTTP ${resp.status}: ${corpo.slice(0, 300)}`);
+    }
+
+    return await resp.json(); // { id, attachments: [{ url }], ... }
+}
+
 async function obterPrimeiroCanalCategoria(categoriaId) {
     const categoria = await client.channels.fetch(categoriaId).catch(() => null);
     if (!categoria || categoria.type !== ChannelType.GuildCategory) return null;
@@ -7329,6 +7363,7 @@ module.exports = {
     enviarAlertaProtecao,
     enviarEventoMoedas,
     enviarWebhook,
+    enviarWebhookComArquivo,
     escapeHTML,
     extrairDadosComponente,
     extrairLinksDoTexto,

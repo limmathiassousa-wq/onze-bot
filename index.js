@@ -59,15 +59,6 @@ function comRetryRede(fn, tentativas = 5, delayBase = 1000) {
     }, tentativas, delayBase);
 }
 
-// Keep-alive curto: o "other side closed" vem de conexão parada que o Discord/Cloudflare
-// já fechou e o undici tenta reaproveitar. Com timeout curto ele abre conexão nova.
-try {
-    const { Agent, setGlobalDispatcher } = require('undici');
-    setGlobalDispatcher(new Agent({ keepAliveTimeout: 2000, keepAliveMaxTimeout: 5000 }));
-} catch (e) {
-    console.error('[undici] não consegui ajustar o keep-alive:', e.message);
-}
-
 // Corta a espera: se a requisição não responder em `ms`, rejeita e segue pro plano B
 // (sem isso o REST do discord.js fica ~2 min tentando de novo numa conexão morta).
 function comTimeout(fn, ms, rotulo) {
@@ -179,7 +170,7 @@ const {
     contemConviteDoServidor, contemEveryoneOuHere, darXP, definirStatusCanal,
     delCallTempPorCanal, destravarTodosCanais, drawAvatar, editarWebhook,
     ehAdminGRoles, encerrarSorteio, enviarAlertaProtecao, enviarEventoMoedas,
-    enviarWebhook, escapeHTML, eventoMoedas, extrairDadosComponente,
+    enviarWebhook, enviarWebhookComArquivo, escapeHTML, eventoMoedas, extrairDadosComponente,
     extrairLinksDoTexto, extrairPrimeiraMediaUrl, fazerBackupServidor, filtrarCargosGRoles,
     filtrarPermsGRoles, finalizarSessaoVoiceSorteio, flushBufferMensagens, flushSessoesVoiceSorteio,
     formatarBytes, formatarConteudoComMencoes, formatarDataBR, formatarDuracaoMs,
@@ -2928,13 +2919,12 @@ const motivoAfkBruto = await getAfk(message.author.id);
                     let postMsg;
                     const inicioEnvio = Date.now();
                     try {
-                        postMsg = await comRetryRede(() => comTimeout(() => enviarWebhook(message.channel, {
+                        postMsg = await comRetryRede(() => comTimeout(() => enviarWebhookComArquivo(message.channel, {
                             username: message.member?.displayName || message.author.username,
                             avatarURL: message.author.displayAvatarURL({ dynamic: true }),
-                            components: [container],
-                            files: [anexo],
-                            flags: [MessageFlags.IsComponentsV2]
-                        }), 10000, 'webhook'), 2, 500);
+                            container,
+                            urlArquivo: urlMidia
+                        }), 20000, 'webhook'), 2, 500);
                         console.log(`[INSTA] post enviado via webhook | id=${postMsg.id} | ${Date.now() - inicioEnvio}ms`);
                     } catch (errWebhook) {
                         // o webhook é o que está caindo (socket fechado); o texto do post já
@@ -2952,7 +2942,7 @@ const motivoAfkBruto = await getAfk(message.author.id);
                     await InstaPost.create({
                              messageId: postMsg.id,
                              ownerId: message.author.id,
-                             imagemUrl: postMsg.attachments?.first()?.url || foto.url,
+                             imagemUrl: postMsg.attachments?.first?.()?.url || postMsg.attachments?.[0]?.url || foto.url,
                              texto: textoPost,
                              curtidas: [],
                              comentarios: []
