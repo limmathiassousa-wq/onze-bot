@@ -1647,6 +1647,15 @@ client.on('messageDelete', async (message) => {
             conteudo = message.content ?? null;
         }
 
+        // Mensagens do próprio bot (painéis, logs etc.) não vão pro Supabase.
+        // Depois de um restart elas chegam aqui como "partial", sem autor/conteúdo.
+        // Se nenhuma fonte conhece a mensagem, confere no audit log se quem foi
+        // apagada foi uma mensagem do bot e, se for, não loga (igual antes do restart).
+        if (!foiOBotQueApagou && !autorObj && conteudo === null) {
+            const execBot = await obterExecutorAuditLog(message.guild, AuditLogEvent.MessageDelete, client.user.id).catch(() => null);
+            if (execBot) return;
+        }
+
         if (autorObj?.bot) return;
 
         let executor;
