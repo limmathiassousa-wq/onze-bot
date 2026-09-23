@@ -7235,6 +7235,13 @@ const filaContinuaDB = new Map();
 const tentativasRecuperacaoMusicaDB = new Map();
 const MAX_TENTATIVAS_RECUPERACAO_MUSICA = 3;
 
+// guildId -> { song, canalVoz, textChannel } da última música que começou
+// a tocar. Guardado à parte porque, quando o ffmpeg quebra, o DisTube às
+// vezes já esvazia queue.songs e desconecta a voice ANTES de emitir
+// 'error' pros listeners — então não dá pra confiar em queue.songs[0]/
+// queue.voice.channel dentro do handler de erro, tem que ter guardado antes.
+const ultimaMusicaTocandoDB = new Map();
+
 const MUSICAS_POR_PAGINA_FILA = 10;
 
 function registrarHistoricoMusica(guildId, song) {
@@ -7284,6 +7291,11 @@ function inicializarMusica(clienteDiscord) {
 
     distube.on('playSong', (queue) => {
         tentativasRecuperacaoMusicaDB.delete(queue.id);
+        ultimaMusicaTocandoDB.set(queue.id, {
+            song: queue.songs[0],
+            canalVoz: queue.voice?.channel,
+            textChannel: queue.textChannel
+        });
         registrarHistoricoMusica(queue.id, queue.songs[0]);
 
         atualizarPainelMusica(
@@ -7300,6 +7312,7 @@ function inicializarMusica(clienteDiscord) {
     distube.on('deleteQueue', (queue) => {
         painelMusicaDB.delete(queue.id);
         tentativasRecuperacaoMusicaDB.delete(queue.id);
+        ultimaMusicaTocandoDB.delete(queue.id);
     });
 
     distube.on('finish', async (queue) => {
@@ -7324,24 +7337,26 @@ function inicializarMusica(clienteDiscord) {
             err
         );
 
-        const songComErro = queue?.songs?.[0];
+        const guildId = queue?.id;
+        const snapshot = guildId ? ultimaMusicaTocandoDB.get(guildId) : null;
 
-        // FFMPEG_EXITED (stream corrompido/travando no meio) e o 403 de
-        // "URL is private or unavailable" são os dois jeitos que um upload
-        // ruim do SoundCloud costuma dar errado. Se for isso e só tiver essa
-        // música na fila (ou seja: não tem "próxima" pra pular), tenta achar
-        // um resultado alternativo pra mesma busca em vez de só desistir.
+        // Usa o que estiver disponível na queue AO VIVO, mas cai pro
+        // snapshot guardado em 'playSong' se o DisTube já tiver esvaziado
+        // a fila/desconectado a voice antes desse listener rodar (foi
+        // exatamente isso que fazia a recuperação nunca disparar antes).
+        const songComErro = queue?.songs?.[0] || snapshot?.song;
+        const canalVoz = queue?.voice?.channel || snapshot?.canalVoz;
+        const textChannel = queue?.textChannel || snapshot?.textChannel;
+
         const pareceStreamQuebrado =
             err?.errorCode === 'FFMPEG_EXITED' ||
             /private or unavailable|status code:\s*403/i.test(err?.message || '');
 
-        if (queue && songComErro && pareceStreamQuebrado && queue.songs.length <= 1) {
-            const canalVoz = queue.voice?.channel;
-            const textChannel = queue.textChannel;
-            const tentativas = tentativasRecuperacaoMusicaDB.get(queue.id) || 0;
+        if (guildId && songComErro && canalVoz && pareceStreamQuebrado) {
+            const tentativas = tentativasRecuperacaoMusicaDB.get(guildId) || 0;
 
-            if (canalVoz && tentativas < MAX_TENTATIVAS_RECUPERACAO_MUSICA) {
-                tentativasRecuperacaoMusicaDB.set(queue.id, tentativas + 1);
+            if (tentativas < MAX_TENTATIVAS_RECUPERACAO_MUSICA) {
+                tentativasRecuperacaoMusicaDB.set(guildId, tentativas + 1);
 
                 const urlQuebrada = songComErro.url;
                 const buscaQuery = `${songComErro.name} ${songComErro.uploader?.name || ''}`.trim();
@@ -7367,10 +7382,10 @@ function inicializarMusica(clienteDiscord) {
             }
         }
 
-        tentativasRecuperacaoMusicaDB.delete(queue?.id);
+        if (guildId) tentativasRecuperacaoMusicaDB.delete(guildId);
 
-        if (queue?.textChannel) {
-            queue.textChannel.send({
+        if (textChannel) {
+            textChannel.send({
                 content: 'Ocorreu um erro ao tocar essa música. Tente novamente.'
             }).catch(() => null);
         }
