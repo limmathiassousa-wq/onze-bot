@@ -379,23 +379,21 @@ async function getUserPerfil(userId, guildId /* agora pode ser null */, { force 
 
         const data = await extrairJson(response);
         let resultado = interpretar(data);
-        console.log('[DEBUG perfil] JSON com guild:', JSON.stringify(data));
 
         // ------------------------------------------------------------
         // Fallback: pediu com guild_id mas o usuário NÃO está nesse
         // servidor → a bio vem vazia. Refaz SEM o guild_id para pegar
         // a bio global.
         // ------------------------------------------------------------
-        if (guildId && !resultado.privado && !resultado.bio.trim()) {
+        if (guildId && !resultado.privado && !resultado.bio.trim() && !resultado.connections.length) {
           const resp2 = await pedirPerfil(null);
 
           if (obterStatus(resp2) === 200) {
             const data2 = await extrairJson(resp2);
-            console.log('[DEBUG perfil] JSON sem guild:', JSON.stringify(data2));
             const r2 = interpretar(data2);
 
-            if (r2.bio.trim()) {
-                resultado = { ...resultado, bio: r2.bio, pronouns: r2.pronouns || resultado.pronouns };
+            if (r2.bio.trim() || r2.connections.length) {
+              resultado = r2;
             }
           }
         }
