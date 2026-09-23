@@ -4556,6 +4556,7 @@ let perfil;
     }
 
     const textoCompleto = `${perfil.bio || ''} ${perfil.pronouns || ''}`;
+    console.log('[DEBUG url] bio:', JSON.stringify(perfil.bio), '| pronouns:', JSON.stringify(perfil.pronouns));
     const contemUrl = await contemConviteDoServidor(textoCompleto, interaction.guild.id);
 
     if (!contemUrl) {
