@@ -7230,17 +7230,38 @@ class SpotifyViaSoundCloud extends SpotifyPlugin {
             console.error('--- Resolve nativo do Spotify falhou, tentando com token de usuário ---', err?.message || err);
 
             const match = url.match(/track\/([a-zA-Z0-9]+)/);
-            if (!match) throw err;
+            if (!match) {
+                console.error('--- [Spotify fallback] Não consegui extrair o ID da faixa da URL:', url);
+                throw err;
+            }
 
-            const token = await getSpotifyUserAccessToken();
+            let token;
+            try {
+                token = await getSpotifyUserAccessToken();
+                console.log('--- [Spotify fallback] Token de usuário obtido com sucesso ---');
+            } catch (tokenErr) {
+                console.error('--- [Spotify fallback] Falha ao obter token de usuário ---', tokenErr?.message || tokenErr);
+                throw err;
+            }
+
             const trackResp = await fetch(`https://api.spotify.com/v1/tracks/${match[1]}`, {
                 headers: { Authorization: `Bearer ${token}` }
-            }).catch(() => null);
+            }).catch(fetchErr => {
+                console.error('--- [Spotify fallback] Erro de rede ao buscar a faixa ---', fetchErr?.message || fetchErr);
+                return null;
+            });
 
-            if (!trackResp?.ok) throw err;
+            if (!trackResp) throw err;
+
+            if (!trackResp.ok) {
+                const corpo = await trackResp.text().catch(() => '');
+                console.error(`--- [Spotify fallback] API respondeu ${trackResp.status} ao buscar a faixa ---`, corpo);
+                throw err;
+            }
 
             const track = await trackResp.json();
             const nomeBusca = `${track.name} ${track.artists.map(a => a.name).join(' ')}`;
+            console.log(`--- [Spotify fallback] Faixa identificada: "${nomeBusca}", buscando no SoundCloud ---`);
             return this.search(nomeBusca);
         }
     }
