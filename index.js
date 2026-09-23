@@ -1569,20 +1569,26 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
     await verificarAntiLink(newMessage);
 
 // ============ LOG: MENSAGEM EDITADA ============
-    let conteudoAntigo = !oldMessage.partial ? oldMessage.content : null;
-    let antigoDisponivel = typeof conteudoAntigo === 'string';
+    // O Supabase é a fonte de verdade do conteúdo anterior — mesma lógica do
+    // log de mensagem apagada, não depende do cache em memória do discord.js.
+    const { data: cache, error: erroCache } = await supabase
+        .from('mensagens_cache')
+        .select('conteudo')
+        .eq('mensagem_id', newMessage.id)
+        .maybeSingle();
+    if (erroCache) console.error('--- Erro ao ler cache de mensagem no Supabase (edição) ---', erroCache);
 
-    if (!antigoDisponivel) {
-        const { data: cache, error: erroCache } = await supabase
-            .from('mensagens_cache')
-            .select('conteudo')
-            .eq('mensagem_id', newMessage.id)
-            .maybeSingle();
-        if (erroCache) console.error('--- Erro ao ler cache de mensagem no Supabase (edição) ---', erroCache);
-        if (cache) {
-            conteudoAntigo = cache.conteudo;
-            antigoDisponivel = true;
-        }
+    let conteudoAntigo = null;
+    let antigoDisponivel = false;
+
+    if (cache) {
+        conteudoAntigo = cache.conteudo;
+        antigoDisponivel = true;
+    } else if (!oldMessage.partial) {
+        // não tinha chegado a ser cacheado no Supabase (raro) — usa a mensagem
+        // ainda viva no cache do discord.js como último recurso
+        conteudoAntigo = oldMessage.content;
+        antigoDisponivel = typeof conteudoAntigo === 'string';
     }
 
     const conteudoMudou = !antigoDisponivel || conteudoAntigo !== newMessage.content;
@@ -1617,69 +1623,57 @@ client.on('messageDelete', async (message) => {
         const foiOBotQueApagou = mensagensApagadasPeloBot.has(message.id);
         if (foiOBotQueApagou) mensagensApagadasPeloBot.delete(message.id);
 
-        if (message.partial) {
-            try { message = await message.fetch(); } catch { /* mensagem já apagada, não dá pra recuperar */ }
+        // O Supabase é a fonte de verdade do conteúdo/autor — não depende do
+        // cache em memória do discord.js, que é varrido periodicamente pelo
+        // sweeper (ver "sweepers" na criação do client) e se perde num restart.
+        const { data: cache, error: erroCache } = await supabase
+            .from('mensagens_cache')
+            .select('*')
+            .eq('mensagem_id', message.id)
+            .maybeSingle();
+        if (erroCache) console.error('--- Erro ao ler cache de mensagem no Supabase (apagada) ---', erroCache);
+
+        let autorObj = null;
+        let conteudo = null;
+
+        if (cache) {
+            autorObj = await client.users.fetch(cache.autor_id).catch(() => null);
+            conteudo = cache.conteudo;
+        } else if (!message.partial) {
+            // não tinha chegado a ser cacheado no Supabase (raro) — usa a mensagem
+            // ainda viva no cache do discord.js como último recurso
+            autorObj = message.author || null;
+            conteudo = message.content ?? null;
         }
 
-        if (message.partial) {
-            // não tá no cache do discord.js — tenta o Supabase antes de desistir
-            const { data: cache, error: erroCache } = await supabase
-                .from('mensagens_cache')
-                .select('*')
-                .eq('mensagem_id', message.id)
-                .maybeSingle();
-            if (erroCache) console.error('--- Erro ao ler cache de mensagem no Supabase (apagada) ---', erroCache);
-
-            if (cache) {
-                const autorObj = await client.users.fetch(cache.autor_id).catch(() => null);
-                await logarMensagemApagada({
-                    guild: message.guild,
-                    autor: autorObj,
-                    canal: message.channel,
-                    executor: foiOBotQueApagou ? `${client.user} — \`${client.user.tag}\` (ação automática do bot)` : '`desconhecido`',
-                    mensagemId: message.id,
-                    conteudo: cache.conteudo
-                }).catch(() => null);
-            } else {
-                await logarMensagemApagada({
-                    guild: message.guild,
-                    autor: null,
-                    canal: message.channel,
-                    executor: foiOBotQueApagou ? `${client.user} — \`${client.user.tag}\` (ação automática do bot)` : '`desconhecido`',
-                    mensagemId: message.id,
-                    conteudo: '`conteúdo não disponível (mensagem não estava em cache)`'
-                }).catch(() => null);
-            }
-
-            await supabase.from('mensagens_cache').delete().eq('mensagem_id', message.id);
-            return;
-        }
-
-        if (!message.author || message.author.bot) return;
+        if (autorObj?.bot) return;
 
         let executor;
         if (foiOBotQueApagou) {
             executor = `${client.user} — \`${client.user.tag}\` (ação automática do bot)`;
-        } else {
-            const executorAuditoria = await obterExecutorAuditLog(message.guild, AuditLogEvent.MessageDelete, message.author.id).catch(() => null);
+        } else if (autorObj) {
+            const executorAuditoria = await obterExecutorAuditLog(message.guild, AuditLogEvent.MessageDelete, autorObj.id).catch(() => null);
 
             if (executorAuditoria && executorAuditoria.id === client.user.id) {
                 executor = 'Sistema';
-            } else if (executorAuditoria && executorAuditoria.id !== message.author.id) {
+            } else if (executorAuditoria && executorAuditoria.id !== autorObj.id) {
                 executor = `${executorAuditoria} — \`${executorAuditoria.tag ?? executorAuditoria.username}\` (\`${executorAuditoria.id}\`)`;
             } else {
-                executor = `${message.author} — \`${message.author.tag}\` (o próprio autor)`;
+                executor = `${autorObj} — \`${autorObj.tag ?? autorObj.username}\` (o próprio autor)`;
             }
+        } else {
+            executor = '`desconhecido`';
         }
-        
+
         await logarMensagemApagada({
             guild: message.guild,
-            autor: message.author,
+            autor: autorObj,
             canal: message.channel,
             executor,
             mensagemId: message.id,
-            conteudo: message.content
-        });
+            conteudo: conteudo ?? '`conteúdo não disponível (mensagem não estava em cache)`'
+        }).catch(() => null);
+
         await supabase.from('mensagens_cache').delete().eq('mensagem_id', message.id);
     } catch (err) {
         console.error('--- Erro ao processar log de mensagem apagada ---', err);
