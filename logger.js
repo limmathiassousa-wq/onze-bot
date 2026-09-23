@@ -899,11 +899,147 @@ async function logarAntiNukeCanais({ guild, executores, restaurados, revertidos,
     }
 }
 
+// ================================================================
+// EMBEDS PÚBLICAS DETALHADAS (moderação, cargos, XP, moedas, PD).
+// Diferente dos logs acima, essas são enviadas no canal onde o
+// comando foi usado e se apagam sozinhas.
+// ================================================================
+const TEMPO_EMBED_SUCESSO_MS = 60 * 1000;   // embeds detalhadas somem após 1 min
+const TEMPO_MSG_TEMPORARIA_MS = 5 * 1000;   // "Ação cancelada." / "foi banido com sucesso!" somem após 5s
+const COR_EMBED = 0xFFFFFF;                 // barra lateral branca
+
+const TIPOS_MODERACAO = {
+    ban:    { titulo: 'Membro Banido',    autorLabel: 'Banido por'    },
+    unban:  { titulo: 'Membro Desbanido', autorLabel: 'Desbanido por' },
+    kick:   { titulo: 'Membro Expulso',   autorLabel: 'Expulso por'   },
+    mute:   { titulo: 'Membro Mutado',    autorLabel: 'Mutado por'    },
+    unmute: { titulo: 'Membro Desmutado', autorLabel: 'Desmutado por' }
+};
+
+// Uma linha de campo: **Label:** valor (valor em `código` se codigo = true)
+function linhaCampo(label, valor, codigo = false) {
+    return `**${label}:** ${codigo ? `\`${valor}\`` : valor}`;
+}
+
+// Embed detalhada genérica: título grande, separador, campos + avatar do membro
+// (banido, mutado, etc.) ao lado, separador e data completa no rodapé.
+// dados: { titulo, alvoUser?, alvoId?, alvoTag?, autor, autorLabel?, campos?: string[] }
+function montarEmbedDetalhada(dados) {
+    const alvoId = dados.alvoId ?? dados.alvoUser?.id;
+    const alvoTag = dados.alvoTag ?? obterTag(dados.alvoUser);
+    const agora = Math.floor(Date.now() / 1000);
+
+    const linhas = [
+        `**Membro:** <@${alvoId}> \`${alvoTag}\``,
+        `**${dados.autorLabel || 'Executado por'}:** ${dados.autor}`,
+        ...(dados.campos ?? [])
+    ];
+
+    return new ContainerBuilder()
+        .setAccentColor(COR_EMBED)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${dados.titulo}`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent(linhas.join('\n')))
+                .setThumbnailAccessory(new ThumbnailBuilder().setURL(obterAvatarUrl(dados.alvoUser)))
+        )
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`<t:${agora}:F>`));
+}
+
+// Envia a embed detalhada no canal e apaga sozinha (padrão: 1 min)
+async function enviarEmbedDetalhada(canal, dados, apagarAposMs = TEMPO_EMBED_SUCESSO_MS) {
+    try {
+        const msg = await canal.send({
+            components: [montarEmbedDetalhada(dados)],
+            flags: [MessageFlags.IsComponentsV2],
+            allowedMentions: { parse: [] }
+        });
+        if (apagarAposMs) setTimeout(() => msg.delete().catch(() => null), apagarAposMs);
+        return msg;
+    } catch (err) {
+        console.error('--- Erro ao enviar embed detalhada ---', err);
+        return null;
+    }
+}
+
+// dados: { tipo, alvoId, alvoTag, alvoUser?, autor, motivo?, duracao? }
+function montarEmbedSucessoModeracao(dados) {
+    const cfg = TIPOS_MODERACAO[dados.tipo] ?? TIPOS_MODERACAO.ban;
+    const campos = [];
+    if (dados.duracao) campos.push(linhaCampo('Duração', dados.duracao, true));
+    campos.push(linhaCampo('Motivo', dados.motivo || 'Não informado', true));
+
+    return montarEmbedDetalhada({
+        titulo: cfg.titulo, autorLabel: cfg.autorLabel,
+        alvoUser: dados.alvoUser, alvoId: dados.alvoId, alvoTag: dados.alvoTag,
+        autor: dados.autor, campos
+    });
+}
+
+// Envia a embed de moderação no canal e apaga sozinha depois de 1 minuto
+async function enviarSucessoModeracao(canal, dados) {
+    try {
+        const msg = await canal.send({
+            components: [montarEmbedSucessoModeracao(dados)],
+            flags: [MessageFlags.IsComponentsV2],
+            allowedMentions: { parse: [] }
+        });
+        setTimeout(() => msg.delete().catch(() => null), TEMPO_EMBED_SUCESSO_MS);
+        return msg;
+    } catch (err) {
+        console.error('--- Erro ao enviar embed de sucesso da moderação ---', err);
+        return null;
+    }
+}
+
+// Apaga a mensagem da interação (funciona em mensagem pública e também em efêmera)
+function apagarInteracaoApos(interaction, ms = TEMPO_MSG_TEMPORARIA_MS) {
+    setTimeout(() => {
+        const msg = interaction.message;
+        const tentarEfemera = () => interaction.deleteReply().catch(() => null);
+        if (msg?.delete) msg.delete().catch(tentarEfemera);
+        else tentarEfemera();
+    }, ms);
+}
+
+// Apaga uma mensagem comum depois de X ms (avisos dos comandos em prefixo)
+function apagarMensagemApos(msg, ms = TEMPO_MSG_TEMPORARIA_MS) {
+    setTimeout(() => msg.delete().catch(() => null), ms);
+}
+
+// Painel de confirmação do mute/unmute (mesmos botões do ban/unban)
+function montarPainelConfirmacaoMute(tipo, alvoMencao, alvoTag, motivo, duracaoTexto) {
+    const ehMute = tipo === 'mute';
+    const linhas = [
+        `### ${ehMute ? 'Confirmar mute' : 'Confirmar remoção do mute'}`,
+        `**Usuário:** ${alvoMencao} (${alvoTag})`
+    ];
+    if (ehMute && duracaoTexto) linhas.push(`**Duração:** \`${duracaoTexto}\``);
+    linhas.push(`**Motivo:** ${motivo || 'Não informado'}`);
+
+    return new ContainerBuilder()
+        .setAccentColor(COR_EMBED)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(linhas.join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('moderacao_confirmar').setLabel('Confirmar').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId('moderacao_cancelar').setLabel('Cancelar').setStyle(ButtonStyle.Secondary)
+            )
+        );
+}
+
 module.exports = {
     enviarLogModeracao, logar,
     logarBanimento, logarMembro, logarCargo, logarCallTemp, logarExpulsao, logarMute,
     logarAntiLink, logarAntiSpam, logarAntiBot,
     logarMensagemApagada, logarMensagemEditada,
     logarVoz, logarCastigo, logarCargoServidor,
-    logarCanalServidor, logarPunicaoCargosStaff, logarAntiNukeCanais
+    logarCanalServidor, logarPunicaoCargosStaff, logarAntiNukeCanais,
+    COR_EMBED, TEMPO_EMBED_SUCESSO_MS, linhaCampo,
+    montarEmbedDetalhada, enviarEmbedDetalhada,
+    montarEmbedSucessoModeracao, enviarSucessoModeracao, apagarInteracaoApos,
+    apagarMensagemApos, montarPainelConfirmacaoMute
 };

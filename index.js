@@ -22,7 +22,7 @@ const path = require("path");
 const os = require('os');
 const crypto = require('crypto');
 
-const { comandos, montarPainelBotCall, registrarPainelBotCall, montarPainelPD, obterPrimeirasDamas, montarPainelMuteInicial, montarPainelMuteTimeout, montarPainelMuteCargo } = require('./commands');
+const { comandos, montarPainelBotCall, registrarPainelBotCall, montarPainelPD, montarSelectAdicionarPD, montarSelectRemoverPD, atualizarPainelPD, obterPrimeirasDamas, montarPainelMuteInicial, montarPainelMuteTimeout, montarPainelMuteCargo } = require('./commands');
 const { botCallDB, botCallPaineis, confirmacaoModeracaoDB, msgCriadorDB, sorteioDraftDB, muteDraftDB } = require('./state');
 
 const {
@@ -32,6 +32,7 @@ const {
     urlValida, avisoSucessoModeracao
 } = require('./helpers');
 
+const { linhaCampo, enviarEmbedDetalhada, enviarSucessoModeracao, apagarInteracaoApos, apagarMensagemApos, montarPainelConfirmacaoMute } = require('./logger');
 const { logar, enviarLogModeracao, logarBanimento, logarMembro, logarCargo, logarCallTemp, logarExpulsao, logarMute, logarAntiLink, logarAntiSpam, logarAntiBot, logarMensagemApagada, logarMensagemEditada, logarVoz, logarCastigo, logarCargoServidor, logarCanalServidor, logarPunicaoCargosStaff } = require('./logger');
 
 const { Message: MessageClass } = require('discord.js');
@@ -1973,17 +1974,12 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}moedaseditar`)) {
             extra: `**Quantidade:** \`${quantidade}\` moedas\n**Novo saldo:** \`${novoSaldo}\``
         });
 
-        const container = new ContainerBuilder()
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **MOEDAS ADICIONADAS**'))
-            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Usuário:** ${alvo}`))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Quantidade adicionada:** \`${quantidade}\` moedas`))
-            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Saldo atual:** \`${novoSaldo}\``));
-
-        return message.channel.send({
-            components: [container],
-            flags: [MessageFlags.IsComponentsV2]
+        return enviarEmbedDetalhada(message.channel, {
+            titulo: 'Moedas Adicionadas', alvoUser: alvo, autor: message.author,
+            campos: [
+                linhaCampo('Quantidade adicionada', `${quantidade} moedas`, true),
+                linhaCampo('Saldo atual', novoSaldo, true)
+            ]
         });
     }
 
@@ -2000,17 +1996,12 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}moedaseditar`)) {
             extra: `**Quantidade:** \`${quantidade}\` moedas\n**Novo saldo:** \`${novoSaldo}\``
         });
 
-        const container = new ContainerBuilder()
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **MOEDAS REMOVIDAS**'))
-            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Usuário:** ${alvo}`))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Quantidade removida:** \`${quantidade}\` moedas`))
-            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Saldo atual:** \`${novoSaldo}\``));
-
-        return message.channel.send({
-            components: [container],
-            flags: [MessageFlags.IsComponentsV2]
+        return enviarEmbedDetalhada(message.channel, {
+            titulo: 'Moedas Removidas', alvoUser: alvo, autor: message.author,
+            campos: [
+                linhaCampo('Quantidade removida', `${quantidade} moedas`, true),
+                linhaCampo('Saldo atual', novoSaldo, true)
+            ]
         });
     }
 }
@@ -2142,6 +2133,95 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}unban `) || message.cont
     return;
 }
     
+if (message.content.toLowerCase().startsWith(`${PREFIXO}mute `) || message.content.toLowerCase() === `${PREFIXO}mute`) {
+    const aviso = (texto) => message.channel.send(`${message.author} ${texto}`).then(m => apagarMensagemApos(m));
+
+    if (message.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) {
+        return aviso('Você não tem permissão para silenciar membros!');
+    }
+    if (!message.member.permissions.has('ModerateMembers') && !message.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
+        return aviso('Você não tem permissão para silenciar membros!');
+    }
+
+    const args = message.content.trim().split(/\s+/);
+    const alvo = message.mentions.users.first();
+    const tempoTexto = args[2];
+    const duracaoMs = tempoTexto ? parseDuracaoTexto(tempoTexto) : null;
+
+    if (!alvo || !duracaoMs) {
+        return aviso(`Uso correto: \`${PREFIXO}mute @usuário <tempo> [motivo]\` (ex: \`10m\`, \`2h\`, \`1d\`)`);
+    }
+    if (duracaoMs > 28 * 24 * 60 * 60 * 1000) {
+        return aviso('O tempo máximo de mute é de **28 dias**!');
+    }
+    if (alvo.id === message.author.id) return aviso('Você não pode se mutar!');
+    if (alvo.bot) return aviso('Você não pode mutar um bot!');
+
+    const membroAlvo = await message.guild.members.fetch({ user: alvo.id, force: true }).catch(() => null);
+    if (!membroAlvo) return aviso('Esse usuário não está no servidor.');
+    if (!membroAlvo.moderatable) return aviso('Não consigo silenciar esse usuário. Verifique a hierarquia de cargos.');
+
+    const motivo = args.slice(3).join(' ') || null;
+
+    const container = montarPainelConfirmacaoMute('mute', `${alvo}`, alvo.tag, motivo, tempoTexto);
+    const msgConfirmacao = await message.channel.send({ components: [container], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
+
+    confirmacaoModeracaoDB.set(msgConfirmacao.id, {
+        tipo: 'mute', autorId: message.author.id, alvoId: alvo.id, alvoTag: alvo.tag, motivo,
+        duracaoMs, duracaoTexto: tempoTexto
+    });
+    setTimeout(() => confirmacaoModeracaoDB.delete(msgConfirmacao.id), 2 * 60 * 1000);
+    return;
+}
+
+if (message.content.toLowerCase().startsWith(`${PREFIXO}unmute `) || message.content.toLowerCase() === `${PREFIXO}unmute`) {
+    const aviso = (texto) => message.channel.send(`${message.author} ${texto}`).then(m => apagarMensagemApos(m));
+
+    if (message.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) {
+        return aviso('Você não tem permissão para remover o silenciamento!');
+    }
+    if (!message.member.permissions.has('ModerateMembers') && !message.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
+        return aviso('Você não tem permissão para remover o silenciamento!');
+    }
+
+    const alvo = message.mentions.users.first();
+    if (!alvo) return aviso(`Uso correto: \`${PREFIXO}unmute @usuário [motivo]\``);
+
+    const membroAlvo = await message.guild.members.fetch({ user: alvo.id, force: true }).catch(() => null);
+    if (!membroAlvo) return aviso('Esse usuário não está no servidor.');
+    if (!membroAlvo.communicationDisabledUntil) return aviso('Esse usuário não está silenciado.');
+
+    const motivo = message.content.trim().split(/\s+/).slice(2).join(' ') || null;
+
+    const container = montarPainelConfirmacaoMute('unmute', `${alvo}`, alvo.tag, motivo);
+    const msgConfirmacao = await message.channel.send({ components: [container], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
+
+    confirmacaoModeracaoDB.set(msgConfirmacao.id, {
+        tipo: 'unmute', autorId: message.author.id, alvoId: alvo.id, alvoTag: alvo.tag, motivo
+    });
+    setTimeout(() => confirmacaoModeracaoDB.delete(msgConfirmacao.id), 2 * 60 * 1000);
+    return;
+}
+
+if (message.content.toLowerCase() === `${PREFIXO}pd`) {
+    const aviso = (texto) => message.channel.send(`${message.author} ${texto}`).then(m => apagarMensagemApos(m));
+
+    if (message.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) {
+        return aviso('Você não tem permissão para utilizar este comando!');
+    }
+    const temPermissao = message.member.roles.cache.has(CARGO_PD_PERMISSAO) || message.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
+    if (!temPermissao) return aviso('Você não tem permissão para utilizar este comando!');
+
+    const damas = await obterPrimeirasDamas(message.guild.id, message.author.id);
+    const msgPainel = await message.channel.send({
+        components: [montarPainelPD(message.guild, damas, message.author)],
+        flags: [MessageFlags.IsComponentsV2],
+        allowedMentions: { parse: [] }
+    });
+    apagarMensagemApos(msgPainel, 60 * 1000);
+    return;
+}
+
     if (message.content.toLowerCase().startsWith(`${PREFIXO}tiktok`)) {
     const args = message.content.trim().split(/\s+/);
     const link = args[1];
@@ -2462,18 +2542,13 @@ await enviarLogModeracao({
     extra: `**Quantidade:** \`${quantidade}\` XP\n**Nível atual:** \`${dados.nivel}\` | **XP atual:** \`${dados.xp}\``
 });
 
-        const container = new ContainerBuilder()
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **XP ADICIONADO**'))
-            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Usuário:** ${alvo}`))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Quantidade adicionada:** \`${quantidade}\` XP`))
-            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**XP atual:** \`${dados.xp}\``))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Nível atual:** \`${dados.nivel}\``));
-
-        return message.channel.send({
-            components: [container],
-            flags: [MessageFlags.IsComponentsV2]
+        return enviarEmbedDetalhada(message.channel, {
+            titulo: 'XP Adicionado', alvoUser: alvo, autor: message.author,
+            campos: [
+                linhaCampo('Quantidade adicionada', `${quantidade} XP`, true),
+                linhaCampo('XP atual', dados.xp, true),
+                linhaCampo('Nível atual', dados.nivel, true)
+            ]
         });
     }
 
@@ -2508,18 +2583,13 @@ await enviarLogModeracao({
     extra: `**Quantidade:** \`${quantidade}\` XP\n**Nível atual:** \`${dados.nivel}\` | **XP atual:** \`${dados.xp}\``
 });
 
-        const container = new ContainerBuilder()
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **XP REMOVIDO**'))
-            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Usuário:** ${alvo}`))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Quantidade removida:** \`${quantidade}\` XP`))
-            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**XP atual:** \`${dados.xp}\``))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Nível atual:** \`${dados.nivel}\``));
-
-        return message.channel.send({
-            components: [container],
-            flags: [MessageFlags.IsComponentsV2]
+        return enviarEmbedDetalhada(message.channel, {
+            titulo: 'XP Removido', alvoUser: alvo, autor: message.author,
+            campos: [
+                linhaCampo('Quantidade removida', `${quantidade} XP`, true),
+                linhaCampo('XP atual', dados.xp, true),
+                linhaCampo('Nível atual', dados.nivel, true)
+            ]
         });
     }
 }
@@ -2848,17 +2918,9 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}addcargo`)) {
     }
 
     if (alvo.roles.cache.has(cargo.id)) {
-        const container = new ContainerBuilder()
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **CARGO JÁ POSSUÍDO**'))
-            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Usuário:** ${alvo}`))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Cargo:** ${cargo}`))
-            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`Esse usuário já possui esse cargo.`));
-
-        return message.channel.send({
-            components: [container],
-            flags: [MessageFlags.IsComponentsV2]
+        return enviarEmbedDetalhada(message.channel, {
+            titulo: 'Cargo Já Possuído', alvoUser: alvo.user, autor: message.author,
+            campos: [linhaCampo('Cargo', `${cargo}`), 'Esse usuário já possui esse cargo.']
         });
     }
 
@@ -2878,17 +2940,9 @@ await logarCargo({
     cargo: `${cargo}`
 });
 
-    const container = new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **CARGO ADICIONADO**'))
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Usuário:** ${alvo}`))
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Cargo:** ${cargo}`))
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Executado por:** ${message.author}`));
-
-    return message.channel.send({
-        components: [container],
-        flags: [MessageFlags.IsComponentsV2]
+    return enviarEmbedDetalhada(message.channel, {
+        titulo: 'Cargo Adicionado', alvoUser: alvo.user, autor: message.author,
+        campos: [linhaCampo('Cargo', `${cargo}`)]
     });
 }
 
@@ -2927,17 +2981,9 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}remcargo`)) {
     }
 
     if (!alvo.roles.cache.has(cargo.id)) {
-        const container = new ContainerBuilder()
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **CARGO NÃO POSSUÍDO**'))
-            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Usuário:** ${alvo}`))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Cargo:** ${cargo}`))
-            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`Esse usuário não possui esse cargo.`));
-
-        return message.channel.send({
-            components: [container],
-            flags: [MessageFlags.IsComponentsV2]
+        return enviarEmbedDetalhada(message.channel, {
+            titulo: 'Cargo Não Possuído', alvoUser: alvo.user, autor: message.author,
+            campos: [linhaCampo('Cargo', `${cargo}`), 'Esse usuário não possui esse cargo.']
         });
     }
 
@@ -2957,17 +3003,9 @@ await logarCargo({
     cargo: `${cargo}`
 });
 
-    const container = new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **CARGO REMOVIDO**'))
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Usuário:** ${alvo}`))
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Cargo:** ${cargo}`))
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Executado por:** ${message.author}`));
-
-    return message.channel.send({
-        components: [container],
-        flags: [MessageFlags.IsComponentsV2]
+    return enviarEmbedDetalhada(message.channel, {
+        titulo: 'Cargo Removido', alvoUser: alvo.user, autor: message.author,
+        campos: [linhaCampo('Cargo', `${cargo}`)]
     });
 }
     
@@ -3503,7 +3541,10 @@ await enviarLogModeracao({
 
     muteDraftDB.delete(interaction.message.id);
 
-    avisoSucessoModeracao(interaction.channel, `<:check:1548558822711365702> · ${membroAlvo} foi mutado com sucesso!`);
+    enviarSucessoModeracao(interaction.channel, {
+        tipo: 'mute', alvoId: membroAlvo.id, alvoTag: membroAlvo.user.tag, alvoUser: membroAlvo.user,
+        autor: interaction.user, motivo: draft.motivo, duracao: draft.duracaoTexto
+    });
 
     return interaction.editReply({
         components: containerTexto(`${membroAlvo} foi mutado por **${draft.duracaoTexto}**!${draft.motivo ? `\n**Motivo:** ${draft.motivo}` : ''}`),
@@ -3563,7 +3604,10 @@ await enviarLogModeracao({
 
     muteDraftDB.delete(interaction.message.id);
 
-    avisoSucessoModeracao(interaction.channel, `<:check:1548558822711365702> · ${membroAlvo} foi mutado com sucesso!`);
+    enviarSucessoModeracao(interaction.channel, {
+        tipo: 'mute', alvoId: membroAlvo.id, alvoTag: membroAlvo.user.tag, alvoUser: membroAlvo.user,
+        autor: interaction.user, motivo: draft.motivo, duracao: '5 minutos (mute por cargo)'
+    });
 
     return interaction.editReply({
         components: containerTexto(`${membroAlvo} foi mutado por cargo por **5 minutos**!${draft.motivo ? `\n**Motivo:** ${draft.motivo}` : ''}`),
@@ -5061,9 +5105,13 @@ if (draft.tipo === 'ban') {
 
         verificarBanEmMassaStaff(interaction.guild, interaction.user).catch(err => console.error('--- Erro no Anti-Abuso (comando /ban) ---', err));
 
-        avisoSucessoModeracao(interaction.channel, `<:check:1548558822711365702> · <@${draft.alvoId}> foi banido com sucesso!`);
+        enviarSucessoModeracao(interaction.channel, {
+            tipo: 'ban', alvoId: draft.alvoId, alvoTag: draft.alvoTag, alvoUser: alvoUserFetch,
+            autor: interaction.user, motivo: draft.motivo
+        });
 
-        return interaction.editReply({ components: containerTexto(`**${draft.alvoTag}** foi banido com sucesso!`), flags: [MessageFlags.IsComponentsV2] });
+        await interaction.editReply({ components: containerTexto(`**${draft.alvoTag}** foi banido com sucesso!`), flags: [MessageFlags.IsComponentsV2] });
+        return apagarInteracaoApos(interaction);
     }
 
     if (draft.tipo === 'unban') {
@@ -5081,9 +5129,75 @@ if (draft.tipo === 'ban') {
             autor: interaction.user, motivo: draft.motivo
        });
 
-        avisoSucessoModeracao(interaction.channel, `<:check:1548558822711365702> · <@${draft.alvoId}> foi desbanido com sucesso!`);
+        enviarSucessoModeracao(interaction.channel, {
+            tipo: 'unban', alvoId: draft.alvoId, alvoTag: draft.alvoTag, alvoUser: alvoUserFetch,
+            autor: interaction.user, motivo: draft.motivo
+        });
 
-        return interaction.editReply({ components: containerTexto(`**${draft.alvoTag}** foi desbanido com sucesso!`), flags: [MessageFlags.IsComponentsV2] });
+        await interaction.editReply({ components: containerTexto(`**${draft.alvoTag}** foi desbanido com sucesso!`), flags: [MessageFlags.IsComponentsV2] });
+        return apagarInteracaoApos(interaction);
+    }
+
+    if (draft.tipo === 'mute') {
+        const membroAlvo = await interaction.guild.members.fetch({ user: draft.alvoId, force: true }).catch(() => null);
+        if (!membroAlvo) {
+            await interaction.editReply({ components: containerTexto('Esse usuário não está mais no servidor.'), flags: [MessageFlags.IsComponentsV2] });
+            return apagarInteracaoApos(interaction);
+        }
+        if (!membroAlvo.moderatable) {
+            await interaction.editReply({ components: containerTexto('Não consigo silenciar esse usuário. Verifique a hierarquia de cargos.'), flags: [MessageFlags.IsComponentsV2] });
+            return apagarInteracaoApos(interaction);
+        }
+
+        try {
+            await membroAlvo.timeout(draft.duracaoMs, draft.motivo || 'Não informado');
+        } catch (err) {
+            console.error('--- Erro ao aplicar mute (confirmação) ---', err);
+            await interaction.editReply({ components: containerTexto('Ocorreu um erro ao aplicar o mute nesse usuário.'), flags: [MessageFlags.IsComponentsV2] });
+            return apagarInteracaoApos(interaction);
+        }
+
+        await enviarLogModeracao({
+            guild: interaction.guild, tipo: 'MUTE (TIMEOUT)',
+            alvo: `${membroAlvo} (${membroAlvo.user.tag})`, alvoUser: membroAlvo.user,
+            autor: interaction.user, motivo: draft.motivo, extra: `**Duração:** \`${draft.duracaoTexto}\``
+        });
+
+        enviarSucessoModeracao(interaction.channel, {
+            tipo: 'mute', alvoId: draft.alvoId, alvoTag: draft.alvoTag, alvoUser: membroAlvo.user,
+            autor: interaction.user, motivo: draft.motivo, duracao: draft.duracaoTexto
+        });
+
+        await interaction.editReply({ components: containerTexto(`**${draft.alvoTag}** foi mutado com sucesso!`), flags: [MessageFlags.IsComponentsV2] });
+        return apagarInteracaoApos(interaction);
+    }
+
+    if (draft.tipo === 'unmute') {
+        const membroAlvo = await interaction.guild.members.fetch({ user: draft.alvoId, force: true }).catch(() => null);
+        if (!membroAlvo) {
+            await interaction.editReply({ components: containerTexto('Esse usuário não está mais no servidor.'), flags: [MessageFlags.IsComponentsV2] });
+            return apagarInteracaoApos(interaction);
+        }
+
+        try {
+            await membroAlvo.timeout(null, draft.motivo || 'Não informado');
+        } catch (err) {
+            console.error('--- Erro ao remover mute (confirmação) ---', err);
+            await interaction.editReply({ components: containerTexto('Ocorreu um erro ao remover o silenciamento.'), flags: [MessageFlags.IsComponentsV2] });
+            return apagarInteracaoApos(interaction);
+        }
+
+        await logar('UNMUTE', `${membroAlvo} (${membroAlvo.user.tag})`, interaction.user, {
+            guild: interaction.guild, alvoUser: membroAlvo.user, motivo: draft.motivo
+        });
+
+        enviarSucessoModeracao(interaction.channel, {
+            tipo: 'unmute', alvoId: draft.alvoId, alvoTag: draft.alvoTag, alvoUser: membroAlvo.user,
+            autor: interaction.user, motivo: draft.motivo
+        });
+
+        await interaction.editReply({ components: containerTexto(`**${draft.alvoTag}** foi desmutado com sucesso!`), flags: [MessageFlags.IsComponentsV2] });
+        return apagarInteracaoApos(interaction);
     }
 }
 
@@ -5094,7 +5208,8 @@ if (interaction.isButton() && interaction.customId === 'moderacao_cancelar') {
     }
     confirmacaoModeracaoDB.delete(interaction.message.id);
 
-    return interaction.update({ components: containerTexto('Ação cancelada.'), flags: [MessageFlags.IsComponentsV2] });
+    await interaction.update({ components: containerTexto('Ação cancelada.'), flags: [MessageFlags.IsComponentsV2] });
+    return apagarInteracaoApos(interaction);
 }
 
 	
@@ -6968,7 +7083,43 @@ if (interaction.isUserSelectMenu() && interaction.customId === 'select_call_expu
     }
     
 
-if (interaction.isUserSelectMenu() && interaction.customId === 'pd_selecionar') {
+// ---- PD: botões Adicionar / Remover do painel público ----
+if (interaction.isButton() && (interaction.customId.startsWith('pd_btn_adicionar_') || interaction.customId.startsWith('pd_btn_remover_'))) {
+    const ehAdicionar = interaction.customId.startsWith('pd_btn_adicionar_');
+    const donoId = interaction.customId.replace(ehAdicionar ? 'pd_btn_adicionar_' : 'pd_btn_remover_', '');
+
+    if (interaction.user.id !== donoId) {
+        return interaction.reply({ content: 'Esse painel não pertence a você!', flags: [MessageFlags.Ephemeral] });
+    }
+
+    const temPermissao = interaction.member.roles.cache.has(CARGO_PD_PERMISSAO) || interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
+    if (!temPermissao) {
+        return interaction.reply({ content: 'Você não tem permissão para utilizar isso!', flags: [MessageFlags.Ephemeral] });
+    }
+
+    const damas = await obterPrimeirasDamas(interaction.guild.id, interaction.user.id);
+
+    if (ehAdicionar) {
+        if (damas.length >= LIMITE_PRIMEIRAS_DAMAS) {
+            return interaction.reply({ content: `Você já atingiu o limite de **${LIMITE_PRIMEIRAS_DAMAS}** primeiras damas!`, flags: [MessageFlags.Ephemeral] });
+        }
+        return interaction.reply({
+            components: [montarSelectAdicionarPD(interaction.message.id)],
+            flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
+        });
+    }
+
+    if (!damas.length) {
+        return interaction.reply({ content: 'Você não tem nenhuma primeira dama para remover.', flags: [MessageFlags.Ephemeral] });
+    }
+    return interaction.reply({
+        components: [await montarSelectRemoverPD(interaction.guild, damas, interaction.message.id)],
+        flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
+    });
+}
+
+if (interaction.isUserSelectMenu() && interaction.customId.startsWith('pd_selecionar_')) {
+    const painelId = interaction.customId.replace('pd_selecionar_', '');
     const temPermissao = interaction.member.roles.cache.has(CARGO_PD_PERMISSAO) || interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
     if (!temPermissao) {
         return interaction.reply({ content: 'Você não tem permissão para utilizar isso!', flags: [MessageFlags.Ephemeral] });
@@ -7038,15 +7189,23 @@ await enviarLogModeracao({
 });
 
     const damasAtualizadas = await obterPrimeirasDamas(interaction.guild.id, interaction.user.id);
-    const container = await montarPainelPD(interaction.guild, damasAtualizadas);
+    await atualizarPainelPD(interaction, painelId, damasAtualizadas);
+
+    if (damasAtualizadas.length >= LIMITE_PRIMEIRAS_DAMAS) {
+        return interaction.update({
+            components: containerTexto('Você atingiu o limite máximo de primeiras damas.'),
+            flags: [MessageFlags.IsComponentsV2]
+        });
+    }
 
     return interaction.update({
-        components: [container],
+        components: [montarSelectAdicionarPD(painelId)],
         flags: [MessageFlags.IsComponentsV2]
     });
 }
 
-if (interaction.isStringSelectMenu() && interaction.customId === 'pd_remover') {
+if (interaction.isStringSelectMenu() && interaction.customId.startsWith('pd_remover_')) {
+    const painelId = interaction.customId.replace('pd_remover_', '');
     const temPermissao = interaction.member.roles.cache.has(CARGO_PD_PERMISSAO) || interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
     if (!temPermissao) {
         return interaction.reply({ content: 'Você não tem permissão para utilizar isso!', flags: [MessageFlags.Ephemeral] });
@@ -7088,14 +7247,21 @@ await enviarLogModeracao({
 });
 
     const damasAtualizadas = await obterPrimeirasDamas(interaction.guild.id, interaction.user.id);
-    const container = await montarPainelPD(interaction.guild, damasAtualizadas);
+    await atualizarPainelPD(interaction, painelId, damasAtualizadas);
+
+    if (!damasAtualizadas.length) {
+        return interaction.update({
+            components: containerTexto('Você não tem mais primeiras damas para remover.'),
+            flags: [MessageFlags.IsComponentsV2]
+        });
+    }
 
     return interaction.update({
-        components: [container],
+        components: [await montarSelectRemoverPD(interaction.guild, damasAtualizadas, painelId)],
         flags: [MessageFlags.IsComponentsV2]
     });
 }
-    
+
 
 // ---- Botões: abrir modal ----
 if (interaction.isButton() && interaction.customId === 'msgcriador_botao_adicionar') {

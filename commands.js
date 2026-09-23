@@ -18,11 +18,10 @@ const { botCallDB, botCallPaineis, confirmacaoModeracaoDB, msgCriadorDB, sorteio
 const {
     esperar, containerTexto, comRetry, xpNecessario,
     montarPainelConfirmacaoModeracao,
-    getSaldo, somarSaldo, getXP, setXP, getMensagens, setMensagens,
-    avisoSucessoModeracao
+    getSaldo, somarSaldo, getXP, setXP, getMensagens, setMensagens
 } = require('./helpers');
 
-const { logar } = require('./logger');
+const { logar, enviarSucessoModeracao, COR_EMBED } = require('./logger');
 
 // ============ PAINÉIS USADOS POR COMANDOS (e reaproveitados em botões no index.js) ============
 
@@ -166,47 +165,89 @@ async function obterPrimeirasDamas(guildId, setterId) {
     }));
 }
 
-function montarPainelPD(guild, damas) {
-    const container = new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent('**PRIMEIRA DAMA**'))
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            `Escolha quem será a sua **Primeira Dama**! Selecione a pessoa no menu abaixo.\n\n Você pode ter no máximo **${LIMITE_PRIMEIRAS_DAMAS}** primeiras damas ao mesmo tempo.`
-        ));
+// Painel público do {PREFIXO}pd (estilo: título, lista, dica e botões Adicionar / Remover)
+function montarPainelPD(guild, damas, dono) {
+    const lista = damas.length
+        ? damas.map(d => `<@${d.targetId}>`).join('\n')
+        : '*Nenhuma primeira dama definida.*';
 
-    if (damas.length) {
-        const listaTexto = damas.map((d, i) => `**${i + 1}.** <@${d.targetId}>`).join('\n');
-        container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            `**Suas primeiras damas (${damas.length}/${LIMITE_PRIMEIRAS_DAMAS}):**\n${listaTexto}`
-        ));
-    }
+    const texto = [
+        '## Primeira Dama',
+        `**Primeira Dama (${damas.length}/${LIMITE_PRIMEIRAS_DAMAS}):**`,
+        lista,
+        '',
+        'Use os botões abaixo para adicionar ou remover.'
+    ].join('\n');
 
-    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-
-    if (damas.length < LIMITE_PRIMEIRAS_DAMAS) {
-        container.addActionRowComponents(
+    return new ContainerBuilder()
+        .setAccentColor(COR_EMBED)
+        .addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent(texto))
+                .setThumbnailAccessory(new ThumbnailBuilder().setURL(dono.displayAvatarURL({ extension: 'png', size: 256 })))
+        )
+        .addActionRowComponents(
             new ActionRowBuilder().addComponents(
-                new UserSelectMenuBuilder().setCustomId('pd_selecionar').setPlaceholder('Selecione sua primeira dama').setMinValues(1).setMaxValues(1)
+                new ButtonBuilder()
+                    .setCustomId(`pd_btn_adicionar_${dono.id}`)
+                    .setLabel('Adicionar')
+                    .setStyle(ButtonStyle.Secondary)
+                    .setDisabled(damas.length >= LIMITE_PRIMEIRAS_DAMAS),
+                new ButtonBuilder()
+                    .setCustomId(`pd_btn_remover_${dono.id}`)
+                    .setLabel('Remover')
+                    .setStyle(ButtonStyle.Secondary)
+                    .setDisabled(damas.length === 0)
             )
         );
-    } else {
-        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(' Limite máximo atingido. Remova alguma para poder adicionar outra.'));
-    }
+}
 
-    if (damas.length) {
-        const options = damas.map(d => {
-            const membro = guild.members.cache.get(d.targetId);
-            return { label: membro ? membro.user.username : 'Usuário desconhecido', value: d.targetId };
-        });
-        container.addActionRowComponents(
+// Mensagem efêmera do botão "Adicionar": só o select menu, sem texto
+function montarSelectAdicionarPD(painelId) {
+    return new ContainerBuilder().addActionRowComponents(
+        new ActionRowBuilder().addComponents(
+            new UserSelectMenuBuilder()
+                .setCustomId(`pd_selecionar_${painelId}`)
+                .setPlaceholder('Selecione sua primeira dama')
+                .setMinValues(1)
+                .setMaxValues(1)
+        )
+    );
+}
+
+// Mensagem efêmera do botão "Remover": select menu de string (lista só quem já é PD), sem texto
+async function montarSelectRemoverPD(guild, damas, painelId) {
+    const options = await Promise.all(damas.map(async d => {
+        const membro = guild.members.cache.get(d.targetId)
+            ?? await guild.members.fetch({ user: d.targetId }).catch(() => null);
+        return {
+            label: membro ? membro.displayName.slice(0, 100) : 'Usuário desconhecido',
+            description: membro ? `@${membro.user.username} • ${d.targetId}`.slice(0, 100) : d.targetId,
+            value: d.targetId
+        };
+    }));
+
+    return new ContainerBuilder()
+        .setAccentColor(COR_EMBED)
+        .addActionRowComponents(
             new ActionRowBuilder().addComponents(
-                new StringSelectMenuBuilder().setCustomId('pd_remover').setPlaceholder('Remover uma primeira dama').addOptions(options)
+                new StringSelectMenuBuilder()
+                    .setCustomId(`pd_remover_${painelId}`)
+                    .setPlaceholder('Selecione quem deseja remover')
+                    .addOptions(options)
             )
         );
-    }
+}
 
-    return container;
+// Atualiza a mensagem pública do painel depois de adicionar/remover
+async function atualizarPainelPD(interaction, painelId, damas) {
+    const msg = await interaction.channel.messages.fetch(painelId).catch(() => null);
+    if (!msg) return;
+    await msg.edit({
+        components: [montarPainelPD(interaction.guild, damas, interaction.user)],
+        flags: [MessageFlags.IsComponentsV2],
+        allowedMentions: { parse: [] }
+    }).catch(err => console.error('--- Erro ao atualizar painel PD ---', err));
 }
 
 // ============ COMANDOS ============
@@ -349,7 +390,10 @@ registrar(
                 guild: interaction.guild, alvoUser: alvo, motivo, canalId: CANAL_LOGS_KICKS
         });
 
-        avisoSucessoModeracao(interaction.channel, `<:check:1548558822711365702> · ${alvo} foi expulso com sucesso!`);
+        enviarSucessoModeracao(interaction.channel, {
+            tipo: 'kick', alvoId: alvo.id, alvoTag: alvo.tag, alvoUser: alvo,
+            autor: interaction.user, motivo
+        });
 
         return interaction.reply({ content: `${alvo.tag} foi expulso com sucesso!`, flags: [MessageFlags.Ephemeral] });
     }
@@ -414,7 +458,10 @@ registrar(
                  guild: interaction.guild, alvoUser: alvo, motivo
         });
 
-        avisoSucessoModeracao(interaction.channel, `<:check:1548558822711365702> · ${alvo} foi desmutado com sucesso!`);
+        enviarSucessoModeracao(interaction.channel, {
+            tipo: 'unmute', alvoId: alvo.id, alvoTag: alvo.tag, alvoUser: alvo,
+            autor: interaction.user, motivo
+        });
 
         return interaction.reply({ content: `O silenciamento de ${alvo.tag} foi removido!`, flags: [MessageFlags.Ephemeral] });
     }
@@ -558,23 +605,6 @@ registrar(
 );
 
 registrar(
-    new SlashCommandBuilder().setName('pd').setDescription('Abre o painel pd e define quem sera sua Primeira Dama'),
-    async (interaction) => {
-        if (interaction.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) {
-            return interaction.reply({ content: 'Você não tem permissão para utilizar este comando!', flags: [MessageFlags.Ephemeral] });
-        }
-        const temPermissao = interaction.member.roles.cache.has(CARGO_PD_PERMISSAO) || interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
-        if (!temPermissao) return interaction.reply({ content: 'Você não tem permissão para utilizar este comando!', flags: [MessageFlags.Ephemeral] });
-
-        const damas = await obterPrimeirasDamas(interaction.guild.id, interaction.user.id);
-        return interaction.reply({
-            components: [montarPainelPD(interaction.guild, damas)],
-            flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
-        });
-    }
-);
-
-registrar(
     new SlashCommandBuilder()
         .setName('addemoji')
         .setDescription('Adiciona um emoji de outro servidor neste servidor')
@@ -666,4 +696,4 @@ registrar(
 );
 
 
-module.exports = { comandos, montarPainelBotCall, registrarPainelBotCall, montarPainelPD, obterPrimeirasDamas, montarPainelMuteInicial, montarPainelMuteTimeout, montarPainelMuteCargo };
+module.exports = { comandos, montarPainelBotCall, registrarPainelBotCall, montarPainelPD, montarSelectAdicionarPD, montarSelectRemoverPD, atualizarPainelPD, obterPrimeirasDamas, montarPainelMuteInicial, montarPainelMuteTimeout, montarPainelMuteCargo };
