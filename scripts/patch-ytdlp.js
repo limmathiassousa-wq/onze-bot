@@ -29,6 +29,15 @@ try {
         console.log('[patch-ytdlp] Patch aplicado com sucesso em', mainPath);
     } else {
         console.log('[patch-ytdlp] Nenhuma ocorrência encontrada (pacote pode ter mudado).');
+        // Dump o trecho ao redor de "resolve(url" pra sabermos exatamente
+        // como o arquivo está formatado hoje, sem precisar adivinhar de novo.
+        const idxResolve = conteudo.indexOf('resolve(url');
+        console.log(
+            '[patch-ytdlp] Trecho perto de "resolve(url" (diagnóstico):',
+            idxResolve === -1
+                ? 'marcador "resolve(url" não encontrado no arquivo'
+                : conteudo.slice(Math.max(0, idxResolve - 50), idxResolve + 400)
+        );
     }
 } catch (e) {
     console.error('[patch-ytdlp] Falha ao aplicar patch:', e);
