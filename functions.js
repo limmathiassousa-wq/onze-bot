@@ -7169,65 +7169,13 @@ function setEventoMoedasAtivo(valor) {
 // ============ SISTEMA DE MÚSICA (/play) ============
 // ============================================================
 const { DisTube } = require('distube');
-const { YtDlpPlugin } = require('@distube/yt-dlp');
+const { SoundCloudPlugin } = require('@distube/soundcloud');
+const { SpotifyPlugin } = require('@tireoz/spotify');
 
-// Resolve links do Spotify (track, album, playlist) pra "artista - música"
-// usando só as páginas públicas do open.spotify.com — sem API oficial, sem
-// client credentials, sem conta Premium. As páginas trazem meta tags (og:title,
-// music:musician_description) que dão nome da faixa e artista de graça.
-//
-// Limitação: pra album/playlist só conseguimos o título do próprio recurso
-// (não a lista de faixas dentro dele, que só vem via API paga/JS renderizado),
-// então esses casos tocam como uma busca única pelo nome da playlist/álbum.
-
-function extrairMetaTag(html, propriedade) {
-    const regex = new RegExp(`<meta[^>]+property=["']${propriedade}["'][^>]+content=["']([^"']*)["']`, 'i');
-    const m = html.match(regex);
-    return m ? m[1] : null;
-}
-
-async function buscarPaginaSpotify(url) {
-    const resp = await fetch(url, {
-        headers: {
-            // Spotify só manda a página pré-renderizada com as meta tags certas
-            // pra user-agents de bots de preview de link (Facebook, WhatsApp,
-            // Slack...). Pra navegadores normais ele manda a casca do app React
-            // sem o título, que só é preenchido via JS no cliente.
-            'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
-        }
-    });
-    if (!resp.ok) throw new Error(`Falha ao acessar a página do Spotify (status ${resp.status})`);
-    return resp.text();
-}
-
-// Recebe uma URL do Spotify (track, album ou playlist) e devolve um array de
-// strings prontas pra serem usadas como busca no DisTube.
-// Retorna null se a URL não for do Spotify.
-async function resolverSpotifyParaQuery(url) {
-    const match = url.match(/spotify\.com\/(track|album|playlist)\/([a-zA-Z0-9]+)/);
-    if (!match) return null;
-    const [, tipo, id] = match;
-
-    const html = await buscarPaginaSpotify(`https://open.spotify.com/${tipo}/${id}`);
-    const titulo = extrairMetaTag(html, 'og:title');
-    if (!titulo) {
-        // Loga um pedaço do HTML recebido pra diagnosticar se o Spotify está
-        // bloqueando/redirecionando a requisição do servidor (comum com IPs
-        // de datacenter tipo Render/AWS).
-        console.error('--- HTML recebido do Spotify não tinha og:title. Trecho recebido: ---', html.slice(0, 800));
-        throw new Error('Não consegui extrair o título dessa página do Spotify (formato da página pode ter mudado).');
-    }
-
-    if (tipo === 'track') {
-        const artistas = extrairMetaTag(html, 'music:musician_description');
-        return [artistas ? `${artistas} - ${titulo}` : titulo];
-    }
-
-    // Álbum/playlist: só temos o nome do recurso, então tocamos isso como
-    // uma única busca (ex: "NOME DA PLAYLIST playlist").
-    return [titulo];
-}
+// Links do Spotify (track/album/playlist) e do SoundCloud agora são resolvidos
+// direto pelos plugins acima: o SpotifyPlugin identifica a faixa e busca o
+// equivalente no SoundCloud sozinho, sem precisar de scraper manual, API key
+// do Spotify nem do yt-dlp. Basta passar a URL pro distube.play() normalmente.
 
 const VOLUME_PADRAO_MUSICA = 45;
 
@@ -7256,334 +7204,20 @@ function registrarHistoricoMusica(guildId, song) {
     historicoMusicaDB.set(guildId, lista);
 }
 
-// O YouTube costuma bloquear/limitar requisições vindas de IPs de datacenter
-// (Render, AWS, etc.), tanto pra busca de texto quanto pra extração de vídeos
-// específicos. A forma gratuita de contornar isso é usando cookies de uma
-// sessão real do YouTube. Aqui a gente escreve o conteúdo de YOUTUBE_COOKIES
-// (uma env var com o cookies.txt exportado do navegador) em disco, e o
-// patch-ytdlp.js injeta o caminho na configuração do yt-dlp via
-// YTDLP_COOKIES_PATH (ver scripts/patch-ytdlp.js).
+// (Bloco de yt-dlp/cookies/proxy do YouTube removido — não é mais usado; Spotify e SoundCloud são resolvidos pelos plugins do DisTube.)
 
-function prepararCookiesYoutube() {
-    const cookies = String(process.env.YOUTUBE_COOKIES || '').trim();
-
-    if (!cookies) {
-        delete process.env.YTDLP_COOKIES_PATH;
-        console.log('[YT-DLP] YOUTUBE_COOKIES não configurada.');
-        return;
-    }
-
-    const caminho = path.join(os.tmpdir(), 'youtube-cookies.txt');
-
-    try {
-        fs.writeFileSync(caminho, cookies, {
-            encoding: 'utf8',
-            mode: 0o600
-        });
-
-        process.env.YTDLP_COOKIES_PATH = caminho;
-
-        console.log('[YT-DLP] Cookies preparados em:', caminho);
-    } catch (err) {
-        delete process.env.YTDLP_COOKIES_PATH;
-        console.error('[YT-DLP] Erro ao preparar cookies:', err);
-    }
-}
-
-// Roteia yt-dlp E ffmpeg pelo mesmo proxy (env YTDLP_PROXY_URL, ex:
-// "http://usuario:senha@host:porta" ou "socks5://host:porta").
-//
-// Isso cobre os dois pontos onde o IP de datacenter da Render é bloqueado:
-//
-// 1) yt-dlp: adicionamos "--proxy" no arquivo de config do yt-dlp (o mesmo
-//    onde os cookies já são injetados), então TODA chamada ao yt-dlp sai
-//    pelo proxy — tanto a do YtDlpPlugin do DisTube quanto as chamadas
-//    diretas (debugExtracaoYoutube, extrairPrimeiraFaixaYoutube).
-//
-// 2) ffmpeg: a URL de áudio que o yt-dlp devolve (googlevideo.com) costuma
-//    ficar travada no IP de quem a resolveu. Se o yt-dlp resolver pelo proxy
-//    mas o ffmpeg baixar o áudio direto pelo IP da Render, a extração passa
-//    mas o play falha com 403. Por isso setamos HTTP(S)_PROXY no processo do
-//    Node: o ffmpeg é um processo filho (spawnado pelo DisTube) e herda
-//    essas env vars — o protocolo http do ffmpeg (libavformat) respeita
-//    http_proxy/https_proxy nativamente.
-function configurarProxyYoutube() {
-    const proxy = String(process.env.YTDLP_PROXY_URL || '').trim();
-
-    if (!proxy) {
-        console.log('[YT-DLP] YTDLP_PROXY_URL não configurada, seguindo sem proxy.');
-        return;
-    }
-
-    // --- 1) yt-dlp: injeta --proxy no arquivo de config dele ---
-    const caminhoConfig = path.join(os.homedir(), '.config', 'yt-dlp', 'config');
-
-    try {
-        fs.mkdirSync(path.dirname(caminhoConfig), { recursive: true });
-
-        let linhas = [];
-        try {
-            linhas = fs.readFileSync(caminhoConfig, 'utf8')
-                .split('\n')
-                .filter(l => l.trim() && !l.trim().startsWith('--proxy'));
-        } catch {}
-
-        linhas.push(`--proxy ${proxy}`);
-
-        fs.writeFileSync(caminhoConfig, linhas.join('\n') + '\n', 'utf8');
-
-        console.log('[YT-DLP] Proxy adicionado ao config:', caminhoConfig);
-    } catch (err) {
-        console.error('[YT-DLP] Erro ao escrever --proxy no config:', err);
-    }
-
-    // --- 2) ffmpeg: proxy via env vars herdadas pelo processo filho ---
-    process.env.HTTP_PROXY = proxy;
-    process.env.HTTPS_PROXY = proxy;
-    process.env.http_proxy = proxy;
-    process.env.https_proxy = proxy;
-
-    console.log('[YT-DLP] Proxy configurado para yt-dlp e ffmpeg.');
-}
-
-// Localiza o binário do yt-dlp que o @distube/yt-dlp já baixa sozinho dentro
-// do node_modules (via yt-dlp-exec, no postinstall). Não existe 'yt-dlp' no
-// PATH do sistema no Render, então não dá pra chamar só pelo nome.
-function localizarBinarioYtDlp() {
-    const candidatos = [];
-
-    if (process.env.YTDLP_BIN_PATH) {
-        candidatos.push(process.env.YTDLP_BIN_PATH);
-    }
-
-    try {
-        const dir = path.dirname(require.resolve('yt-dlp-exec/package.json'));
-        candidatos.push(path.join(dir, 'bin', 'yt-dlp'));
-    } catch {}
-
-    candidatos.push(
-        path.join(__dirname, 'node_modules', 'yt-dlp-exec', 'bin', 'yt-dlp'),
-        path.join(__dirname, 'node_modules', '@distube', 'yt-dlp', 'bin', 'yt-dlp'),
-        path.join(__dirname, 'node_modules', '.bin', 'yt-dlp')
-    );
-
-    for (const c of candidatos) {
-        try {
-            if (c && fs.existsSync(c)) {
-                return c;
-            }
-        } catch {}
-    }
-
-    return null;
-}
-
-// Fallback: se os caminhos "chutados" não baterem, varre o node_modules
-// procurando qualquer arquivo com "yt-dlp" no nome, pra descobrir o caminho
-// real sem precisar de acesso a shell no host (só olhando o log).
-function buscarBinarioYtDlpNoNodeModules(raiz, limite = 20) {
-    const encontrados = [];
-    const pilha = [raiz];
-
-    while (pilha.length && encontrados.length < limite) {
-        const atual = pilha.pop();
-        let entradas;
-
-        try {
-            entradas = fs.readdirSync(atual, { withFileTypes: true });
-        } catch {
-            continue;
-        }
-
-        for (const entrada of entradas) {
-            const caminhoCompleto = path.join(atual, entrada.name);
-
-            if (entrada.isDirectory()) {
-                // não entra em node_modules aninhado de terceiros pra não demorar demais
-                if (entrada.name === '.bin' || entrada.name === 'bin' || /yt-dlp/i.test(entrada.name)) {
-                    pilha.push(caminhoCompleto);
-                } else if (path.basename(atual) === 'node_modules') {
-                    pilha.push(caminhoCompleto);
-                }
-            } else if (/yt-dlp/i.test(entrada.name)) {
-                encontrados.push(caminhoCompleto);
-                if (encontrados.length >= limite) break;
-            }
-        }
-    }
-
-    return encontrados;
-}
-
-const BINARIO_YTDLP = localizarBinarioYtDlp();
-
-if (BINARIO_YTDLP) {
-    console.log('[YT-DLP] Binário localizado em:', BINARIO_YTDLP);
-} else {
-    console.log('[YT-DLP] Binário NÃO encontrado nos caminhos esperados. Varrendo node_modules...');
-    const achados = buscarBinarioYtDlpNoNodeModules(path.join(__dirname, 'node_modules'));
-    console.log('[YT-DLP] Arquivos com "yt-dlp" no node_modules:', achados.length ? achados : 'nenhum encontrado');
-}
-
-// Detecta links de Radio/Mix do YouTube (playlist?list=RD...), que são gerados
-// dinamicamente por usuário e costumam travar o YtDlpPlugin ao tentar extrair
-// a playlist inteira.
-function ehRadioYoutube(url) {
-    try {
-        const u = new URL(url);
-        const list = u.searchParams.get('list') || '';
-        return /youtube\.com$|youtu\.be$/i.test(u.hostname.replace(/^www\./, '')) && /^RD/.test(list);
-    } catch {
-        return false;
-    }
-}
-
-// Chama o yt-dlp diretamente (fora do DisTube) só pra pegar a URL de um
-// vídeo real a partir de um "alvo" que pode ser:
-// - uma URL de Radio/Mix do YouTube (playlist?list=RD...)
-// - uma busca no formato "ytsearchN:termo" (sintaxe nativa do yt-dlp)
-// Usa --flat-playlist (não extrai cada faixa, só id+título, muito mais
-// rápido) e um timeout curto pra nunca travar o bot.
-function resolverUrlYoutube(alvo, timeoutMs = 15000) {
-    return new Promise((resolve, reject) => {
-        const args = [
-            '--flat-playlist',
-            '--playlist-end', '1',
-            '--dump-single-json',
-            '--no-warnings',
-            '--extractor-args', 'youtube:player_client=android,web'
-        ];
-
-        if (process.env.YTDLP_COOKIES_PATH) {
-            args.push('--cookies', process.env.YTDLP_COOKIES_PATH);
-        }
-
-        if (process.env.YTDLP_PROXY_URL) {
-            args.push('--proxy', process.env.YTDLP_PROXY_URL);
-        }
-
-        args.push(alvo);
-
-        execFile(BINARIO_YTDLP || 'yt-dlp', args, { timeout: timeoutMs }, (err, stdout, stderr) => {
-            if (err) {
-                return reject(new Error(
-                    err.code === 'ENOENT'
-                        ? 'Binário do yt-dlp não encontrado (BINARIO_YTDLP null). Confira o log de boot [YT-DLP] Binário localizado em: ...'
-                        : err.killed
-                        ? `yt-dlp travou ao resolver "${alvo}" (timeout de ${timeoutMs}ms)`
-                        : (stderr || err.message)
-                ));
-            }
-
-            try {
-                const dados = JSON.parse(stdout);
-                const primeira = dados.entries?.[0] || dados;
-                const urlReal = primeira?.url || primeira?.webpage_url || primeira?.original_url
-                    || (primeira?.id ? `https://www.youtube.com/watch?v=${primeira.id}` : null);
-
-                if (!urlReal) {
-                    return reject(new Error(`yt-dlp não retornou uma URL de vídeo válida para "${alvo}".`));
-                }
-
-                resolve(urlReal);
-            } catch (e) {
-                reject(new Error('Falha ao parsear JSON do yt-dlp: ' + e.message));
-            }
-        });
-    });
-}
-
-// Mantido com o nome antigo por compatibilidade (usado pra Radio/Mix).
-function extrairPrimeiraFaixaYoutube(url, timeoutMs = 15000) {
-    return resolverUrlYoutube(url, timeoutMs);
-}
-
-// Busca por texto (ex: "Vida Loka Pt2 Racionais") e devolve a URL do
-// primeiro resultado. O YtDlpPlugin do DisTube não sabe buscar (só resolver
-// URLs diretas), então resolvemos a busca por fora, com o próprio yt-dlp,
-// antes de entregar pro distube.play().
-function buscarPrimeiraMusicaYoutube(query, timeoutMs = 15000) {
-    return resolverUrlYoutube(`ytsearch1:${query}`, timeoutMs);
-}
-
-// Atualiza o binário do yt-dlp que o @distube/yt-dlp usa (o mesmo caminho
-// resolvido em BINARIO_YTDLP). Roda de forma síncrona no boot, ANTES de
-// qualquer /play, pra garantir que a versão que extrai os vídeos está em dia
-// com as mudanças recentes do YouTube — "Failed to extract any player
-// response" é o erro clássico de binário desatualizado.
-function atualizarYtDlp() {
-    if (!BINARIO_YTDLP) {
-        console.error('[YT-DLP] Não foi possível atualizar: binário não localizado.');
-        return;
-    }
-
-    try {
-        const versaoAntes = execFileSync(BINARIO_YTDLP, ['--version']).toString().trim();
-        execFileSync(BINARIO_YTDLP, ['-U'], { stdio: 'inherit' });
-        const versaoDepois = execFileSync(BINARIO_YTDLP, ['--version']).toString().trim();
-        console.log(`[YT-DLP] versão antes: ${versaoAntes} | depois: ${versaoDepois}`);
-    } catch (e) {
-        console.error('--- Erro ao atualizar yt-dlp ---', e.message);
-    }
-}
-
-atualizarYtDlp();
-
-// --- DIAGNÓSTICO TEMPORÁRIO: roda o yt-dlp com -v (verbose) direto numa URL,
-// pra ver o erro detalhado de CADA player_client tentado, sem o resumo que o
-// DisTube mostra. Remover depois de resolver o problema de extração.
-function debugExtracaoYoutube(url) {
-    return new Promise((resolve) => {
-        const args = [
-            '-v',
-            '--extractor-args', 'youtube:player_client=tv,ios,android,web',
-            '--dump-json',
-            '--no-warnings'
-        ];
-
-        if (process.env.YTDLP_COOKIES_PATH) {
-            args.push('--cookies', process.env.YTDLP_COOKIES_PATH);
-        }
-
-        if (process.env.YTDLP_PROXY_URL) {
-            args.push('--proxy', process.env.YTDLP_PROXY_URL);
-        }
-
-        args.push(url);
-
-        execFile(BINARIO_YTDLP || 'yt-dlp', args, { timeout: 30000, maxBuffer: 1024 * 1024 * 10 }, (err, stdout, stderr) => {
-            const LINHAS_RELEVANTES = /429|403|error|pot|token|player response|player_client|forbidden|too many/i;
-
-            const linhasFiltradas = (stderr || '')
-                .split('\n')
-                .filter(l => LINHAS_RELEVANTES.test(l));
-
-            console.log('[DEBUG-YTDLP] ===== LINHAS RELEVANTES (filtradas) =====');
-            console.log(linhasFiltradas.join('\n') || '(nenhuma linha relevante encontrada)');
-            console.log('[DEBUG-YTDLP] ===== FIM LINHAS RELEVANTES =====');
-            if (err) {
-                console.log('[DEBUG-YTDLP] Erro:', err.message);
-            }
-            resolve();
-        });
-    });
-}
 
 // Cria a instância do DisTube, registra os plugins (YouTube, Spotify, SoundCloud)
 // e os listeners que mantêm o painel público sincronizado com a fila.
 // Chame isso UMA vez no index.js, logo depois de criar o client, e guarde o
 // resultado em client.distube.
 function inicializarMusica(clienteDiscord) {
-    prepararCookiesYoutube();
-    configurarProxyYoutube();
-
     const distube = new DisTube(clienteDiscord, {
         emitNewSongOnly: true,
 
         plugins: [
-            new YtDlpPlugin({
-                update: true
-            })
+            new SpotifyPlugin(),
+            new SoundCloudPlugin()
         ]
     });
 
@@ -7873,12 +7507,6 @@ async function processarAdicaoMusica(interaction, canalVoz, query) {
     const distube = interaction.client.distube;
     const guildId = interaction.guild.id;
 
-    // --- DIAGNÓSTICO TEMPORÁRIO ---
-    if (/youtu\.?be/i.test(query)) {
-        await debugExtracaoYoutube(query);
-    }
-    // --- FIM DIAGNÓSTICO ---
-
     const filaExistiaAntes = !!distube.getQueue(guildId);
 
     if (!filaExistiaAntes) {
@@ -7890,67 +7518,41 @@ async function processarAdicaoMusica(interaction, canalVoz, query) {
     }
 
     try {
-        let queries = [query];
+        let queryFinal = query;
 
-        if (/open\.spotify\.com/i.test(query)) {
-            const resolvido = await resolverSpotifyParaQuery(query).catch(err => {
-                console.error('--- Erro ao resolver link do Spotify ---', err);
-                return null;
-            });
-
-            if (!resolvido || !resolvido.length) {
-                throw new Error(
-                    'Não foi possível resolver o link do Spotify.'
-                );
-            }
-
-            queries = resolvido;
-        } else if (ehRadioYoutube(query)) {
-            console.log(`[MÚSICA] Link de Radio/Mix do YouTube detectado, extraindo faixa real: ${query}`);
-
-            const urlReal = await extrairPrimeiraFaixaYoutube(query).catch(err => {
-                console.error('--- Erro ao extrair Radio do YouTube ---', err);
-                return null;
-            });
-
-            if (!urlReal) {
-                throw new Error(
-                    'Não foi possível extrair a música dessa Radio/Mix do YouTube.'
-                );
-            }
-
-            queries = [urlReal];
-        } else if (!/^https?:\/\//i.test(query)) {
-            // Não é uma URL (Spotify já foi tratado acima, Radio/Mix também) —
-            // é uma busca por nome/texto solto (ex: "Vida Loka, Pt. 2"). O
-            // YtDlpPlugin do DisTube só sabe RESOLVER urls, não BUSCAR — ele
-            // não implementa o método search() do DisTube. Por isso a busca
-            // é feita aqui fora, com o yt-dlp direto, e só a URL real do
-            // primeiro resultado é entregue pro distube.play().
-            console.log(`[MÚSICA] Query sem URL detectada, buscando via yt-dlp: ${query}`);
-
-            const urlEncontrada = await buscarPrimeiraMusicaYoutube(query).catch(err => {
-                console.error('--- Erro ao buscar música no YouTube ---', err);
-                return null;
-            });
-
-            if (!urlEncontrada) {
-                throw new Error(
-                    'Não encontrei nenhuma música com esse nome no YouTube.'
-                );
-            }
-
-            queries = [urlEncontrada];
+        if (/youtu\.?be/i.test(query)) {
+            throw new Error(
+                'Links do YouTube não são mais suportados. Cole um link do Spotify, do SoundCloud, ou digite o nome da música.'
+            );
         }
 
-        for (const q of queries) {
-            console.log(`[MÚSICA] Enviando para DisTube: ${q}`);
+        if (!/open\.spotify\.com/i.test(query) && !/soundcloud\.com/i.test(query) && !/^https?:\/\//i.test(query)) {
+            // Não é uma URL (Spotify e SoundCloud o SpotifyPlugin/SoundCloudPlugin
+            // resolvem sozinhos) — é uma busca por nome/texto solto
+            // (ex: "Vida Loka, Pt. 2"). Busca direto no SoundCloud e entrega
+            // a URL real do primeiro resultado pro distube.play().
+            console.log(`[MÚSICA] Query sem URL detectada, buscando no SoundCloud: ${query}`);
 
-            await distube.play(canalVoz, q, {
-                member: interaction.member,
-                textChannel: interaction.channel
+            const resultados = await SoundCloudPlugin.search(query).catch(err => {
+                console.error('--- Erro ao buscar música no SoundCloud ---', err);
+                return null;
             });
+
+            if (!resultados || !resultados.length) {
+                throw new Error(
+                    'Não encontrei nenhuma música com esse nome no SoundCloud.'
+                );
+            }
+
+            queryFinal = resultados[0].url;
         }
+
+        console.log(`[MÚSICA] Enviando para DisTube: ${queryFinal}`);
+
+        await distube.play(canalVoz, queryFinal, {
+            member: interaction.member,
+            textChannel: interaction.channel
+        });
     } catch (err) {
         console.error('--- Erro ao processar /play ---', err);
 
