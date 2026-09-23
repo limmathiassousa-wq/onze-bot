@@ -7170,12 +7170,25 @@ function setEventoMoedasAtivo(valor) {
 // ============================================================
 const { DisTube } = require('distube');
 const { SoundCloudPlugin } = require('@distube/soundcloud');
-const { SpotifyPlugin } = require('@tireoz/spotify');
+const { SpotifyPlugin } = require('@distube/spotify');
 
-// Links do Spotify (track/album/playlist) e do SoundCloud agora são resolvidos
-// direto pelos plugins acima: o SpotifyPlugin identifica a faixa e busca o
-// equivalente no SoundCloud sozinho, sem precisar de scraper manual, API key
-// do Spotify nem do yt-dlp. Basta passar a URL pro distube.play() normalmente.
+// @distube/spotify sozinho busca a faixa equivalente no YouTube. Como não
+// usamos mais YouTube, sobrescrevemos o método search() dele pra usar o
+// SoundCloud em vez disso — é o jeito oficialmente documentado pelo autor
+// do DisTube de trocar a fonte de busca do plugin de Spotify.
+const scPlugin = new SoundCloudPlugin();
+
+class SpotifyViaSoundCloud extends SpotifyPlugin {
+    async search(query) {
+        try {
+            const resultados = await scPlugin.search(query, 'track', 1);
+            return resultados[0] || null;
+        } catch (err) {
+            console.error('--- Erro ao buscar no SoundCloud (via Spotify) ---', err);
+            return null;
+        }
+    }
+}
 
 const VOLUME_PADRAO_MUSICA = 45;
 
@@ -7216,8 +7229,8 @@ function inicializarMusica(clienteDiscord) {
         emitNewSongOnly: true,
 
         plugins: [
-            new SpotifyPlugin(),
-            new SoundCloudPlugin()
+            new SpotifyViaSoundCloud(),
+            scPlugin
         ]
     });
 
@@ -7533,7 +7546,7 @@ async function processarAdicaoMusica(interaction, canalVoz, query) {
             // a URL real do primeiro resultado pro distube.play().
             console.log(`[MÚSICA] Query sem URL detectada, buscando no SoundCloud: ${query}`);
 
-            const resultados = await SoundCloudPlugin.search(query).catch(err => {
+            const resultados = await scPlugin.search(query, 'track', 1).catch(err => {
                 console.error('--- Erro ao buscar música no SoundCloud ---', err);
                 return null;
             });
