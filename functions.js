@@ -7535,9 +7535,15 @@ function debugExtracaoYoutube(url) {
         args.push(url);
 
         execFile(BINARIO_YTDLP || 'yt-dlp', args, { timeout: 30000, maxBuffer: 1024 * 1024 * 10 }, (err, stdout, stderr) => {
-            console.log('[DEBUG-YTDLP] ===== INÍCIO STDERR =====');
-            console.log(stderr || '(vazio)');
-            console.log('[DEBUG-YTDLP] ===== FIM STDERR =====');
+            const LINHAS_RELEVANTES = /429|403|error|pot|token|player response|player_client|forbidden|too many/i;
+
+            const linhasFiltradas = (stderr || '')
+                .split('\n')
+                .filter(l => LINHAS_RELEVANTES.test(l));
+
+            console.log('[DEBUG-YTDLP] ===== LINHAS RELEVANTES (filtradas) =====');
+            console.log(linhasFiltradas.join('\n') || '(nenhuma linha relevante encontrada)');
+            console.log('[DEBUG-YTDLP] ===== FIM LINHAS RELEVANTES =====');
             if (err) {
                 console.log('[DEBUG-YTDLP] Erro:', err.message);
             }
