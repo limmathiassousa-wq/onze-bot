@@ -68,6 +68,20 @@ try {
     console.error('[undici] não consegui ajustar o keep-alive:', e.message);
 }
 
+// Corta a espera: se a requisição não responder em `ms`, rejeita e segue pro plano B
+// (sem isso o REST do discord.js fica ~2 min tentando de novo numa conexão morta).
+function comTimeout(fn, ms, rotulo) {
+    return new Promise((resolve, reject) => {
+        const t = setTimeout(() => {
+            reject(Object.assign(new Error(`${rotulo} sem resposta em ${ms}ms`), { code: 'TIMEOUT_LOCAL' }));
+        }, ms);
+        Promise.resolve().then(fn).then(
+            (v) => { clearTimeout(t); resolve(v); },
+            (e) => { clearTimeout(t); reject(e); }
+        );
+    });
+}
+
 const { anaResponderComAudio, DONO_ID: DONO_ID_ANA } = require('./ana_voz');
 const CANAIS_VOZ_ANA = ['1548489854038581308', '1548578896054718474'];
 
@@ -2889,15 +2903,29 @@ const motivoAfkBruto = await getAfk(message.author.id);
                             montarBotoesInsta({ curtidas: [], comentarios: [], instagramUser: null })
                         );
 
-                    const postMsg = await comRetryRede(() => enviarWebhook(message.channel, {
-                        username: message.member?.displayName || message.author.username,
-                        avatarURL: message.author.displayAvatarURL({ dynamic: true }),
-                        components: [container],
-                        files: [anexo],
-                        flags: [MessageFlags.IsComponentsV2]
-                    }));
-
-                    console.log(`[INSTA] post enviado | id=${postMsg.id}`);
+                    let postMsg;
+                    const inicioEnvio = Date.now();
+                    try {
+                        postMsg = await comRetryRede(() => comTimeout(() => enviarWebhook(message.channel, {
+                            username: message.member?.displayName || message.author.username,
+                            avatarURL: message.author.displayAvatarURL({ dynamic: true }),
+                            components: [container],
+                            files: [anexo],
+                            flags: [MessageFlags.IsComponentsV2]
+                        }), 10000, 'webhook'), 2, 500);
+                        console.log(`[INSTA] post enviado via webhook | id=${postMsg.id} | ${Date.now() - inicioEnvio}ms`);
+                    } catch (errWebhook) {
+                        // o webhook é o que está caindo (socket fechado); o texto do post já
+                        // tem a menção do autor, então manda pelo próprio bot pra não perder o post
+                        console.error(`[INSTA] webhook falhou após ${Date.now() - inicioEnvio}ms:`, errWebhook.code || errWebhook.name, '-', errWebhook.message);
+                        postMsg = await comRetryRede(() => comTimeout(() => message.channel.send({
+                            components: [container],
+                            files: [anexo],
+                            flags: [MessageFlags.IsComponentsV2],
+                            allowedMentions: { parse: [] }
+                        }), 10000, 'envio pelo bot'), 2, 500);
+                        console.log(`[INSTA] post enviado via bot (fallback) | id=${postMsg.id} | total ${Date.now() - inicioEnvio}ms`);
+                    }
 
                     await InstaPost.create({
                              messageId: postMsg.id,
