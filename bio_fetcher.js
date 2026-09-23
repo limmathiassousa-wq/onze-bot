@@ -385,15 +385,15 @@ async function getUserPerfil(userId, guildId /* agora pode ser null */, { force 
         // servidor → a bio vem vazia. Refaz SEM o guild_id para pegar
         // a bio global.
         // ------------------------------------------------------------
-        if (guildId && !resultado.privado && !resultado.bio.trim() && !resultado.connections.length) {
+        if (guildId && !resultado.privado && !resultado.bio.trim()) {
           const resp2 = await pedirPerfil(null);
 
           if (obterStatus(resp2) === 200) {
             const data2 = await extrairJson(resp2);
             const r2 = interpretar(data2);
 
-            if (r2.bio.trim() || r2.connections.length) {
-              resultado = r2;
+            if (r2.bio.trim()) {
+                resultado = { ...resultado, bio: r2.bio, pronouns: r2.pronouns || resultado.pronouns };
             }
           }
         }
