@@ -89,7 +89,7 @@ const {
     IMG_MOEDAS, IMG_DISCORD_LOGO,
     XP_MIN_POR_MENSAGEM, XP_MAX_POR_MENSAGEM, MOEDAS_POR_NIVEL, TAXA_MOEDA_XP_EXTRA,
     MOEDAS_DAILY, COOLDOWN_DAILY_MS,
-    DOMINIOS_MUSICA_PERMITIDOS, DOMINIOS_IMAGEM_CONFIAVEIS, BLACKLIST_DOMINIOS,
+    DOMINIOS_IMAGEM_CONFIAVEIS, BLACKLIST_DOMINIOS,
     DOMINIOS_CONVITE, EXTENSOES_IMAGEM,
     CACHE_MEMBROS_MS,
     INTERVALO_LIMPEZA_INVITES_MS,
@@ -167,9 +167,7 @@ const {
     verificarCargosLojaExpirados, verificarEventoMoedasAntigo, verificarSpamMensagem, verificarUrlNaBio,
     alternarAntiNukeCanais, antiNukeCanalCriado, antiNukeCanalDeletado, antiNukeCanalEditado,
     definirBypassAntiNukeCanais, inicializarAntiNukeCanais, marcarAcaoPropriaCanal,
-    marcarCanalTemporarioAntiNuke, montarPainelAntiNukeCanais, pausarAntiNukeCanais, retomarAntiNukeCanais, inicializarMusica, processarAdicaoMusica, musicaVoltar,
-    musicaPausarRetomar, musicaAvancar, musicaDefinirVolume, musicaSair,
-    musicaSelecionarOpcao, musicaMostrarFila, musicaRemoverDaFila
+    marcarCanalTemporarioAntiNuke, montarPainelAntiNukeCanais, pausarAntiNukeCanais, retomarAntiNukeCanais
 } = require('./functions');
 
 
@@ -367,8 +365,6 @@ function iniciarPotProvider() {
 
 iniciarPotProvider();
 
-client.distube = inicializarMusica(client);
-client.musica = { processarAdicaoMusica };
 
 client.on('channelCreate', (canal) => {
     try { antiNukeCanalCriado(canal); } catch (err) { console.error('--- Erro no Anti Nuke (canal criado) ---', err); }
@@ -4313,78 +4309,6 @@ if (interaction.isModalSubmit() && interaction.customId.startsWith('groles_modal
     draft.buscaPerm = termo || null;
 
     return interaction.update({ components: [montarPainelGRolesPermissoes(cargo, 0, listaPagina, draft.buscaPerm)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
-}
-
-// ============ MÚSICA ============
-if (interaction.isButton() && interaction.customId === 'musica_abrir_modal_add') {
-    const modal = new ModalBuilder().setCustomId('musica_modal_add').setTitle('Adicionar música');
-    const inputMusica = new TextInputBuilder().setCustomId('musica').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(200).setPlaceholder('Nome ou link da música');
-    modal.addLabelComponents(new LabelBuilder().setLabel('Música').setDescription('Digite o nome ou cole o link (YouTube, Spotify, etc)').setTextInputComponent(inputMusica));
-    return interaction.showModal(modal);
-}
-
-if (interaction.isModalSubmit() && interaction.customId === 'musica_modal_add') {
-    const canalVoz = interaction.member.voice.channel;
-    if (!canalVoz) {
-        return interaction.reply({ content: 'Você precisa estar em um canal de voz para adicionar uma música!', flags: [MessageFlags.Ephemeral] });
-    }
-    const query = interaction.fields.getTextInputValue('musica').trim();
-    // deferReply (em vez de deferUpdate) cria uma resposta efêmera nova e independente,
-    // sem editar a mensagem original que tinha o botão/select que abriu o modal — senão,
-    // quando o modal é aberto pelo select do painel público, a resposta acaba sobrescrevendo
-    // o próprio painel público em vez de aparecer como uma mensagem efêmera separada.
-    await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
-    return processarAdicaoMusica(interaction, canalVoz, query);
-}
-
-if (interaction.isButton() && interaction.customId === 'musica_voltar') {
-    return musicaVoltar(interaction);
-}
-
-if (interaction.isButton() && interaction.customId === 'musica_pause') {
-    return musicaPausarRetomar(interaction);
-}
-
-if (interaction.isButton() && interaction.customId === 'musica_avancar') {
-    return musicaAvancar(interaction);
-}
-
-if (interaction.isButton() && interaction.customId === 'musica_volume_abrir') {
-    const queue = client.distube.getQueue(interaction.guild.id);
-    if (!queue) return interaction.reply({ content: 'Não há nada tocando no momento.', flags: [MessageFlags.Ephemeral] });
-
-    const modal = new ModalBuilder().setCustomId('musica_modal_volume').setTitle('Volume da música');
-    const inputVolume = new TextInputBuilder().setCustomId('volume').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(3).setValue(String(queue.volume));
-    modal.addLabelComponents(new LabelBuilder().setLabel('Volume (1 a 100)').setDescription('Digite um número de 1 a 100').setTextInputComponent(inputVolume));
-    return interaction.showModal(modal);
-}
-
-if (interaction.isModalSubmit() && interaction.customId === 'musica_modal_volume') {
-    return musicaDefinirVolume(interaction);
-}
-
-if (interaction.isButton() && interaction.customId === 'musica_sair') {
-    return musicaSair(interaction);
-}
-
-if (interaction.isStringSelectMenu() && interaction.customId === 'musica_select_opcoes') {
-    const valor = interaction.values[0];
-    if (valor === 'adicionar') {
-        const modal = new ModalBuilder().setCustomId('musica_modal_add').setTitle('Adicionar música');
-        const inputMusica = new TextInputBuilder().setCustomId('musica').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(200).setPlaceholder('Nome ou link da música');
-        modal.addLabelComponents(new LabelBuilder().setLabel('Música').setDescription('Digite o nome ou cole o link (YouTube, Spotify, etc)').setTextInputComponent(inputMusica));
-        return interaction.showModal(modal);
-    }
-    return musicaSelecionarOpcao(interaction, valor);
-}
-
-if (interaction.isButton() && interaction.customId.startsWith('musica_fila_pag_')) {
-    const pagina = parseInt(interaction.customId.replace('musica_fila_pag_', ''), 10);
-    return musicaMostrarFila(interaction, pagina);
-}
-
-if (interaction.isStringSelectMenu() && interaction.customId === 'musica_remover_da_fila') {
-    return musicaRemoverDaFila(interaction);
 }
 
 if (interaction.isChatInputCommand() && comandos.has(interaction.commandName)) {
