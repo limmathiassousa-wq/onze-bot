@@ -1573,11 +1573,12 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
     let antigoDisponivel = typeof conteudoAntigo === 'string';
 
     if (!antigoDisponivel) {
-        const { data: cache } = await supabase
+        const { data: cache, error: erroCache } = await supabase
             .from('mensagens_cache')
             .select('conteudo')
             .eq('mensagem_id', newMessage.id)
             .maybeSingle();
+        if (erroCache) console.error('--- Erro ao ler cache de mensagem no Supabase (edição) ---', erroCache);
         if (cache) {
             conteudoAntigo = cache.conteudo;
             antigoDisponivel = true;
@@ -1601,7 +1602,8 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
 
     // atualiza o cache com o texto novo, pra próxima edição/apagada já pegar o atual
     try {
-        await supabase.from('mensagens_cache').update({ conteudo: newMessage.content }).eq('mensagem_id', newMessage.id);
+        const { error: erroUpdate } = await supabase.from('mensagens_cache').update({ conteudo: newMessage.content }).eq('mensagem_id', newMessage.id);
+        if (erroUpdate) console.error('--- Erro ao atualizar cache de mensagem no Supabase ---', erroUpdate);
     } catch (err) {
         console.error('--- Erro ao atualizar cache de mensagem no Supabase ---', err);
     }
@@ -1621,11 +1623,12 @@ client.on('messageDelete', async (message) => {
 
         if (message.partial) {
             // não tá no cache do discord.js — tenta o Supabase antes de desistir
-            const { data: cache } = await supabase
+            const { data: cache, error: erroCache } = await supabase
                 .from('mensagens_cache')
                 .select('*')
                 .eq('mensagem_id', message.id)
                 .maybeSingle();
+            if (erroCache) console.error('--- Erro ao ler cache de mensagem no Supabase (apagada) ---', erroCache);
 
             if (cache) {
                 const autorObj = await client.users.fetch(cache.autor_id).catch(() => null);
@@ -1686,13 +1689,14 @@ client.on('messageDelete', async (message) => {
 client.on('messageCreate', async (message) => {
     if (!message.guild || message.author.bot) return;
     try {
-        await supabase.from('mensagens_cache').upsert({
+        const { error } = await supabase.from('mensagens_cache').upsert({
             mensagem_id: message.id,
             canal_id: message.channel.id,
             autor_id: message.author.id,
             autor_tag: message.author.tag,
             conteudo: message.content
-        });
+        }, { onConflict: 'mensagem_id' });
+        if (error) console.error('--- Erro ao cachear mensagem no Supabase ---', error);
     } catch (err) {
         console.error('--- Erro ao cachear mensagem no Supabase ---', err);
     }
