@@ -7228,6 +7228,13 @@ const HISTORICO_MUSICA_MAX = 15;
 // guildId -> boolean (fila contínua: busca música parecida quando a fila acaba)
 const filaContinuaDB = new Map();
 
+// guildId -> quantas vezes já tentamos recuperar automaticamente de um
+// stream quebrado (ffmpeg morrendo no meio, 403 etc.) pra não ficar
+// tentando pra sempre se todos os resultados daquela busca no SoundCloud
+// estiverem indisponíveis.
+const tentativasRecuperacaoMusicaDB = new Map();
+const MAX_TENTATIVAS_RECUPERACAO_MUSICA = 3;
+
 const MUSICAS_POR_PAGINA_FILA = 10;
 
 function registrarHistoricoMusica(guildId, song) {
@@ -7276,6 +7283,7 @@ function inicializarMusica(clienteDiscord) {
     });
 
     distube.on('playSong', (queue) => {
+        tentativasRecuperacaoMusicaDB.delete(queue.id);
         registrarHistoricoMusica(queue.id, queue.songs[0]);
 
         atualizarPainelMusica(
@@ -7291,6 +7299,7 @@ function inicializarMusica(clienteDiscord) {
 
     distube.on('deleteQueue', (queue) => {
         painelMusicaDB.delete(queue.id);
+        tentativasRecuperacaoMusicaDB.delete(queue.id);
     });
 
     distube.on('finish', async (queue) => {
@@ -7314,6 +7323,51 @@ function inicializarMusica(clienteDiscord) {
             '--- Erro no sistema de música ---',
             err
         );
+
+        const songComErro = queue?.songs?.[0];
+
+        // FFMPEG_EXITED (stream corrompido/travando no meio) e o 403 de
+        // "URL is private or unavailable" são os dois jeitos que um upload
+        // ruim do SoundCloud costuma dar errado. Se for isso e só tiver essa
+        // música na fila (ou seja: não tem "próxima" pra pular), tenta achar
+        // um resultado alternativo pra mesma busca em vez de só desistir.
+        const pareceStreamQuebrado =
+            err?.errorCode === 'FFMPEG_EXITED' ||
+            /private or unavailable|status code:\s*403/i.test(err?.message || '');
+
+        if (queue && songComErro && pareceStreamQuebrado && queue.songs.length <= 1) {
+            const canalVoz = queue.voice?.channel;
+            const textChannel = queue.textChannel;
+            const tentativas = tentativasRecuperacaoMusicaDB.get(queue.id) || 0;
+
+            if (canalVoz && tentativas < MAX_TENTATIVAS_RECUPERACAO_MUSICA) {
+                tentativasRecuperacaoMusicaDB.set(queue.id, tentativas + 1);
+
+                const urlQuebrada = songComErro.url;
+                const buscaQuery = `${songComErro.name} ${songComErro.uploader?.name || ''}`.trim();
+
+                scPlugin.search(buscaQuery, 'track', 5)
+                    .then(resultados => {
+                        const alternativa = (resultados || []).find(r => r.url !== urlQuebrada);
+                        if (!alternativa) throw new Error('Nenhuma alternativa encontrada no SoundCloud.');
+
+                        console.log(`[MÚSICA] Stream quebrado ("${songComErro.name}"), tentando alternativa: ${alternativa.url}`);
+                        return distube.play(canalVoz, alternativa.url, { textChannel });
+                    })
+                    .catch(recuperacaoErr => {
+                        console.error('--- Falha ao tentar recuperar de stream quebrado ---', recuperacaoErr);
+                        if (textChannel) {
+                            textChannel.send({
+                                content: 'Essa música não quis tocar (fonte indisponível) e não achei uma versão alternativa. Tenta buscar de novo ou com outro nome.'
+                            }).catch(() => null);
+                        }
+                    });
+
+                return; // a tentativa de recuperação decide o que avisar pro usuário
+            }
+        }
+
+        tentativasRecuperacaoMusicaDB.delete(queue?.id);
 
         if (queue?.textChannel) {
             queue.textChannel.send({
