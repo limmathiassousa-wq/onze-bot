@@ -82,6 +82,25 @@ function comTimeout(fn, ms, rotulo) {
     });
 }
 
+// Testa (sem baixar o arquivo) qual link da mídia o servidor consegue alcançar.
+// O discord.js baixa a URL do anexo na hora de reenviar; se o CDN não responde daqui,
+// o envio inteiro trava — então escolhe o link que responde, ou desiste rápido.
+async function escolherUrlMidia(foto) {
+    for (const url of [foto.url, foto.proxyURL].filter(Boolean)) {
+        const t0 = Date.now();
+        const host = new URL(url).host;
+        try {
+            const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
+            await r.body?.cancel().catch(() => {});
+            console.log(`[INSTA] teste de mídia ${host} -> HTTP ${r.status} em ${Date.now() - t0}ms`);
+            if (r.ok) return url;
+        } catch (e) {
+            console.log(`[INSTA] teste de mídia ${host} falhou em ${Date.now() - t0}ms: ${e.cause?.code || e.name}`);
+        }
+    }
+    return null;
+}
+
 const { anaResponderComAudio, DONO_ID: DONO_ID_ANA } = require('./ana_voz');
 const CANAIS_VOZ_ANA = ['1548489854038581308', '1548578896054718474'];
 
@@ -2890,7 +2909,10 @@ const motivoAfkBruto = await getAfk(message.author.id);
             console.log(`[INSTA] anexo recebido | autor=${message.author.id} | tipo=${foto?.contentType} | nome=${foto?.name} | tamanho=${foto?.size}`);
             if (foto && (foto.contentType?.startsWith('image/') || foto.contentType?.startsWith('video/'))) {
                 try {
-                    const anexo = new AttachmentBuilder(foto.url, { name: 'post.png' });
+                    const urlMidia = await escolherUrlMidia(foto);
+                    if (!urlMidia) throw new Error('CDN do Discord não respondeu pra mídia (nem url nem proxyURL)');
+
+                    const anexo = new AttachmentBuilder(urlMidia, { name: 'post.png' });
                     const textoPost = `> <:instagram2:1548561559373217792> <@${message.author.id}>${message.content ? '\n' + message.content : ''}`;
 
                     const container = new ContainerBuilder()
