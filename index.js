@@ -4555,8 +4555,14 @@ let perfil;
         });
     }
 
+    if (perfil.privado) {
+        return interaction.editReply({
+            components: containerTexto('<:fechado:1548558135742959728> Seu perfil está privado, não consegui ver sua bio/pronomes.'),
+            flags: [MessageFlags.IsComponentsV2]
+        });
+    }
+
     const textoCompleto = `${perfil.bio || ''} ${perfil.pronouns || ''}`;
-    console.log('[DEBUG url] bio:', JSON.stringify(perfil.bio), '| pronouns:', JSON.stringify(perfil.pronouns));
     const contemUrl = await contemConviteDoServidor(textoCompleto, interaction.guild.id);
 
     if (!contemUrl) {
