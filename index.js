@@ -19,7 +19,6 @@ const { getUserBio, getUserPerfil, removerUsuarioDoCache } = require('./bio_fetc
 const mongoose = require('mongoose');
 const fs = require('fs');
 const path = require("path");
-const { spawn } = require('child_process');
 const os = require('os');
 const crypto = require('crypto');
 
@@ -346,25 +345,6 @@ const client = new Client({
   }
 });
 setClient(client);
-
-function iniciarPotProvider() {
-    const proc = spawn('node', ['pot-provider/build/main.js', '--port', '4416'], {
-        stdio: ['ignore', 'pipe', 'pipe']
-    });
-
-    proc.stdout.on('data', (d) => console.log('[POT-PROVIDER]', d.toString().trim()));
-    proc.stderr.on('data', (d) => console.log('[POT-PROVIDER]', d.toString().trim()));
-
-    proc.on('exit', (code) => {
-        console.error(`[POT-PROVIDER] processo saiu com código ${code}, reiniciando em 5s...`);
-        setTimeout(iniciarPotProvider, 5000);
-    });
-
-    process.env.POT_PROVIDER_URL = 'http://localhost:4416';
-}
-
-iniciarPotProvider();
-
 
 client.on('channelCreate', (canal) => {
     try { antiNukeCanalCriado(canal); } catch (err) { console.error('--- Erro no Anti Nuke (canal criado) ---', err); }
