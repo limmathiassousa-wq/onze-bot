@@ -7229,7 +7229,12 @@ function inicializarMusica(clienteDiscord) {
         emitNewSongOnly: true,
 
         plugins: [
-            new SpotifyViaSoundCloud(),
+            new SpotifyViaSoundCloud({
+                api: {
+                    clientId: process.env.SPOTIFY_CLIENT_ID,
+                    clientSecret: process.env.SPOTIFY_CLIENT_SECRET
+                }
+            }),
             scPlugin
         ]
     });
