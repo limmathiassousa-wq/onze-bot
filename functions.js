@@ -5777,13 +5777,35 @@ async function verificarCallTemp(interaction) {
     return canal;
 }
 
-async function enviarWebhook(channel, options) {
+// Guarda o webhook por canal (só o objeto, sem mídia) pra não fazer um fetchWebhooks
+// a cada post — menos requisições, menos chance de cair num socket velho.
+const cacheWebhookInsta = new Map();
+
+async function obterWebhookInsta(channel) {
+    let webhook = cacheWebhookInsta.get(channel.id);
+    if (webhook) return webhook;
+
     const webhooks = await channel.fetchWebhooks();
-    let webhook = webhooks.find(wh => wh.name === 'Sistema Insta');
-    if (!webhook) {
-        webhook = await channel.createWebhook({ name: 'Sistema Insta' });
+    webhook = webhooks.find(wh => wh.name === 'Sistema Insta')
+        || await channel.createWebhook({ name: 'Sistema Insta' });
+
+    cacheWebhookInsta.set(channel.id, webhook);
+    return webhook;
+}
+
+async function enviarWebhook(channel, options) {
+    try {
+        const webhook = await obterWebhookInsta(channel);
+        return await webhook.send(options);
+    } catch (err) {
+        // 10015 = webhook apagado à mão: limpa o cache e recria uma vez
+        if (err.code === 10015) {
+            cacheWebhookInsta.delete(channel.id);
+            const webhook = await obterWebhookInsta(channel);
+            return await webhook.send(options);
+        }
+        throw err;
     }
-    return await webhook.send(options);
 }
 
 async function obterPrimeiroCanalCategoria(categoriaId) {

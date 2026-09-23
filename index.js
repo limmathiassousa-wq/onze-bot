@@ -59,6 +59,15 @@ function comRetryRede(fn, tentativas = 5, delayBase = 1000) {
     }, tentativas, delayBase);
 }
 
+// Keep-alive curto: o "other side closed" vem de conexão parada que o Discord/Cloudflare
+// já fechou e o undici tenta reaproveitar. Com timeout curto ele abre conexão nova.
+try {
+    const { Agent, setGlobalDispatcher } = require('undici');
+    setGlobalDispatcher(new Agent({ keepAliveTimeout: 2000, keepAliveMaxTimeout: 5000 }));
+} catch (e) {
+    console.error('[undici] não consegui ajustar o keep-alive:', e.message);
+}
+
 const { anaResponderComAudio, DONO_ID: DONO_ID_ANA } = require('./ana_voz');
 const CANAIS_VOZ_ANA = ['1548489854038581308', '1548578896054718474'];
 
@@ -2864,6 +2873,7 @@ const motivoAfkBruto = await getAfk(message.author.id);
     if (CANAIS_INSTA.includes(message.channel.id)) {
         if (message.attachments.size > 0) {
             const foto = message.attachments.first();
+            console.log(`[INSTA] anexo recebido | autor=${message.author.id} | tipo=${foto?.contentType} | nome=${foto?.name} | tamanho=${foto?.size}`);
             if (foto && (foto.contentType?.startsWith('image/') || foto.contentType?.startsWith('video/'))) {
                 try {
                     const anexo = new AttachmentBuilder(foto.url, { name: 'post.png' });
@@ -2887,6 +2897,8 @@ const motivoAfkBruto = await getAfk(message.author.id);
                         flags: [MessageFlags.IsComponentsV2]
                     }));
 
+                    console.log(`[INSTA] post enviado | id=${postMsg.id}`);
+
                     await InstaPost.create({
                              messageId: postMsg.id,
                              ownerId: message.author.id,
@@ -2908,7 +2920,11 @@ const motivoAfkBruto = await getAfk(message.author.id);
                     }).catch(() => null);
                     if (aviso) setTimeout(() => aviso.delete().catch(() => {}), 8000);
                 }
+            } else {
+                console.log(`[INSTA] anexo ignorado (tipo não é imagem/vídeo): ${foto?.contentType}`);
             }
+        } else {
+            console.log(`[INSTA] mensagem sem anexo no canal de insta | autor=${message.author.id}`);
         }
         return;
     }
