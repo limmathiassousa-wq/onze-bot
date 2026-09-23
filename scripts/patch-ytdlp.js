@@ -1,55 +1,7 @@
-const fs = require('fs');
-
-try {
-    const mainPath = require.resolve('@distube/yt-dlp');
-    let conteudo = fs.readFileSync(mainPath, 'utf8');
-    const antes = conteudo;
-
-    conteudo = conteudo.replace(/noCallHome:\s*true,?\s*/g, '');
-
-    const NOVO_TRECHO = "extractorArgs: 'youtube:player_client=tv,ios,android,web', cookies: process.env.YTDLP_COOKIES_PATH,";
-
-    if (/extractorArgs:\s*'[^']*',\s*cookies:\s*process\.env\.YTDLP_COOKIES_PATH,/.test(conteudo)) {
-        // Já foi patchado antes (por essa versão ou uma anterior do script):
-        // substitui o trecho existente em vez de duplicar.
-        conteudo = conteudo.replace(
-            /extractorArgs:\s*'[^']*',\s*cookies:\s*process\.env\.YTDLP_COOKIES_PATH,/g,
-            NOVO_TRECHO
-        );
-    } else {
-        // Primeira vez rodando nesse node_modules: insere depois de noWarnings.
-        conteudo = conteudo.replace(
-            /noWarnings:\s*true,/g,
-            `noWarnings: true, ${NOVO_TRECHO}`
-        );
-    }
-
-    if (conteudo !== antes) {
-        fs.writeFileSync(mainPath, conteudo, 'utf8');
-        console.log('[patch-ytdlp] Patch aplicado com sucesso em', mainPath);
-    } else {
-        console.log('[patch-ytdlp] Nenhuma ocorrência encontrada (pacote pode ter mudado).');
-        // Dump o trecho ao redor de "resolve(url" pra sabermos exatamente
-        // como o arquivo está formatado hoje, sem precisar adivinhar de novo.
-        const idxResolve = conteudo.indexOf('resolve(url');
-        console.log(
-            '[patch-ytdlp] Trecho perto de "resolve(url" (diagnóstico):',
-            idxResolve === -1
-                ? 'marcador "resolve(url" não encontrado no arquivo'
-                : conteudo.slice(Math.max(0, idxResolve - 50), idxResolve + 400)
-        );
-    }
-} catch (e) {
-    console.error('[patch-ytdlp] Falha ao aplicar patch:', e);
-}
-// --- DEBUG: inspecionar @distube/spotify ---
-try {
-    const spotifyPath = require.resolve('@distube/spotify');
-    const spotifySrc = fs.readFileSync(spotifyPath, 'utf8');
-    const idx = spotifySrc.indexOf('function apiError');
-    console.log('[patch-ytdlp] @distube/spotify resolvido em:', spotifyPath);
-    console.log('[patch-ytdlp] trecho apiError:', idx === -1 ? 'não encontrado' : spotifySrc.slice(idx, idx + 600));
-} catch (e) {
-    console.error('[patch-ytdlp] Falha ao inspecionar @distube/spotify:', e);
-}
-// --- FIM DEBUG ---
+// Este script não faz mais nada — o bot não usa mais YouTube/yt-dlp
+// (@distube/yt-dlp foi removido das dependências; Spotify e SoundCloud
+// são resolvidos pelos plugins do DisTube diretamente). Mantido como
+// arquivo vazio só pra não quebrar o build command que ainda o chama
+// ("node scripts/patch-ytdlp.js"); pode remover essa etapa do build
+// command no Render quando for mexer nele de novo.
+console.log('[patch-ytdlp] Nada a fazer (yt-dlp não é mais usado).');
