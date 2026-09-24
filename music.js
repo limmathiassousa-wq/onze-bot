@@ -145,13 +145,24 @@ async function tocarMusica(interaction, query) {
     let player = kazagumo.players.get(interaction.guild.id);
 
     if (!player) {
-        player = await kazagumo.createPlayer({
-            guildId: interaction.guild.id,
-            textId: interaction.channel.id,
-            voiceId: canalVoz.id,
-            volume: 80,
-            deaf: true
-        });
+        const nodeOnline = [...kazagumo.shoukaku.nodes.values()].some(n => n.state === 1);
+        if (!nodeOnline) {
+            console.error('[MÚSICA] /play chamado, mas nenhum node Lavalink está conectado.');
+            return interaction.editReply({ content: 'Nenhum servidor de música está online agora. Tenta de novo em instantes.' });
+        }
+
+        try {
+            player = await kazagumo.createPlayer({
+                guildId: interaction.guild.id,
+                textId: interaction.channel.id,
+                voiceId: canalVoz.id,
+                volume: 80,
+                deaf: true
+            });
+        } catch (err) {
+            console.error('--- Erro ao criar player (Lavalink) ---', err);
+            return interaction.editReply({ content: 'Não consegui entrar na call agora. Tenta de novo em instantes.' });
+        }
     }
 
     let resultado;

@@ -786,6 +786,15 @@ setInterval(() => {
 
     iniciarMusica(client);
 
+    // Registra os slash commands logo no início do ready, antes dos awaits abaixo:
+    // se algum carregamento travar/lançar erro, os comandos ainda assim são registrados.
+    client.application.commands.set([
+        ...LISTA_DE_COMANDOS,
+        ...[...comandos.values()].map(c => c.data)
+    ]).then(cmds => {
+        console.log(`[Comandos Globais] ${cmds.size} registrado(s):`, cmds.map(c => c.name).join(', '));
+    }).catch(err => console.error('--- Erro ao registrar comandos globais ---', err));
+
     
 carregarTellonymPendentes();
     await carregarProtecao();
@@ -863,12 +872,6 @@ setInterval(flushSessoesVoiceSorteio, INTERVALO_TICK_CALL_SORTEIO_MS);
 setInterval(flushBufferMensagens, 30 * 1000);
     setInterval(limparNukeTrackerAntigo, 5 * 60 * 1000);
 
-    client.application.commands.set([
-    ...LISTA_DE_COMANDOS,
-    ...[...comandos.values()].map(c => c.data)
-]).then(cmds => {
-    console.log(`[Comandos Globais] ${cmds.size} registrado(s):`, cmds.map(c => c.name).join(', '));
-}).catch(err => console.error('--- Erro ao registrar comandos globais ---', err));
 });
 
 client.on('inviteCreate', invite => {
