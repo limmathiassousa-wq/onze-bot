@@ -65,7 +65,7 @@ function iniciarMusica(client) {
             }
         },
         new Connectors.DiscordJS(client),
-        NODES,
+        [], // os nodes são conectados manualmente mais abaixo (ver conectarNodes)
         { reconnectTries: 10, reconnectInterval: 10, restTimeout: 15000, moveOnDisconnect: false }
     );
 
@@ -102,6 +102,23 @@ function iniciarMusica(client) {
         const canal = client.channels.cache.get(player.textId);
         if (canal) canal.send('Deu erro nessa música, pulando pra próxima...').catch(() => {});
     });
+
+    // O conector do Shoukaku só conecta os nodes num client.once('ready'). Como o
+    // iniciarMusica() é chamado de dentro do 'clientReady' (o ready já aconteceu),
+    // esse evento nunca dispara e os nodes ficam sem conectar — por isso não havia
+    // nem log de erro. Aqui a gente dispara a conexão na mão.
+    const conectarNodes = () => {
+        const conector = kazagumo.shoukaku.connector;
+        if (typeof conector.ready === 'function') {
+            conector.ready(NODES);
+        } else {
+            kazagumo.shoukaku.id = client.user.id;
+            for (const n of NODES) kazagumo.shoukaku.addNode(n);
+        }
+    };
+
+    if (client.isReady()) conectarNodes();
+    else client.once('clientReady', conectarNodes);
 
     console.log('[MÚSICA] Kazagumo inicializado, conectando aos nodes...');
     return kazagumo;
