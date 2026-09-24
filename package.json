@@ -24,9 +24,11 @@
     "ffmpeg-static": "^5.2.0",
     "ffprobe-static": "^3.1.0",
     "groq-sdk": "^0.37.0",
+    "kazagumo": "^3.4.2",
     "mongoose": "^8.9.0",
     "play-dl": "^1.9.7",
     "sharp": "^0.33.5",
+    "shoukaku": "^4.1.0",
     "yt-search": "^2.13.1",
     "ioredis": "^5.4.1"
   },
