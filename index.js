@@ -23,6 +23,7 @@ const os = require('os');
 const crypto = require('crypto');
 
 const { comandos, montarPainelBotCall, registrarPainelBotCall, montarPainelPD, montarSelectAdicionarPD, montarSelectRemoverPD, atualizarPainelPD, obterPrimeirasDamas, montarPainelMuteInicial, montarPainelMuteTimeout, montarPainelMuteCargo } = require('./commands');
+const { iniciarMusica } = require('./music');
 const { botCallDB, botCallPaineis, confirmacaoModeracaoDB, msgCriadorDB, sorteioDraftDB, muteDraftDB } = require('./state');
 
 const {
@@ -782,6 +783,8 @@ setInterval(() => {
       type: ActivityType.Streaming, 
       url: 'https://twitch.tv/discord' // tudo minúsculo
     });
+
+    iniciarMusica(client);
 
     
 carregarTellonymPendentes();
