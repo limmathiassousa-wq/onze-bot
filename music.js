@@ -22,16 +22,34 @@ const { Connectors } = require('shoukaku');
 // https://github.com/DarrenOfficial/lavalink-list
 const NODES = [
     {
-        name: 'node-1',
-        url: 'lavalink.jirayu.net:13592',
-        auth: 'youshallnotpass',
-        secure: false
+        name: 'serenetia',
+        url: 'lavalinkv4.serenetia.com:443',
+        auth: 'https://dsc.gg/ajidevserver',
+        secure: true
     },
     {
-        name: 'node-2',
+        name: 'heaven-us',
+        url: 'us.lavalink.heavencloud.in:443',
+        auth: 'heavencloud',
+        secure: true
+    },
+    {
+        name: 'heaven-eu',
+        url: 'eu.lavalink.heavencloud.in:443',
+        auth: 'heavencloud',
+        secure: true
+    },
+    {
+        name: 'ajieblogs',
         url: 'lava-v4.ajieblogs.eu.org:443',
         auth: 'https://dsc.gg/ajidevserver',
         secure: true
+    },
+    {
+        name: 'jirayu',
+        url: 'lavalink.jirayu.net:13592',
+        auth: 'youshallnotpass',
+        secure: false
     }
 ];
 
@@ -47,7 +65,12 @@ function iniciarMusica(client) {
             }
         },
         new Connectors.DiscordJS(client),
-        NODES
+        NODES,
+        { reconnectTries: 10, reconnectInterval: 10, restTimeout: 15000, moveOnDisconnect: false }
+    );
+
+    kazagumo.shoukaku.on('debug', (name, info) =>
+        console.log(`[MÚSICA][debug] ${name}: ${info}`)
     );
 
     kazagumo.shoukaku.on('ready', (name) =>
@@ -111,7 +134,7 @@ async function resolverSpotify(url) {
     // -> "Nome Artista"
     const limpo = tituloTag
         .replace(/\s*\|\s*Spotify\s*$/i, '')
-        .replace(/\s*-\s*(song|single|album|playlist)\s+by\s+/i, ' ')
+        .replace(/\s*-\s*(song|single|album|playlist|track)(\s+and\s+lyrics)?\s+by\s+/i, ' ')
         .trim();
 
     return limpo;
