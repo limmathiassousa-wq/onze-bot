@@ -15,6 +15,8 @@ const {
     ContainerBuilder,
     TextDisplayBuilder,
     SeparatorBuilder,
+    SectionBuilder,
+    ThumbnailBuilder,
     ActionRowBuilder,
     ButtonBuilder,
     ButtonStyle,
@@ -134,27 +136,36 @@ function iniciarMusica(client) {
     });
 
     kazagumo.on('playerEmpty', async (player) => {
-        // Fila natural acabou. Se "fila contínua" estiver ativa, busca algo
-        // parecido com a última música. Senão, encerra e sai da call.
-        if (player.data.get('autoplay')) {
-            const atual = player.data.get('faixaAtual');
-            try {
-                const termo = atual?.author ? `${atual.author}` : atual?.title;
-                if (termo) {
-                    const resultado = await kazagumo.search(termo, { requester: atual?.requester });
-                    const candidatos = (resultado?.tracks || []).filter((t) => t.uri !== atual?.uri);
-                    const escolhida = candidatos[0] || resultado?.tracks?.[0];
-                    if (escolhida) {
-                        player.queue.add(escolhida);
-                        player.play();
-                        return;
-                    }
+        // Fila natural acabou (a música que estava tocando já saiu sozinha da
+        // fila, isso é padrão do Kazagumo). Como não sobrou nada pra tocar em
+        // seguida, o bot sempre busca uma música pra continuar a festa — não
+        // sai da call sozinho, só quando o botão de sair for clicado ou o DJ
+        // sair da call sem substituto.
+        //
+        // "Fila contínua" ativa deixa a busca mais restrita: só músicas da
+        // mesma banda/artista da que acabou de tocar. Desativada, a busca é
+        // mais aberta (menos "clone" da mesma banda, mais variedade).
+        const atual = player.data.get('faixaAtual');
+        const restrito = !!player.data.get('autoplay');
+        try {
+            const termo = restrito
+                ? (atual?.author || atual?.title)
+                : (atual?.title ? `${atual.title} mix` : atual?.author);
+            if (termo) {
+                const resultado = await kazagumo.search(termo, { requester: atual?.requester });
+                const candidatos = (resultado?.tracks || []).filter((t) => t.uri !== atual?.uri);
+                const escolhida = candidatos[0] || resultado?.tracks?.[0];
+                if (escolhida) {
+                    player.queue.add(escolhida);
+                    player.play();
+                    return;
                 }
-            } catch (err) {
-                console.error('--- Erro na fila contínua (autoplay) ---', err);
             }
+        } catch (err) {
+            console.error('--- Erro ao buscar próxima música automaticamente ---', err);
         }
 
+        // Só desiste e sai da call se a busca falhou de verdade.
         await limparPainel(player);
         player.destroy();
     });
@@ -292,11 +303,14 @@ function containerBuscando() {
 }
 
 function containerMusicaTocando(track, usuario) {
+    const cabecalho = new SectionBuilder().addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(`### Música tocando\n${track.title} — ${formatarDuracao(track.length)}`),
+        new TextDisplayBuilder().setContent(`-# **Executado por:** ${usuario}`)
+    );
+    if (track.thumbnail) cabecalho.setThumbnailAccessory(new ThumbnailBuilder().setURL(track.thumbnail));
+
     return new ContainerBuilder()
-        .addTextDisplayComponents(
-            new TextDisplayBuilder().setContent(`### Música tocando\n${track.title} — ${formatarDuracao(track.length)}`)
-        )
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# **Executado por:** ${usuario}`))
+        .addSectionComponents(cabecalho)
         .addActionRowComponents(
             new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
@@ -398,15 +412,14 @@ function construirPainelPrincipal(player, opts = {}) {
     const volume = player.data.get('volume') ?? player.volume ?? 80;
     const pausado = !!player.paused;
 
+    const cabecalho = new SectionBuilder().addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(`### Tocando agora\n${atual?.title ?? '???'} — ${atual?.author ?? '???'}`),
+        new TextDisplayBuilder().setContent(`-# **Duração:** ${atual?.isStream ? 'Ao vivo' : formatarDuracao(atual?.length)}`)
+    );
+    if (atual?.thumbnail) cabecalho.setThumbnailAccessory(new ThumbnailBuilder().setURL(atual.thumbnail));
+
     return new ContainerBuilder()
-        .addTextDisplayComponents(
-            new TextDisplayBuilder().setContent(`### Tocando agora\n${atual?.title ?? '???'} — ${atual?.author ?? '???'}`)
-        )
-        .addTextDisplayComponents(
-            new TextDisplayBuilder().setContent(
-                `-# **Duração:** ${atual?.isStream ? 'Ao vivo' : formatarDuracao(atual?.length)}`
-            )
-        )
+        .addSectionComponents(cabecalho)
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addActionRowComponents(
             new ActionRowBuilder().addComponents(
@@ -431,7 +444,7 @@ function construirPainelPrincipal(player, opts = {}) {
             new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
                     .setCustomId('music_volume')
-                    .setLabel(`Volume (${volume})`)
+                    .setLabel(`Volume ${volume}`)
                     .setStyle(ButtonStyle.Secondary)
                     .setDisabled(desativado),
                 new ButtonBuilder()
@@ -449,13 +462,11 @@ function construirPainelPrincipal(player, opts = {}) {
                     .setDisabled(desativado)
                     .addOptions(
                         new StringSelectMenuOptionBuilder()
-                            .setLabel(`Fila contínua (${autoplay ? 'Ativa' : 'Desativada'})`)
-                            .setEmoji(autoplay ? EMOJI.filaContinuaOn : EMOJI.filaContinuaOff)
-                            .setDescription('Continua tocando músicas parecidas automaticamente')
+                            .setLabel(`Fila contínua (${autoplay ? 'Ativada' : 'Desativada'})`)
+                            .setDescription('Ativa: só músicas da mesma banda. Desativada: mais variedade')
                             .setValue('autoplay_toggle'),
                         new StringSelectMenuOptionBuilder()
                             .setLabel('Adicionar à fila')
-                            .setEmoji(EMOJI.mais)
                             .setDescription('Busca e adiciona uma nova música na fila')
                             .setValue('add_queue'),
                         new StringSelectMenuOptionBuilder()
