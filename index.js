@@ -224,7 +224,7 @@ const nukeEmAndamento = new Set();
 const callTempDeleteTimeouts = new Map();
 
 const CALL_MOEDAS_POR_MINUTO = 25;
-const CALL_MINUTOS_MINIMO_CONVERSAO = 600; // 10 horas
+const CALL_MINUTOS_MINIMO_CONVERSAO = 10; // 10 minutos
 const respostasBotoesMsg = new MapaPersistente('respostas_botoes_msg');
 const processosBackup = new Map();
 
@@ -2602,8 +2602,7 @@ if (message.content.toLowerCase() === `${PREFIXO}loja`) {
             new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('resgate_converter').setLabel('Converter').setStyle(ButtonStyle.Secondary),
                 new ButtonBuilder().setCustomId('resgate_carteira').setLabel('Minha carteira').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId('resgate_cargos').setLabel('Comprar').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId('resgate_call').setLabel('Converter Call').setStyle(ButtonStyle.Secondary)
+                new ButtonBuilder().setCustomId('resgate_cargos').setLabel('Comprar').setStyle(ButtonStyle.Secondary)
             )
         );
 
@@ -8145,7 +8144,8 @@ if (interaction.isButton() && interaction.customId === 'resgate_converter') {
         .addActionRowComponents(
             new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('resgate_converter_tudo').setLabel('Converter tudo').setStyle(ButtonStyle.Success),
-                new ButtonBuilder().setCustomId('resgate_converter_quantidade').setLabel('Informe a quantidade').setStyle(ButtonStyle.Secondary)
+                new ButtonBuilder().setCustomId('resgate_converter_quantidade').setLabel('Informe a quantidade').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('resgate_ir_call').setLabel('Converter Call').setStyle(ButtonStyle.Secondary)
             )
         );
 
@@ -8233,7 +8233,8 @@ if (interaction.isModalSubmit() && interaction.customId === 'modal_resgate_conve
     });
 }
 
-    if (interaction.isButton() && interaction.customId === 'resgate_call') {
+if (interaction.isButton() && interaction.customId === 'resgate_ir_call') {
+    await interaction.deferUpdate();
     await flushSessoesFarmCall();
     const minutos = await getMinutosCall(interaction.user.id);
     const horas = Math.floor(minutos / 60);
@@ -8243,18 +8244,44 @@ if (interaction.isModalSubmit() && interaction.customId === 'modal_resgate_conve
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **Converter tempo em call em moedas**'))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            `Você possui \`${horas}h${minutosResto}m\` acumulados de call (mínimo de **10 horas** para converter).\n\nTaxa: **${CALL_MOEDAS_POR_MINUTO} moedas por minuto**.\n\nEscolha como deseja converter:`
+            `Você possui \`${horas}h${minutosResto}m\` acumulados de call (mínimo de **${CALL_MINUTOS_MINIMO_CONVERSAO} minutos** para converter).\n\nTaxa: **${CALL_MOEDAS_POR_MINUTO} moedas por minuto**.\n\nEscolha como deseja converter:`
         ))
         .addActionRowComponents(
             new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('resgate_call_converter_tudo').setLabel('Converter tudo').setStyle(ButtonStyle.Success),
-                new ButtonBuilder().setCustomId('resgate_call_converter_quantidade').setLabel('Informe a quantidade').setStyle(ButtonStyle.Secondary)
+                new ButtonBuilder().setCustomId('resgate_call_converter_quantidade').setLabel('Informe a quantidade').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('resgate_voltar_mensagens').setLabel('Voltar').setStyle(ButtonStyle.Secondary)
             )
         );
 
-    return interaction.reply({
+    return interaction.editReply({
         components: [container],
-        flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
+        flags: [MessageFlags.IsComponentsV2]
+    });
+}
+
+if (interaction.isButton() && interaction.customId === 'resgate_voltar_mensagens') {
+    await interaction.deferUpdate();
+    await flushBufferMensagens();
+    const mensagens = await getMensagens(interaction.user.id);
+
+    const container = new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **Converter mensagens em moedas**'))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            `Você possui \`${mensagens}\` mensagens disponíveis para conversão (1 mensagem = 1 moeda).\n\nEscolha como deseja converter:`
+        ))
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('resgate_converter_tudo').setLabel('Converter tudo').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId('resgate_converter_quantidade').setLabel('Informe a quantidade').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('resgate_ir_call').setLabel('Converter Call').setStyle(ButtonStyle.Secondary)
+            )
+        );
+
+    return interaction.editReply({
+        components: [container],
+        flags: [MessageFlags.IsComponentsV2]
     });
 }
 
@@ -8264,7 +8291,7 @@ if (interaction.isButton() && interaction.customId === 'resgate_call_converter_t
 
     if (minutos < CALL_MINUTOS_MINIMO_CONVERSAO) {
         return interaction.reply({
-            components: containerTexto('Você ainda não possui o mínimo de **10 horas** acumuladas em call para converter.'),
+            components: containerTexto(`Você ainda não possui o mínimo de **${CALL_MINUTOS_MINIMO_CONVERSAO} minutos** acumulados em call para converter.`),
             flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
         });
     }
@@ -8287,7 +8314,7 @@ if (interaction.isButton() && interaction.customId === 'resgate_call_converter_t
 if (interaction.isButton() && interaction.customId === 'resgate_call_converter_quantidade') {
     const modal = new ModalBuilder()
         .setCustomId('modal_resgate_call_converter_quantidade')
-        .setTitle('Converter horas em call');
+        .setTitle('Converter call em moedas');
 
     const inputQuantidade = new TextInputBuilder()
         .setCustomId('quantidade')
@@ -8296,8 +8323,8 @@ if (interaction.isButton() && interaction.customId === 'resgate_call_converter_q
         .setMaxLength(10);
 
     const labelQuantidade = new LabelBuilder()
-        .setLabel('Quantidade de horas')
-        .setDescription('Digite quantas horas deseja converter (mínimo 10).')
+        .setLabel('Quantidade de minutos')
+        .setDescription(`Digite quantos minutos de call deseja converter (mínimo ${CALL_MINUTOS_MINIMO_CONVERSAO}).`)
         .setTextInputComponent(inputQuantidade);
 
     modal.addLabelComponents(labelQuantidade);
@@ -8306,23 +8333,21 @@ if (interaction.isButton() && interaction.customId === 'resgate_call_converter_q
 
 if (interaction.isModalSubmit() && interaction.customId === 'modal_resgate_call_converter_quantidade') {
     const valorTexto = interaction.fields.getTextInputValue('quantidade').trim().replace(',', '.');
-    const horas = parseFloat(valorTexto);
+    const minutosDesejados = Math.floor(parseFloat(valorTexto));
 
-    if (isNaN(horas) || horas <= 0) {
+    if (isNaN(minutosDesejados) || minutosDesejados <= 0) {
         return interaction.reply({
             components: containerTexto('Digite um número válido!'),
             flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
         });
     }
 
-    if (horas < 10) {
+    if (minutosDesejados < CALL_MINUTOS_MINIMO_CONVERSAO) {
         return interaction.reply({
-            components: containerTexto('Quantidade muito baixa! O mínimo para converter é **10 horas**.'),
+            components: containerTexto(`Quantidade muito baixa! O mínimo para converter é **${CALL_MINUTOS_MINIMO_CONVERSAO} minutos**.`),
             flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
         });
     }
-
-    const minutosDesejados = Math.floor(horas * 60);
 
     await flushSessoesFarmCall();
     const minutos = await getMinutosCall(interaction.user.id);
@@ -8343,10 +8368,11 @@ if (interaction.isModalSubmit() && interaction.customId === 'modal_resgate_call_
     const novoSaldo = await somarSaldo(interaction.user.id, moedasGanhas);
 
     return interaction.reply({
-        components: containerTexto(`Conversão realizada! Você trocou **${horas}h** de call por **${moedasGanhas} moedas**. Saldo atual: **${novoSaldo}**`),
+        components: containerTexto(`Conversão realizada! Você trocou **${minutosDesejados} minutos** de call por **${moedasGanhas} moedas**. Saldo atual: **${novoSaldo}**`),
         flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
     });
 }
+
 
     if (interaction.isButton() && interaction.customId === 'resgate_carteira') {
     await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
