@@ -71,14 +71,9 @@ const NODES = [
         auth: 'https://dsc.gg/ajidevserver',
         secure: true
     },
-    {
-        // Encontrado em https://github.com/stackryze/lavalink-list (nodes.json),
-        // repositório com atividade recente em 2026. Sem SSL (secure: false).
-        name: 'stackryze',
-        url: '188.245.207.225:2333',
-        auth: 'youshallnotpass',
-        secure: false
-    },
+    // stackryze removido: deu ECONNREFUSED constante no log (node caiu ou
+    // bloqueou conexões do Render). Como o "local" já está funcionando, não
+    // faz falta.
     {
         name: 'jirayu',
         url: 'lavalink.jirayu.net:13592',
@@ -113,7 +108,15 @@ function iniciarMusica(client) {
         },
         new Connectors.DiscordJS(client),
         [], // os nodes são conectados manualmente logo abaixo (ver conectarNodes)
-        { reconnectTries: 10, reconnectInterval: 10, restTimeout: 15000, moveOnDisconnect: false }
+        {
+            // reconnectTries * reconnectInterval = tempo total tentando cada node.
+            // No Render free o Java do Lavalink local pode levar 2-3 min pra subir
+            // (CPU compartilhada é lenta), então precisa de bastante margem aqui.
+            reconnectTries: 40,
+            reconnectInterval: 10, // 40 * 10s = ~6,5 min de tentativas
+            restTimeout: 15000,
+            moveOnDisconnect: false
+        }
     );
 
     kazagumo.shoukaku.on('ready', (name) =>
