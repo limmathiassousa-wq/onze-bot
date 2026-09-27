@@ -11,6 +11,8 @@
 
 const { Kazagumo } = require('kazagumo');
 const { Connectors } = require('shoukaku');
+const { getVoiceConnection } = require('@discordjs/voice');
+const { botCallDB } = require('./state');
 const {
     ContainerBuilder,
     TextDisplayBuilder,
@@ -56,7 +58,7 @@ const NODES = [
         // Fica sempre em primeiro: é o mais rápido e confiável, já que roda localmente.
         name: 'local',
         url: 'localhost:2333',
-        auth: '050612@rayan', // precisa ser IGUAL à senha no application.yml
+        auth: 'escolha_uma_senha_forte', // precisa ser IGUAL à senha no application.yml
         secure: false
     },
     {
@@ -563,6 +565,34 @@ async function tocarMusica(interaction, query) {
         if (!nodeOnline) {
             console.error('[MÚSICA] /play chamado, mas nenhum node Lavalink está conectado.');
             return interaction.editReply({ content: 'Nenhum servidor de música está online agora. Tenta de novo em instantes.' });
+        }
+
+        // O sistema de "BotCall" (@discordjs/voice) e o Kazagumo/Shoukaku não podem
+        // ter conexão de voz ativa ao mesmo tempo no mesmo servidor: se o BotCall já
+        // estiver conectado, o Discord trata a entrada do Kazagumo como só uma troca
+        // de canal dentro da MESMA sessão e não reenvia o VOICE_SERVER_UPDATE — aí o
+        // Shoukaku fica esperando o pacote que nunca chega e trava em 15s de timeout.
+        // Destruindo a conexão antiga primeiro, o Discord manda tudo de novo do zero.
+        const conexaoBotCall = getVoiceConnection(interaction.guild.id);
+        if (conexaoBotCall) {
+            console.log('[MÚSICA] Encerrando conexão do BotCall nesse servidor antes de entrar com o Kazagumo.');
+            conexaoBotCall.destroy();
+
+            // Atualiza o Map em memória (mesmo formato usado em index.js/functions.js)
+            // pra o painel do BotCall não continuar mostrando "conectado".
+            const dadosAtuais = botCallDB.get(interaction.guild.id) || { canalId: null, conectado: false };
+            botCallDB.set(interaction.guild.id, { canalId: dadosAtuais.canalId, conectado: false });
+
+            // require tardio (só na hora de usar) pra evitar dependência circular:
+            // functions.js -> commands.js -> music.js já existe, então music.js não
+            // pode dar require('./functions') lá no topo do arquivo.
+            try {
+                const { removerVoiceState, atualizarPainelBotCallAuto } = require('./functions');
+                await removerVoiceState(interaction.guild.id);
+                await atualizarPainelBotCallAuto(interaction.guild.id);
+            } catch (err) {
+                console.error('--- Erro ao limpar voice state do BotCall no banco ---', err);
+            }
         }
 
         try {
