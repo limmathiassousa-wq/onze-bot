@@ -2446,18 +2446,22 @@ async function montarPainelListaCargo(guild, cargo, pagina = 0) {
     return container;
 }
 
-function montarPainelConfirmacaoAddCargo(alvo, cargo) {
+function montarPainelConfirmacaoAddCargo(alvo, cargo, autor) {
     const avatarUrl = alvo.user.displayAvatarURL({ extension: 'png', size: 256 });
+    const agoraUnix = Math.floor(Date.now() / 1000);
 
     return new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('## Adicionar cargo'))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addSectionComponents(
             new SectionBuilder()
                 .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-                    `### Adicionar Cargo\n**Usuário:** ${alvo}\n**Cargo:** ${cargo}`
+                    `**Membro:** ${alvo}\n**Executado por:** ${autor}\n**Cargo:** ${cargo}`
                 ))
                 .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
         )
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`<t:${agoraUnix}:F>`))
         .addActionRowComponents(
             new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
@@ -2468,18 +2472,22 @@ function montarPainelConfirmacaoAddCargo(alvo, cargo) {
         );
 }
 
-function montarPainelConfirmacaoRemCargo(alvo, cargo) {
+function montarPainelConfirmacaoRemCargo(alvo, cargo, autor) {
     const avatarUrl = alvo.user.displayAvatarURL({ extension: 'png', size: 256 });
+    const agoraUnix = Math.floor(Date.now() / 1000);
 
     return new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('## Remover cargo'))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addSectionComponents(
             new SectionBuilder()
                 .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-                    `### Remover Cargo\n**Usuário:** ${alvo}\n**Cargo:** ${cargo}`
+                    `**Membro:** ${alvo}\n**Executado por:** ${autor}\n**Cargo:** ${cargo}`
                 ))
                 .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
         )
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`<t:${agoraUnix}:F>`))
         .addActionRowComponents(
             new ActionRowBuilder().addComponents(
                 new ButtonBuilder()

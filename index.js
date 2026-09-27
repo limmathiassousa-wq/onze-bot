@@ -2919,7 +2919,7 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}addcargo`)) {
     }
 
     const painelAdd = await message.channel.send({
-        components: [montarPainelConfirmacaoAddCargo(alvo, cargo)],
+        components: [montarPainelConfirmacaoAddCargo(alvo, cargo, message.author)],
         flags: [MessageFlags.IsComponentsV2],
         allowedMentions: { parse: [] }
     });
@@ -2978,7 +2978,7 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}remcargo`)) {
     }
 
     const painelRem = await message.channel.send({
-        components: [montarPainelConfirmacaoRemCargo(alvo, cargo)],
+        components: [montarPainelConfirmacaoRemCargo(alvo, cargo, message.author)],
         flags: [MessageFlags.IsComponentsV2],
         allowedMentions: { parse: [] }
     });
