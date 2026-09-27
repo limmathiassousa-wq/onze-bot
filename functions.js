@@ -2451,6 +2451,7 @@ function montarPainelConfirmacaoAddCargo(alvo, cargo, autor) {
     const agoraUnix = Math.floor(Date.now() / 1000);
 
     return new ContainerBuilder()
+        .setAccentColor(0xFFFFFF)
         .addTextDisplayComponents(new TextDisplayBuilder().setContent('## Adicionar cargo'))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addSectionComponents(
@@ -2477,6 +2478,7 @@ function montarPainelConfirmacaoRemCargo(alvo, cargo, autor) {
     const agoraUnix = Math.floor(Date.now() / 1000);
 
     return new ContainerBuilder()
+        .setAccentColor(0xFFFFFF)
         .addTextDisplayComponents(new TextDisplayBuilder().setContent('## Remover cargo'))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addSectionComponents(
