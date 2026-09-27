@@ -1,9 +1,6 @@
 require('dotenv').config();
 process.env.PATH = `${process.env.HOME || '/opt/render'}/.deno/bin:${process.env.PATH}`;
 
-const { iniciarLavalinkLocal } = require('./lavalink-launcher');
-iniciarLavalinkLocal();
-
 const express = require('express');
 const app = express();
 app.get('/', (req, res) => res.send('Bot Online!'));
@@ -26,7 +23,6 @@ const os = require('os');
 const crypto = require('crypto');
 
 const { comandos, montarPainelBotCall, registrarPainelBotCall, montarPainelPD, montarSelectAdicionarPD, montarSelectRemoverPD, atualizarPainelPD, obterPrimeirasDamas, montarPainelMuteInicial, montarPainelMuteTimeout, montarPainelMuteCargo } = require('./commands');
-const { iniciarMusica } = require('./music');
 const { botCallDB, botCallPaineis, confirmacaoModeracaoDB, msgCriadorDB, sorteioDraftDB, muteDraftDB } = require('./state');
 
 const {
@@ -690,7 +686,12 @@ client.on('channelUpdate', async (canalAntigo, canalNovo) => {
     if (canalAntigo.name !== canalNovo.name) {
         alteracoes.push(`**Nome:** \`${canalAntigo.name}\` → \`${canalNovo.name}\``);
     }
-    if (canalAntigo.parentId !== canalNovo.parentId) {
+    if (canalAntigo.type !== canalNovo.type) {
+        alteracoes.push(`**Tipo:** \`${nomeTipoCanalLog(canalAntigo.type)}\` → \`${nomeTipoCanalLog(canalNovo.type)}\``);
+    }
+    const parentIdAntigo = canalAntigo.parentId ?? null;
+    const parentIdNovo = canalNovo.parentId ?? null;
+    if (parentIdAntigo !== parentIdNovo) {
         const catAntiga = canalAntigo.parent ? canalAntigo.parent.name : 'Nenhuma';
         const catNova = canalNovo.parent ? canalNovo.parent.name : 'Nenhuma';
         alteracoes.push(`**Categoria:** \`${catAntiga}\` → \`${catNova}\``);
@@ -722,7 +723,12 @@ client.on('channelUpdate', async (canalAntigo, canalNovo) => {
 
     if (alteracoes.length === 0) return;
 
-    const executor = await obterExecutorAuditLog(canalNovo.guild, AuditLogEvent.ChannelUpdate, canalNovo.id);
+    // Uma edição de só permissões (sem mexer em nome/tópico/etc) é registrada pelo Discord
+    // como ChannelOverwriteCreate/Update/Delete, não como ChannelUpdate — por isso busca nos dois.
+    const executor = await obterExecutorAuditLog(canalNovo.guild, [
+        AuditLogEvent.ChannelUpdate, AuditLogEvent.ChannelOverwriteCreate,
+        AuditLogEvent.ChannelOverwriteUpdate, AuditLogEvent.ChannelOverwriteDelete
+    ], canalNovo.id);
 
     await logarCanalServidor({
         guild: canalNovo.guild,
@@ -782,8 +788,6 @@ setInterval(() => {
       type: ActivityType.Streaming, 
       url: 'https://twitch.tv/discord' // tudo minúsculo
     });
-
-    iniciarMusica(client);
 
     // Registra os slash commands logo no início do ready, antes dos awaits abaixo:
     // se algum carregamento travar/lançar erro, os comandos ainda assim são registrados.

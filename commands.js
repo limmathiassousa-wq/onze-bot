@@ -22,7 +22,6 @@ const {
 } = require('./helpers');
 
 const { logar, enviarSucessoModeracao, COR_EMBED } = require('./logger');
-const { tocarMusica } = require('./music');
 
 // ============ PAINÉIS USADOS POR COMANDOS (e reaproveitados em botões no index.js) ============
 
@@ -257,16 +256,6 @@ const comandos = new Collection();
 function registrar(data, execute) {
     comandos.set(data.name, { data, execute });
 }
-
-registrar(
-    new SlashCommandBuilder().setName('play').setDescription('Toca uma música (nome, link do YouTube ou link do Spotify)')
-        .addStringOption(o => o.setName('busca').setDescription('Nome da música, link do YouTube ou do Spotify').setRequired(true)),
-    async (interaction) => {
-        await interaction.deferReply({ flags: [MessageFlags.Ephemeral, MessageFlags.IsComponentsV2] });
-        const query = interaction.options.getString('busca');
-        return tocarMusica(interaction, query);
-    }
-);
 
 registrar(
     new SlashCommandBuilder().setName('avatar').setDescription('Mostra o seu avatar')
