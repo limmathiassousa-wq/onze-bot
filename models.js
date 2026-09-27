@@ -19,6 +19,12 @@ const mensagensSchema = new mongoose.Schema({
 });
 const Mensagens = mongoose.model('Mensagens', mensagensSchema);
 
+const tempoCallSchema = new mongoose.Schema({
+    userId: { type: String, required: true, unique: true },
+    minutos: { type: Number, default: 0 }
+});
+const TempoCall = mongoose.model('TempoCall', tempoCallSchema);
+
 
 const cargoLojaSchema = new mongoose.Schema({
     userId: { type: String, required: true },
@@ -286,6 +292,7 @@ module.exports = {
     Carteira,
     XP,
     Mensagens,
+    TempoCall,
     CargoLoja,
     VoiceState,
     ContadorTicket,

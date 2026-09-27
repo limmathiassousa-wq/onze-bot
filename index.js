@@ -29,6 +29,7 @@ const {
     esperar, containerTexto, comRetry, xpNecessario,
     montarPainelConfirmacaoModeracao,
     getSaldo, somarSaldo, getXP, setXP, getMensagens, setMensagens,
+    getMinutosCall, setMinutosCall,
     urlValida, avisoSucessoModeracao
 } = require('./helpers');
 
@@ -176,6 +177,7 @@ const {
     gerenciarCargosDB, getAfk, getCallTemp, getDonoCallTemp,
     getEventoMoedasAtivo, grolesTimeouts, helpPermissaoSlash, helpPrimeiraFrase,
     helpSemAcento, helpUsoOpcoes, hospedarMidiaTranscript, incrementarConviteStats,
+    finalizarSessaoFarmCall, flushSessoesFarmCall, inicializarSessoesFarmCall, iniciarSessaoFarmCall,
     inicializarSessoesVoiceSorteio, iniciarSessaoVoiceSorteio, invitesCache, limitarCache,
     limiteNukeAcao, limiteNukeAcaoExtra, limparEstadoEventoMoedas, limparInvitesCacheDesatualizado,
     limparNukeTrackerAntigo, linkPermitido, listarMembros, loadAvatar,
@@ -220,6 +222,9 @@ const {
  
 const nukeEmAndamento = new Set();
 const callTempDeleteTimeouts = new Map();
+
+const CALL_MOEDAS_POR_MINUTO = 25;
+const CALL_MINUTOS_MINIMO_CONVERSAO = 600; // 10 horas
 const respostasBotoesMsg = new MapaPersistente('respostas_botoes_msg');
 const processosBackup = new Map();
 
@@ -845,6 +850,9 @@ for (const guild of client.guilds.cache.values()) {
 inicializarSessoesVoiceSorteio();
 inicializarSessoesVoiceSorteio();
 setInterval(flushSessoesVoiceSorteio, INTERVALO_TICK_CALL_SORTEIO_MS);
+
+inicializarSessoesFarmCall();
+setInterval(flushSessoesFarmCall, INTERVALO_TICK_CALL_SORTEIO_MS);
     
     // Garante que o Mongo esteja de fato conectado ANTES de qualquer leitura de dados,
     // já que botcall e voice states dependem 100% do banco agora.
@@ -1406,8 +1414,10 @@ if (membroVoice && !membroVoice.user.bot) {
 
     if (!estavaEmCallValida && estaEmCallValida) {
         iniciarSessaoVoiceSorteio(guild.id, membroVoice.id);
+        iniciarSessaoFarmCall(guild.id, membroVoice.id);
     } else if (estavaEmCallValida && !estaEmCallValida) {
         await finalizarSessaoVoiceSorteio(guild.id, membroVoice.id).catch(() => null);
+        await finalizarSessaoFarmCall(guild.id, membroVoice.id).catch(() => null);
     }
 }
 
@@ -2592,7 +2602,8 @@ if (message.content.toLowerCase() === `${PREFIXO}loja`) {
             new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('resgate_converter').setLabel('Converter').setStyle(ButtonStyle.Secondary),
                 new ButtonBuilder().setCustomId('resgate_carteira').setLabel('Minha carteira').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId('resgate_cargos').setLabel('Comprar').setStyle(ButtonStyle.Secondary)
+                new ButtonBuilder().setCustomId('resgate_cargos').setLabel('Comprar').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('resgate_call').setLabel('Converter Call').setStyle(ButtonStyle.Secondary)
             )
         );
 
@@ -5121,7 +5132,7 @@ if (interaction.isButton() && interaction.customId === 'cargo_add_confirmar') {
         flags: [MessageFlags.IsComponentsV2],
         allowedMentions: { parse: [] }
     });
-    if (msgSucessoAdd) apagarMensagemApos(msgSucessoAdd, 5 * 60 * 1000);
+    if (msgSucessoAdd) apagarMensagemApos(msgSucessoAdd, 5 * 1000);
     return;
 }
 
@@ -5183,7 +5194,7 @@ if (interaction.isButton() && interaction.customId === 'cargo_rem_confirmar') {
         flags: [MessageFlags.IsComponentsV2],
         allowedMentions: { parse: [] }
     });
-    if (msgSucessoRem) apagarMensagemApos(msgSucessoRem, 5 * 60 * 1000);
+    if (msgSucessoRem) apagarMensagemApos(msgSucessoRem, 5 * 1000);
     return;
 }
 
@@ -8218,6 +8229,121 @@ if (interaction.isModalSubmit() && interaction.customId === 'modal_resgate_conve
 
     return interaction.reply({
         components: containerTexto(`Conversão realizada! Você trocou **${quantidade} mensagens** por **${quantidade} moedas**. Saldo atual: **${novoSaldo}**`),
+        flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
+    });
+}
+
+    if (interaction.isButton() && interaction.customId === 'resgate_call') {
+    await flushSessoesFarmCall();
+    const minutos = await getMinutosCall(interaction.user.id);
+    const horas = Math.floor(minutos / 60);
+    const minutosResto = Math.floor(minutos % 60);
+
+    const container = new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **Converter tempo em call em moedas**'))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            `Você possui \`${horas}h${minutosResto}m\` acumulados de call (mínimo de **10 horas** para converter).\n\nTaxa: **${CALL_MOEDAS_POR_MINUTO} moedas por minuto**.\n\nEscolha como deseja converter:`
+        ))
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('resgate_call_converter_tudo').setLabel('Converter tudo').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId('resgate_call_converter_quantidade').setLabel('Informe a quantidade').setStyle(ButtonStyle.Secondary)
+            )
+        );
+
+    return interaction.reply({
+        components: [container],
+        flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
+    });
+}
+
+if (interaction.isButton() && interaction.customId === 'resgate_call_converter_tudo') {
+    await flushSessoesFarmCall();
+    const minutos = await getMinutosCall(interaction.user.id);
+
+    if (minutos < CALL_MINUTOS_MINIMO_CONVERSAO) {
+        return interaction.reply({
+            components: containerTexto('Você ainda não possui o mínimo de **10 horas** acumuladas em call para converter.'),
+            flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
+        });
+    }
+
+    const minutosConvertidos = Math.floor(minutos);
+    const moedasGanhas = minutosConvertidos * CALL_MOEDAS_POR_MINUTO;
+
+    await setMinutosCall(interaction.user.id, minutos - minutosConvertidos);
+    const novoSaldo = await somarSaldo(interaction.user.id, moedasGanhas);
+
+    const h = Math.floor(minutosConvertidos / 60);
+    const m = minutosConvertidos % 60;
+
+    return interaction.reply({
+        components: containerTexto(`Conversão realizada! Você trocou **${h}h${m}m** de call por **${moedasGanhas} moedas**. Saldo atual: **${novoSaldo}**`),
+        flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
+    });
+}
+
+if (interaction.isButton() && interaction.customId === 'resgate_call_converter_quantidade') {
+    const modal = new ModalBuilder()
+        .setCustomId('modal_resgate_call_converter_quantidade')
+        .setTitle('Converter horas em call');
+
+    const inputQuantidade = new TextInputBuilder()
+        .setCustomId('quantidade')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true)
+        .setMaxLength(10);
+
+    const labelQuantidade = new LabelBuilder()
+        .setLabel('Quantidade de horas')
+        .setDescription('Digite quantas horas deseja converter (mínimo 10).')
+        .setTextInputComponent(inputQuantidade);
+
+    modal.addLabelComponents(labelQuantidade);
+    return interaction.showModal(modal);
+}
+
+if (interaction.isModalSubmit() && interaction.customId === 'modal_resgate_call_converter_quantidade') {
+    const valorTexto = interaction.fields.getTextInputValue('quantidade').trim().replace(',', '.');
+    const horas = parseFloat(valorTexto);
+
+    if (isNaN(horas) || horas <= 0) {
+        return interaction.reply({
+            components: containerTexto('Digite um número válido!'),
+            flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
+        });
+    }
+
+    if (horas < 10) {
+        return interaction.reply({
+            components: containerTexto('Quantidade muito baixa! O mínimo para converter é **10 horas**.'),
+            flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
+        });
+    }
+
+    const minutosDesejados = Math.floor(horas * 60);
+
+    await flushSessoesFarmCall();
+    const minutos = await getMinutosCall(interaction.user.id);
+
+    if (minutosDesejados > minutos) {
+        const hd = Math.floor(minutos / 60);
+        const md = Math.floor(minutos % 60);
+        return interaction.reply({
+            components: containerTexto(`Você não possui tempo suficiente em call! Você tem apenas \`${hd}h${md}m\` disponíveis.`),
+            flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
+        });
+    }
+
+    const minutosRestantes = minutos - minutosDesejados;
+    const moedasGanhas = minutosDesejados * CALL_MOEDAS_POR_MINUTO;
+
+    await setMinutosCall(interaction.user.id, minutosRestantes);
+    const novoSaldo = await somarSaldo(interaction.user.id, moedasGanhas);
+
+    return interaction.reply({
+        components: containerTexto(`Conversão realizada! Você trocou **${horas}h** de call por **${moedasGanhas} moedas**. Saldo atual: **${novoSaldo}**`),
         flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
     });
 }

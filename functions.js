@@ -16,7 +16,7 @@ const os = require('os');
 const crypto = require('crypto');
 const { comandos, montarPainelBotCall } = require('./commands');
 const { botCallDB, botCallPaineis, msgCriadorDB } = require('./state');
-const { esperar, containerTexto, comRetry, xpNecessario, somarSaldo, getXP, setXP, urlValida } = require('./helpers');
+const { esperar, containerTexto, comRetry, xpNecessario, somarSaldo, getXP, setXP, urlValida, somarMinutosCall } = require('./helpers');
 const { logarAntiLink, logarAntiSpam, logarPunicaoCargosStaff, logarAntiNukeCanais } = require('./logger');
 const redis = require('./redis');
 const { supabase } = require('./supabase');
@@ -89,6 +89,7 @@ const tellonymPendentesDB = new Map();
 const ticketDB = new Map();
 const gerenciarCargosDB = new Map();
 const sorteioVoiceSessions = new Map();
+const farmCallSessions = new Map();
 
 const sorteioTimeouts = new Map();
 const invitesCache = new Map();
@@ -3228,6 +3229,52 @@ async function atualizarStatusCallsSorteio() {
         } catch (err) {
             console.error(`--- Erro ao atualizar status de calls do sorteio em ${guild.id} ---`, err);
         }
+    }
+}
+
+// ============ FARM CALL (tempo em call convertível em moedas) ============
+function inicializarSessoesFarmCall() {
+    for (const guild of client.guilds.cache.values()) {
+        for (const canal of guild.channels.cache.values()) {
+            if (canal.type !== ChannelType.GuildVoice && canal.type !== ChannelType.GuildStageVoice) continue;
+            if (guild.afkChannelId && canal.id === guild.afkChannelId) continue;
+
+            for (const membro of canal.members.values()) {
+                if (membro.user.bot) continue;
+                iniciarSessaoFarmCall(guild.id, membro.id);
+            }
+        }
+    }
+}
+
+function iniciarSessaoFarmCall(guildId, userId) {
+    const chave = `${guildId}_${userId}`;
+    if (!farmCallSessions.has(chave)) {
+        farmCallSessions.set(chave, { entradaEm: Date.now() });
+    }
+}
+
+async function finalizarSessaoFarmCall(guildId, userId) {
+    const chave = `${guildId}_${userId}`;
+    const sessao = farmCallSessions.get(chave);
+    if (!sessao) return;
+
+    farmCallSessions.delete(chave);
+    const decorrido = Date.now() - sessao.entradaEm;
+    if (decorrido > 0) {
+        await somarMinutosCall(userId, decorrido / 60000).catch(() => null);
+    }
+}
+
+async function flushSessoesFarmCall() {
+    const agora = Date.now();
+    for (const [chave, sessao] of farmCallSessions) {
+        const [, userId] = chave.split('_');
+        const decorrido = agora - sessao.entradaEm;
+        if (decorrido <= 0) continue;
+
+        await somarMinutosCall(userId, decorrido / 60000).catch(() => null);
+        sessao.entradaEm = agora;
     }
 }
 
@@ -7432,8 +7479,10 @@ module.exports = {
     fazerBackupServidor,
     filtrarCargosGRoles,
     filtrarPermsGRoles,
+    finalizarSessaoFarmCall,
     finalizarSessaoVoiceSorteio,
     flushBufferMensagens,
+    flushSessoesFarmCall,
     flushSessoesVoiceSorteio,
     fontePorAtom,
     formatarBytes,
@@ -7461,7 +7510,9 @@ module.exports = {
     helpUsoOpcoes,
     hospedarMidiaTranscript,
     incrementarConviteStats,
+    inicializarSessoesFarmCall,
     inicializarSessoesVoiceSorteio,
+    iniciarSessaoFarmCall,
     iniciarSessaoVoiceSorteio,
     larguraDoAtom,
     limitarCache,

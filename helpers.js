@@ -232,6 +232,40 @@ async function setMensagens(userId, valor) {
 
 
 
+async function getMinutosCall(userId) {
+
+    const { TempoCall } = require('./models');
+
+    const doc = await TempoCall.findOne({ userId });
+
+    return doc ? doc.minutos : 0;
+
+}
+
+
+
+async function setMinutosCall(userId, valor) {
+
+    const { TempoCall } = require('./models');
+
+    await TempoCall.findOneAndUpdate({ userId }, { minutos: valor }, { upsert: true });
+
+}
+
+
+
+async function somarMinutosCall(userId, valor) {
+
+    const { TempoCall } = require('./models');
+
+    const doc = await TempoCall.findOneAndUpdate({ userId }, { $inc: { minutos: valor } }, { upsert: true, new: true });
+
+    return doc.minutos;
+
+}
+
+
+
 module.exports = {
 
     esperar, containerTexto, comRetry, xpNecessario,
@@ -239,6 +273,8 @@ module.exports = {
     montarPainelConfirmacaoModeracao,
 
     getSaldo, somarSaldo, getXP, setXP, getMensagens, setMensagens,
+
+    getMinutosCall, setMinutosCall, somarMinutosCall,
 
     urlValida, avisoSucessoModeracao
 
