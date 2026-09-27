@@ -18,8 +18,15 @@ const { botCallDB, botCallPaineis, confirmacaoModeracaoDB, msgCriadorDB, sorteio
 const {
     esperar, containerTexto, comRetry, xpNecessario,
     montarPainelConfirmacaoModeracao,
-    getSaldo, somarSaldo, getXP, setXP, getMensagens, setMensagens
+    getSaldo, somarSaldo, getXP, setXP, getMensagens, setMensagens,
+    getMinutosCall
 } = require('./helpers');
+
+function formatarMinutosCall(minutos) {
+    const h = Math.floor((minutos || 0) / 60);
+    const m = (minutos || 0) % 60;
+    return `${String(h).padStart(2, '0')}h${String(m).padStart(2, '0')}m`;
+}
 
 const { logar, enviarSucessoModeracao, COR_EMBED } = require('./logger');
 
@@ -491,12 +498,19 @@ registrar(
 
         const saldo = await getSaldo(alvo.id);
         const mensagens = await getMensagens(alvo.id);
+        const minutosCall = await getMinutosCall(alvo.id);
         const ehPropriaCarteira = alvo.id === interaction.user.id;
+        const avatarUrl = alvo.displayAvatarURL({ extension: 'png', size: 256 });
 
         const container = new ContainerBuilder()
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(` **Carteira de - ${alvo.username}**`))
-            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .setAccentColor(0xFFFFFF)
+            .addSectionComponents(
+                new SectionBuilder()
+                    .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## Carteira de - ${alvo.username}`))
+                    .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
+            )
             .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Saldo:** \`${saldo}\``))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Tempo call:** \`${formatarMinutosCall(minutosCall)}\``))
             .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
             .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Mensagens:** \`${mensagens}\``));
 

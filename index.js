@@ -8378,11 +8378,18 @@ if (interaction.isModalSubmit() && interaction.customId === 'modal_resgate_call_
     await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
     const saldo = await getSaldo(interaction.user.id);
     const mensagens = await getMensagens(interaction.user.id);
+    const minutosCall = await getMinutosCall(interaction.user.id);
+    const avatarUrl = interaction.user.displayAvatarURL({ extension: 'png', size: 256 });
 
     const container = new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(` **Carteria de - ${interaction.user.username}**`))
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .setAccentColor(0xFFFFFF)
+        .addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## Carteira de - ${interaction.user.username}`))
+                .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
+        )
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Saldo:** \`${saldo}\``))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Tempo call:** \`${formatarTempoCurto(minutosCall * 60000)}\``))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Mensagens:** \`${mensagens}\``));
 
@@ -8544,12 +8551,19 @@ if (interaction.isButton() && interaction.customId.startsWith('carteira_atualiza
 
         const saldo = await getSaldo(alvo.id);
         const mensagens = await getMensagens(alvo.id);
+        const minutosCall = await getMinutosCall(alvo.id);
         const ehPropriaCarteira = alvo.id === interaction.user.id;
+        const avatarUrl = alvo.displayAvatarURL({ extension: 'png', size: 256 });
 
         const container = new ContainerBuilder()
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(` **Carteira de - ${alvo.username}**`))
-            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .setAccentColor(0xFFFFFF)
+            .addSectionComponents(
+                new SectionBuilder()
+                    .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## Carteira de - ${alvo.username}`))
+                    .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
+            )
             .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Saldo:** \`${saldo}\``))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Tempo call:** \`${formatarTempoCurto(minutosCall * 60000)}\``))
             .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
             .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Mensagens:** \`${mensagens}\``));
 
