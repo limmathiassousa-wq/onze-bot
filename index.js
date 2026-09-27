@@ -142,7 +142,7 @@ const {
 
 const {
     AVATAR_SIZE, CACHE_AUDIT_MS, CANAL_LOGS_CANAIS_TEXTO, CANAL_LOGS_CANAIS_VOZ,
-    CARD_RADIUS, CARD_WIDTH, CARGOS_RESTRITOS_GERENCIADOR_LIMITADO, CARGO_GERENCIADOR_LIMITADO,
+    CARD_RADIUS, CARD_WIDTH, CARGOS_RESTRITOS_GERENCIADOR_LIMITADO, CARGOS_GERENCIADOR_LIMITADO,
     CATEGORIAS_HELP, DESCRICOES_PROTECAO, DIVIDER_BOTTOM, DURACAO_PUNICAO_STAFF_MS,
     EMOJIS_CONEXAO, EMOJI_SIZE, EMOJI_SIZE_CUSTOM, EXCLUIR_CARGOS_POR_PAGINA,
     EXT_AUDIO, EXT_IMAGEM, GROLES_POR_PAGINA, HANDLE_SIZE,
@@ -2898,6 +2898,11 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}addcargo`)) {
             .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
     }
 
+    if (message.member.roles.cache.some(r => CARGOS_GERENCIADOR_LIMITADO.includes(r.id)) && CARGOS_RESTRITOS_GERENCIADOR_LIMITADO.includes(cargo.id)) {
+        return message.reply('Você não tem permissão para gerenciar esse cargo!')
+            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
+    }
+
     const cargoBotMaisAlto = message.guild.members.me.roles.highest;
     if (cargo.position >= cargoBotMaisAlto.position) {
         return message.reply(`Não consigo gerenciar o cargo **${cargo.name}** — ele está no mesmo nível ou acima do meu cargo mais alto.`)
@@ -2957,6 +2962,11 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}remcargo`)) {
     }
     
     if (cargo.id === CARGO_RESTRITO_UNICO && !message.member.roles.cache.has(CARGO_RESTRITO_UNICO)) {
+        return message.reply('Você não tem permissão para gerenciar esse cargo!')
+            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
+    }
+
+    if (message.member.roles.cache.some(r => CARGOS_GERENCIADOR_LIMITADO.includes(r.id)) && CARGOS_RESTRITOS_GERENCIADOR_LIMITADO.includes(cargo.id)) {
         return message.reply('Você não tem permissão para gerenciar esse cargo!')
             .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
     }
@@ -3744,7 +3754,7 @@ if (interaction.isButton() && interaction.customId.startsWith('groles_toggle_'))
         return interaction.reply({ content: 'Você não tem permissão para gerenciar esse cargo!', flags: [MessageFlags.Ephemeral] });
     }
 
-    if (interaction.member.roles.cache.has(CARGO_GERENCIADOR_LIMITADO) && CARGOS_RESTRITOS_GERENCIADOR_LIMITADO.includes(cargo.id)) {
+    if (interaction.member.roles.cache.some(r => CARGOS_GERENCIADOR_LIMITADO.includes(r.id)) && CARGOS_RESTRITOS_GERENCIADOR_LIMITADO.includes(cargo.id)) {
         return interaction.reply({ content: 'Você não tem permissão para gerenciar esse cargo!', flags: [MessageFlags.Ephemeral] });
     }
 
@@ -3783,7 +3793,7 @@ if (interaction.isButton() && interaction.customId === 'groles_editar_abrir') {
     if (interaction.user.id !== draft.autorId) {
         return interaction.reply({ content: 'Esse painel não pertence a você!', flags: [MessageFlags.Ephemeral] });
     }
-    if (interaction.member.roles.cache.has(CARGO_GERENCIADOR_LIMITADO)) {
+    if (interaction.member.roles.cache.some(r => CARGOS_GERENCIADOR_LIMITADO.includes(r.id))) {
         return interaction.reply({ content: 'Você não tem permissão para criar ou editar cargos!', flags: [MessageFlags.Ephemeral] });
     }
     if (!temPermissaoEditarCargosGRoles(interaction.member)) {

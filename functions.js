@@ -182,7 +182,7 @@ const msgCriadorTimeouts = new Map();
 const GROLES_POR_PAGINA = 5;
 const PERMS_POR_PAGINA = 5;
 
-const CARGO_GERENCIADOR_LIMITADO = '1542321888309809212';
+const CARGOS_GERENCIADOR_LIMITADO = ['1542321888309809212', '1542321888309809210'];
 const CARGOS_RESTRITOS_GERENCIADOR_LIMITADO = [
     '1542321888355684456',
     '1542321888355684455',
@@ -1653,7 +1653,7 @@ async function montarPainelGRoles(guild, draft, adminId) {
     const avatarAlvo = alvoUserFetch?.displayAvatarURL({ extension: 'png', size: 256 }) ?? IMG_DISCORD_LOGO;
 
     const adminMembro = await guild.members.fetch({ user: adminId, force: true }).catch(() => null);
-    const adminEhLimitado = adminMembro?.roles.cache.has(CARGO_GERENCIADOR_LIMITADO) ?? false;
+    const adminEhLimitado = adminMembro?.roles.cache.some(r => CARGOS_GERENCIADOR_LIMITADO.includes(r.id)) ?? false;
 
     const container = new ContainerBuilder().setAccentColor(0xFFFFFF);
 
@@ -4407,12 +4407,15 @@ async function buscarAuditLogsComCache(guild, tipoEvento) {
 }
 
 async function obterExecutorAuditLog(guild, tipoEvento, alvoId = null) {
-    const entries = await buscarAuditLogsComCache(guild, tipoEvento);
-    const entrada = entries.find(e =>
-        (Date.now() - e.createdTimestamp) < 15000 &&
-        (!alvoId || e.target?.id === alvoId)
-    );
-    return entrada?.executor ?? null;
+    // Aceita um tipo único ou uma lista de tipos (ex: permissão editada é logada como
+    // ChannelOverwriteUpdate, não ChannelUpdate — quem chama pode precisar checar os dois).
+    const tipos = Array.isArray(tipoEvento) ? tipoEvento : [tipoEvento];
+    const listas = await Promise.all(tipos.map(t => buscarAuditLogsComCache(guild, t)));
+    const candidatas = listas
+        .flat()
+        .filter(e => (Date.now() - e.createdTimestamp) < 15000 && (!alvoId || e.target?.id === alvoId))
+        .sort((a, b) => b.createdTimestamp - a.createdTimestamp);
+    return candidatas[0]?.executor ?? null;
 }
 
 async function punirExecutorNuke(guild, executor, motivo) {
@@ -4695,7 +4698,7 @@ const TIPOS_AUDIT_EDICAO_CANAL = [
     AuditLogEvent.ChannelUpdate, AuditLogEvent.ChannelOverwriteCreate,
     AuditLogEvent.ChannelOverwriteUpdate, AuditLogEvent.ChannelOverwriteDelete
 ];
-const ESPERAS_AUDIT_CANAL_MS = [0, 300, 700];   // o audit log às vezes demora alguns ms pra registrar
+const ESPERAS_AUDIT_CANAL_MS = [0, 300, 700, 1200, 2000];   // o audit log às vezes demora pra registrar (edição de permissão pode demorar mais de 1s)
 const JANELA_MARCA_PROPRIA_MS = 6000;
 
 const snapshotsCanais = new Map();              // guildId -> Map(canalId -> estado confiável do canal)
@@ -4944,11 +4947,15 @@ async function identificarExecutorCanal(guild, canalId, tipos) {
     return null;
 }
 
-function executorPermitidoCanais(guild, executor) {
+async function executorPermitidoCanais(guild, executor) {
     if (!executor) return false;
-    return executor.id === client.user.id
-        || executor.id === guild.ownerId
-        || cfgAntiNukeCanais().bypassIds.includes(executor.id);
+    if (executor.id === client.user.id || executor.id === guild.ownerId) return true;
+    if (cfgAntiNukeCanais().bypassIds.includes(executor.id)) return true;
+
+    // Quem tem cargo de atendente pode editar/apagar canais sem ser barrado pelo Anti Nuke.
+    const membro = guild.members.cache.get(executor.id)
+        ?? await guild.members.fetch(executor.id).catch(() => null);
+    return !!membro && membro.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
 }
 
 // ---- punição: bot é banido na hora, humano só passa do limite de infrações ----
@@ -5185,7 +5192,7 @@ async function antiNukeCanalDeletado(canal) {
 
     try {
         const executor = await identificarExecutorCanal(guild, canal.id, [AuditLogEvent.ChannelDelete]);
-        if (executorPermitidoCanais(guild, executor)) return;
+        if (await executorPermitidoCanais(guild, executor)) return;
         if (!executor && antiNukeCanaisPausas > 0) return;
 
         if (executor) punirInfratorCanais(guild, executor, `apagou o canal ${snap.nome}`);
@@ -5231,7 +5238,7 @@ async function antiNukeCanalEditado(antigo, novo) {
     }
 
     const executor = await identificarExecutorCanal(guild, novo.id, TIPOS_AUDIT_EDICAO_CANAL);
-    if (executorPermitidoCanais(guild, executor) || (!executor && antiNukeCanaisPausas > 0)) {
+    if ((await executorPermitidoCanais(guild, executor)) || (!executor && antiNukeCanaisPausas > 0)) {
         obterMapaSnapshotsCanais(guild.id).set(novo.id, atual);
         return;
     }
@@ -5256,7 +5263,7 @@ function montarPainelAntiNukeCanais(guildId) {
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(`### ${cfg.ativo ? EMOJI_ATIVADO : EMOJI_DESATIVADO} Anti Nuke`))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent('-# Painel > Lock all > Anti Nuke'))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            'Protege todos os canais de texto e voz do servidor. Quem não tem bypass não consegue apagar nem editar nada.'
+            'Protege todos os canais de texto e voz do servidor. Quem não tem bypass (ou cargo de atendente) não consegue apagar nem editar nada.'
         ))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
@@ -7253,7 +7260,7 @@ module.exports = {
     CANAL_LOGS_CANAIS_VOZ,
     CARD_RADIUS,
     CARD_WIDTH,
-    CARGO_GERENCIADOR_LIMITADO,
+    CARGOS_GERENCIADOR_LIMITADO,
     CARGOS_RESTRITOS_GERENCIADOR_LIMITADO,
     CATEGORIAS_HELP,
     DESCRICOES_PROTECAO,
