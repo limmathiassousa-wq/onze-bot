@@ -3,7 +3,7 @@ server:
   address: 0.0.0.0
 lavalink:
   server:
-    password: "escolha_uma_senha_forte"
+    password: "050612@rayan"
     sources:
       youtube: true
       soundcloud: true
