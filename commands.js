@@ -636,7 +636,7 @@ registrar(
         if (interaction.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) {
             return interaction.reply({ content: 'Você não tem permissão para utilizar este comando!', flags: [MessageFlags.Ephemeral] });
         }
-        const temPermissao = interaction.member.permissions.has('Administrator') || interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
+        const temPermissao = interaction.member.permissions.has('Administrator') || interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id)) || interaction.member.roles.cache.has('1542321888309809210') || interaction.member.roles.cache.has('1542321888309809212');
         if (!temPermissao) {
             return interaction.reply({ content: 'Você não tem permissão para utilizar este comando!', flags: [MessageFlags.Ephemeral] });
         }
