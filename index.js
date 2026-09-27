@@ -187,6 +187,7 @@ const {
     montarPainelGRolesCriar, montarPainelGRolesEditar, montarPainelGRolesExcluir, montarPainelGRolesExcluirConfirmar,
     montarPainelGRolesPermLista, montarPainelGRolesPermissoes, montarPainelHelp, montarPainelInfoHierarquia,
     montarPainelInstaInfo, montarPainelListaCargo, montarPainelLock,
+    montarPainelConfirmacaoAddCargo, montarPainelConfirmacaoRemCargo,
     montarPainelMoedas, montarPainelMsgCriadorBuilder, montarPainelMsgCriadorInicial, montarPainelProgressoBackup,
     montarPainelProtecao, montarPainelRemoverConfirmacao, montarPainelRemoverSelect, montarPainelRoleAllInicial,
     montarPainelSorteioConfig, montarPainelSorteioInicial, montarPainelStatus, montarPainelUserInfo,
@@ -2014,7 +2015,8 @@ if (message.content.toLowerCase() === `${PREFIXO}painelurl`) {
 if (message.content.toLowerCase() === `${PREFIXO}info`) {
     return message.channel.send({
         components: [montarPainelInfoHierarquia(message.guild, message.author.id)],
-        flags: [MessageFlags.IsComponentsV2]
+        flags: [MessageFlags.IsComponentsV2],
+        allowedMentions: { parse: [] }
     });
 }
 
@@ -2916,26 +2918,17 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}addcargo`)) {
         });
     }
 
-    try {
-        await alvo.roles.add(cargo);
-    } catch (err) {
-        console.error('--- Erro ao adicionar cargo ---', err);
-        return message.reply('Ocorreu um erro ao adicionar o cargo. Verifique minhas permissões e a hierarquia de cargos.')
-            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
-    }
-await logarCargo({
-    guild: message.guild,
-    tipo: 'Cargo adicionado',
-    alvo: `${alvo} (${alvo.user.tag})`,
-    alvoUser: alvo.user,
-    autor: message.author,
-    cargo: `${cargo}`
-});
-
-    return enviarEmbedDetalhada(message.channel, {
-        titulo: 'Cargo Adicionado', alvoUser: alvo.user, autor: message.author,
-        campos: [linhaCampo('Cargo', `${cargo}`)]
+    const painelAdd = await message.channel.send({
+        components: [montarPainelConfirmacaoAddCargo(alvo, cargo)],
+        flags: [MessageFlags.IsComponentsV2],
+        allowedMentions: { parse: [] }
     });
+
+    confirmacaoModeracaoDB.set(painelAdd.id, {
+        tipo: 'addcargo', autorId: message.author.id, alvoId: alvo.id, cargoId: cargo.id
+    });
+    setTimeout(() => confirmacaoModeracaoDB.delete(painelAdd.id), 2 * 60 * 1000);
+    return;
 }
 
 if (message.content.toLowerCase().startsWith(`${PREFIXO}remcargo`)) {
@@ -2984,26 +2977,17 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}remcargo`)) {
         });
     }
 
-    try {
-        await alvo.roles.remove(cargo);
-    } catch (err) {
-        console.error('--- Erro ao remover cargo ---', err);
-        return message.reply('Ocorreu um erro ao remover o cargo. Verifique minhas permissões e a hierarquia de cargos.')
-            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
-    }
-await logarCargo({
-    guild: message.guild,
-    tipo: 'Cargo removido',
-    alvo: `${alvo} (${alvo.user.tag})`,
-    alvoUser: alvo.user,
-    autor: message.author,
-    cargo: `${cargo}`
-});
-
-    return enviarEmbedDetalhada(message.channel, {
-        titulo: 'Cargo Removido', alvoUser: alvo.user, autor: message.author,
-        campos: [linhaCampo('Cargo', `${cargo}`)]
+    const painelRem = await message.channel.send({
+        components: [montarPainelConfirmacaoRemCargo(alvo, cargo)],
+        flags: [MessageFlags.IsComponentsV2],
+        allowedMentions: { parse: [] }
     });
+
+    confirmacaoModeracaoDB.set(painelRem.id, {
+        tipo: 'remcargo', autorId: message.author.id, alvoId: alvo.id, cargoId: cargo.id
+    });
+    setTimeout(() => confirmacaoModeracaoDB.delete(painelRem.id), 2 * 60 * 1000);
+    return;
 }
     
 if (message.content.toLowerCase().startsWith(`${PREFIXO}limpar`)) {
@@ -5019,7 +5003,8 @@ if (interaction.isButton() && interaction.customId.startsWith('info_hierarquia_v
 
     return interaction.reply({
         components: [montarPainelVerificacaoCargos()],
-        flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
+        flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral],
+        allowedMentions: { parse: [] }
     });
 }
 
@@ -5035,7 +5020,8 @@ if (interaction.isRoleSelectMenu() && interaction.customId === 'info_hierarquia_
 
     return interaction.editReply({
         components: [container],
-        flags: [MessageFlags.IsComponentsV2]
+        flags: [MessageFlags.IsComponentsV2],
+        allowedMentions: { parse: [] }
     });
 }
 
@@ -5051,7 +5037,8 @@ if (interaction.isRoleSelectMenu() && interaction.customId === 'info_hierarquia_
 
     return interaction.editReply({
         components: [container],
-        flags: [MessageFlags.IsComponentsV2]
+        flags: [MessageFlags.IsComponentsV2],
+        allowedMentions: { parse: [] }
     });
 }
 
@@ -5071,10 +5058,135 @@ if (interaction.isButton() && interaction.customId.startsWith('info_hierarquia_p
 
     return interaction.editReply({
         components: [container],
-        flags: [MessageFlags.IsComponentsV2]
+        flags: [MessageFlags.IsComponentsV2],
+        allowedMentions: { parse: [] }
     });
 }
 	
+if (interaction.isButton() && interaction.customId === 'cargo_add_confirmar') {
+    const draft = confirmacaoModeracaoDB.get(interaction.message.id);
+    if (!draft || draft.tipo !== 'addcargo') {
+        return interaction.update({ components: containerTexto('Essa confirmação expirou.'), flags: [MessageFlags.IsComponentsV2] });
+    }
+    if (interaction.user.id !== draft.autorId) {
+        return interaction.reply({ content: 'Esse painel não pertence a você!', flags: [MessageFlags.Ephemeral] });
+    }
+
+    await interaction.deferUpdate();
+    confirmacaoModeracaoDB.delete(interaction.message.id);
+
+    const cargo = interaction.guild.roles.cache.get(draft.cargoId);
+    const alvo = await interaction.guild.members.fetch({ user: draft.alvoId, force: true }).catch(() => null);
+
+    if (!cargo || !alvo) {
+        await interaction.editReply({ components: containerTexto('Não foi possível localizar o cargo ou o usuário.'), flags: [MessageFlags.IsComponentsV2] });
+        return apagarInteracaoApos(interaction);
+    }
+
+    const cargoBotMaisAlto = interaction.guild.members.me.roles.highest;
+    if (cargo.position >= cargoBotMaisAlto.position) {
+        await interaction.editReply({ components: containerTexto(`Não consigo gerenciar o cargo **${cargo.name}** — ele está no mesmo nível ou acima do meu cargo mais alto.`), flags: [MessageFlags.IsComponentsV2] });
+        return apagarInteracaoApos(interaction);
+    }
+
+    if (alvo.roles.cache.has(cargo.id)) {
+        await interaction.editReply({ components: containerTexto(`**${alvo.user.tag}** já possui esse cargo.`), flags: [MessageFlags.IsComponentsV2] });
+        return apagarInteracaoApos(interaction);
+    }
+
+    try {
+        await alvo.roles.add(cargo);
+    } catch (err) {
+        console.error('--- Erro ao adicionar cargo (confirmação) ---', err);
+        await interaction.editReply({ components: containerTexto('Ocorreu um erro ao adicionar o cargo. Verifique minhas permissões e a hierarquia de cargos.'), flags: [MessageFlags.IsComponentsV2] });
+        return apagarInteracaoApos(interaction);
+    }
+
+    await logarCargo({
+        guild: interaction.guild,
+        tipo: 'Cargo adicionado',
+        alvo: `${alvo} (${alvo.user.tag})`,
+        alvoUser: alvo.user,
+        autor: interaction.user,
+        cargo: `${cargo}`
+    });
+
+    const containerSucessoAdd = new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            `<:check:1548558822711365702> Cargo **${cargo.name}** adicionado com sucesso!`
+        ));
+
+    const msgSucessoAdd = await interaction.editReply({
+        components: [containerSucessoAdd],
+        flags: [MessageFlags.IsComponentsV2],
+        allowedMentions: { parse: [] }
+    });
+    if (msgSucessoAdd) apagarMensagemApos(msgSucessoAdd, 5 * 60 * 1000);
+    return;
+}
+
+if (interaction.isButton() && interaction.customId === 'cargo_rem_confirmar') {
+    const draft = confirmacaoModeracaoDB.get(interaction.message.id);
+    if (!draft || draft.tipo !== 'remcargo') {
+        return interaction.update({ components: containerTexto('Essa confirmação expirou.'), flags: [MessageFlags.IsComponentsV2] });
+    }
+    if (interaction.user.id !== draft.autorId) {
+        return interaction.reply({ content: 'Esse painel não pertence a você!', flags: [MessageFlags.Ephemeral] });
+    }
+
+    await interaction.deferUpdate();
+    confirmacaoModeracaoDB.delete(interaction.message.id);
+
+    const cargo = interaction.guild.roles.cache.get(draft.cargoId);
+    const alvo = await interaction.guild.members.fetch({ user: draft.alvoId, force: true }).catch(() => null);
+
+    if (!cargo || !alvo) {
+        await interaction.editReply({ components: containerTexto('Não foi possível localizar o cargo ou o usuário.'), flags: [MessageFlags.IsComponentsV2] });
+        return apagarInteracaoApos(interaction);
+    }
+
+    const cargoBotMaisAltoRem = interaction.guild.members.me.roles.highest;
+    if (cargo.position >= cargoBotMaisAltoRem.position) {
+        await interaction.editReply({ components: containerTexto(`Não consigo gerenciar o cargo **${cargo.name}** — ele está no mesmo nível ou acima do meu cargo mais alto.`), flags: [MessageFlags.IsComponentsV2] });
+        return apagarInteracaoApos(interaction);
+    }
+
+    if (!alvo.roles.cache.has(cargo.id)) {
+        await interaction.editReply({ components: containerTexto(`**${alvo.user.tag}** não possui esse cargo.`), flags: [MessageFlags.IsComponentsV2] });
+        return apagarInteracaoApos(interaction);
+    }
+
+    try {
+        await alvo.roles.remove(cargo);
+    } catch (err) {
+        console.error('--- Erro ao remover cargo (confirmação) ---', err);
+        await interaction.editReply({ components: containerTexto('Ocorreu um erro ao remover o cargo. Verifique minhas permissões e a hierarquia de cargos.'), flags: [MessageFlags.IsComponentsV2] });
+        return apagarInteracaoApos(interaction);
+    }
+
+    await logarCargo({
+        guild: interaction.guild,
+        tipo: 'Cargo removido',
+        alvo: `${alvo} (${alvo.user.tag})`,
+        alvoUser: alvo.user,
+        autor: interaction.user,
+        cargo: `${cargo}`
+    });
+
+    const containerSucessoRem = new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            `<:check:1548558822711365702> Cargo **${cargo.name}** removido com sucesso!`
+        ));
+
+    const msgSucessoRem = await interaction.editReply({
+        components: [containerSucessoRem],
+        flags: [MessageFlags.IsComponentsV2],
+        allowedMentions: { parse: [] }
+    });
+    if (msgSucessoRem) apagarMensagemApos(msgSucessoRem, 5 * 60 * 1000);
+    return;
+}
+
 if (interaction.isButton() && interaction.customId === 'moderacao_confirmar') {
     const draft = confirmacaoModeracaoDB.get(interaction.message.id);
     if (!draft) {

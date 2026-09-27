@@ -2446,6 +2446,50 @@ async function montarPainelListaCargo(guild, cargo, pagina = 0) {
     return container;
 }
 
+function montarPainelConfirmacaoAddCargo(alvo, cargo) {
+    const avatarUrl = alvo.user.displayAvatarURL({ extension: 'png', size: 256 });
+
+    return new ContainerBuilder()
+        .addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+                    `### Adicionar Cargo\n**Usuário:** ${alvo}\n**Cargo:** ${cargo}`
+                ))
+                .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
+        )
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`cargo_add_confirmar`)
+                    .setLabel('Adicionar')
+                    .setStyle(ButtonStyle.Success)
+            )
+        );
+}
+
+function montarPainelConfirmacaoRemCargo(alvo, cargo) {
+    const avatarUrl = alvo.user.displayAvatarURL({ extension: 'png', size: 256 });
+
+    return new ContainerBuilder()
+        .addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+                    `### Remover Cargo\n**Usuário:** ${alvo}\n**Cargo:** ${cargo}`
+                ))
+                .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
+        )
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`cargo_rem_confirmar`)
+                    .setLabel('Remover')
+                    .setStyle(ButtonStyle.Danger)
+            )
+        );
+}
+
 async function baixarTikTok(link) {
     // ---- Tentativa 1: RapidAPI (tiktok-video-no-watermark2) ----
     if (process.env.TIKTOK_RAPIDAPI_KEY) {
@@ -7448,7 +7492,7 @@ module.exports = {
     montarPainelHelp,
     montarPainelInfoHierarquia,
     montarPainelInstaInfo,
-    montarPainelListaCargo,
+    montarPainelListaCargo, montarPainelConfirmacaoAddCargo, montarPainelConfirmacaoRemCargo,
     montarPainelLock,
     montarPainelMoedas,
     montarPainelMsgCriadorBuilder,
