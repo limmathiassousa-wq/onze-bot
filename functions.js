@@ -4357,6 +4357,7 @@ async function carregarTellonymPendentes() {
 
 async function verificarAntiLink(message) {
     if (!protecaoConfig.antiLink.ativo) return false;
+    if (ticketDB.has(message.channel.id)) return false; // NOVO: anti-link não age dentro de tickets
 
     const cargosLiberados = [CARGO_BOOSTER, ...CARGOS_ATENDENTE, ...protecaoConfig.antiLink.cargosBypass];
     if (message.member.roles.cache.some(r => cargosLiberados.includes(r.id))) return false;
