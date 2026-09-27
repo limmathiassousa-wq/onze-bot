@@ -96,10 +96,6 @@ async function escolherUrlMidia(foto) {
     return null;
 }
 
-const { anaResponderComAudio, DONO_ID: DONO_ID_ANA } = require('./ana_voz');
-const CANAIS_VOZ_ANA = ['1548489854038581308', '1548578896054718474'];
-
-
 const mongoConectado = mongoose.connect(MONGO_URI)
     .then(() => {
         console.log('[MongoDB] Conectado com sucesso!');
@@ -1760,106 +1756,6 @@ client.on('messageCreate', async (message) => {
         if (error) console.error('--- Erro ao cachear mensagem no Supabase ---', error);
     } catch (err) {
         console.error('--- Erro ao cachear mensagem no Supabase ---', err);
-    }
-});
-
-client.on('messageCreate', async (message) => {
-    try {
-        if (message.author.bot) return;
-
-        if (!CANAIS_VOZ_ANA.includes(message.channel.id)) {
-            return;
-        }
-
-        const ehReply = !!message.reference?.messageId;
-        let respondendoAudioDaAna = false;
-
-        if (ehReply) {
-            const msgReferenciada = await message.channel.messages.fetch(message.reference.messageId).catch(() => null);
-            respondendoAudioDaAna = !!(
-                msgReferenciada &&
-                msgReferenciada.author.id === client.user.id &&
-                msgReferenciada.flags?.has(MessageFlags.IsVoiceMessage)
-            );
-
-            if (!respondendoAudioDaAna) {
-                console.log('[DEBUG-ANA] Ignorado: é reply, mas não a uma mensagem de voz da Ana');
-                return;
-            }
-        } else {
-            const foiMencionada = message.mentions.users.has(client.user.id);
-            if (!foiMencionada) {
-                console.log('[DEBUG-ANA] Ignorado: não é reply e o bot não foi mencionado');
-                return;
-            }
-        }
-
-        console.log('[DEBUG-ANA] Gatilho válido! Prosseguindo para gerar resposta...');
-
-        const mencaoBotRegex = new RegExp(`<@!?${client.user.id}>`, 'g');
-        const conteudoLimpo = message.content.replace(mencaoBotRegex, '').trim();
-        const textoUsuario = conteudoLimpo || '(o usuário só te mencionou, sem escrever nada — cumprimente ele)';
-
-        await message.channel.sendTyping().catch(() => null);
-
-        if (!message.member) {
-            console.log('[DEBUG-ANA] AVISO: message.member veio null (membro não cacheado) — checando permissão só por DONO_ID');
-        }
-
-        const autorizado = message.author.id === DONO_ID_ANA
-            || !!message.member?.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
-
-        // Monta uma "nota de contexto" resolvendo quem/o que cada menção da mensagem representa,
-        // já que os códigos crus (<@id>, <@&id>, <#id>) não significam nada pra IA sozinhos.
-        const notaContextoPartes = [];
-
-        if (message.mentions.users.size) {
-            const pessoas = [...message.mentions.users.values()]
-                .filter(u => u.id !== client.user.id)
-                .map(u => {
-                    const membro = message.mentions.members?.get(u.id);
-                    const nomeExibido = membro?.displayName || u.globalName || u.username;
-                    return `<@${u.id}> é a pessoa "${nomeExibido}" (usuário: ${u.username}, id: ${u.id})`;
-                });
-            if (pessoas.length) notaContextoPartes.push(pessoas.join('; '));
-        }
-
-        if (message.mentions.roles.size) {
-            const cargos = [...message.mentions.roles.values()]
-                .map(r => `<@&${r.id}> é o cargo "${r.name}" (id: ${r.id})`);
-            notaContextoPartes.push(cargos.join('; '));
-        }
-
-        if (message.mentions.channels.size) {
-            const canais = [...message.mentions.channels.values()]
-                .map(c => `<#${c.id}> é o canal "#${c.name}" (id: ${c.id})`);
-            notaContextoPartes.push(canais.join('; '));
-        }
-
-        const notaContexto = notaContextoPartes.length
-            ? `[Contexto interno, não fale isso em voz alta — é só referência sua pra entender a mensagem: ${notaContextoPartes.join('; ')}]`
-            : '';
-
-        // Pega a primeira imagem anexada na mensagem, se tiver
-        const anexoImagem = message.attachments.find(a => a.contentType?.startsWith('image/'));
-        const imagemAnexadaUrl = anexoImagem?.url || null;
-
-        console.log(`[DEBUG-ANA] Chamando anaResponderComAudio | textoUsuario="${textoUsuario}" | autorizado=${autorizado} | notaContexto="${notaContexto}" | imagemAnexadaUrl=${imagemAnexadaUrl}`);
-
-        await anaResponderComAudio({
-            canalId: message.channel.id,
-            autorId: message.author.id,
-            textoUsuario,
-            replyToMessageId: message.id,
-            guildId: message.guild.id,
-            autorizado,
-            notaContexto,
-            imagemAnexadaUrl
-        });
-
-        console.log('[DEBUG-ANA] anaResponderComAudio concluído com sucesso.');
-    } catch (err) {
-        console.error('--- Erro no sistema de voz da Ana ---', err);
     }
 });
 
