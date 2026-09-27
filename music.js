@@ -561,7 +561,12 @@ async function tocarMusica(interaction, query) {
     let player = kazagumo.players.get(interaction.guild.id);
 
     if (!player) {
-        const nodeOnline = [...kazagumo.shoukaku.nodes.values()].some((n) => n.state === 1);
+        // state === 2 é Constants.State.CONNECTED no Shoukaku (0=CONNECTING,
+        // 1=NEARLY, 2=CONNECTED, 3=RECONNECTING, 4=DISCONNECTING, 5=DISCONNECTED).
+        // Antes checava === 1 (NEARLY), que é só um estado de transição — por
+        // isso o /play quase sempre dizia "nenhum servidor online" mesmo com
+        // o node local perfeitamente conectado.
+        const nodeOnline = [...kazagumo.shoukaku.nodes.values()].some((n) => n.state === 2);
         if (!nodeOnline) {
             console.error('[MÚSICA] /play chamado, mas nenhum node Lavalink está conectado.');
             return interaction.editReply({ content: 'Nenhum servidor de música está online agora. Tenta de novo em instantes.' });
