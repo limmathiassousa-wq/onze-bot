@@ -1,6 +1,9 @@
 require('dotenv').config();
 process.env.PATH = `${process.env.HOME || '/opt/render'}/.deno/bin:${process.env.PATH}`;
 
+const { iniciarLavalinkLocal } = require('./lavalink-launcher');
+iniciarLavalinkLocal();
+
 const express = require('express');
 const app = express();
 app.get('/', (req, res) => res.send('Bot Online!'));
