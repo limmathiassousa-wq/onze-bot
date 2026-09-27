@@ -1041,5 +1041,6 @@ module.exports = {
     COR_EMBED, TEMPO_EMBED_SUCESSO_MS, linhaCampo,
     montarEmbedDetalhada, enviarEmbedDetalhada,
     montarEmbedSucessoModeracao, enviarSucessoModeracao, apagarInteracaoApos,
-    apagarMensagemApos, montarPainelConfirmacaoMute
+    apagarMensagemApos, montarPainelConfirmacaoMute,
+    obterDataHora
 };

@@ -17,7 +17,7 @@ const crypto = require('crypto');
 const { comandos, montarPainelBotCall } = require('./commands');
 const { botCallDB, botCallPaineis, msgCriadorDB } = require('./state');
 const { esperar, containerTexto, comRetry, xpNecessario, somarSaldo, getXP, setXP, urlValida, somarMinutosCall } = require('./helpers');
-const { logarAntiLink, logarAntiSpam, logarPunicaoCargosStaff, logarAntiNukeCanais } = require('./logger');
+const { logarAntiLink, logarAntiSpam, logarPunicaoCargosStaff, logarAntiNukeCanais, obterDataHora } = require('./logger');
 const redis = require('./redis');
 const { supabase } = require('./supabase');
 const {
@@ -4437,14 +4437,19 @@ async function enviarAlertaProtecao(guild, titulo, linhas, avatarUrl = null) {
         const canal = await guild.channels.fetch(CANAL_LOGS_MOD).catch(() => null);
         if (!canal) return;
 
+        const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
+
         const container = new ContainerBuilder()
+            .setAccentColor(0xFFFFFF)
             .addSectionComponents(
                 new SectionBuilder()
-                    .addTextDisplayComponents(new TextDisplayBuilder().setContent(`### ${titulo}`))
+                    .addTextDisplayComponents(new TextDisplayBuilder().setContent(`### ${titulo} — ${guild.name}`))
                     .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl || IMG_DISCORD_LOGO))
             )
             .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(linhas.join('\n')));
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(linhas.join('\n')))
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
 
         await canal.send({
             components: [container],
