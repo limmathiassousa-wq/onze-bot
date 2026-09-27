@@ -52,21 +52,17 @@ const EMOJI = {
 // ---------------------------------------------------------------------------
 const NODES = [
     {
+        // Lavalink rodando dentro do próprio serviço Render (veja lavalink-launcher.js).
+        // Fica sempre em primeiro: é o mais rápido e confiável, já que roda localmente.
+        name: 'local',
+        url: 'localhost:2333',
+        auth: 'escolha_uma_senha_forte', // precisa ser IGUAL à senha no application.yml
+        secure: false
+    },
+    {
         name: 'serenetia',
         url: 'lavalinkv4.serenetia.com:443',
         auth: 'https://dsc.gg/ajidevserver',
-        secure: true
-    },
-    {
-        name: 'heaven-us',
-        url: 'us.lavalink.heavencloud.in:443',
-        auth: 'heavencloud',
-        secure: true
-    },
-    {
-        name: 'heaven-eu',
-        url: 'eu.lavalink.heavencloud.in:443',
-        auth: 'heavencloud',
         secure: true
     },
     {
@@ -76,11 +72,21 @@ const NODES = [
         secure: true
     },
     {
+        // Encontrado em https://github.com/stackryze/lavalink-list (nodes.json),
+        // repositório com atividade recente em 2026. Sem SSL (secure: false).
+        name: 'stackryze',
+        url: '188.245.207.225:2333',
+        auth: 'youshallnotpass',
+        secure: false
+    },
+    {
         name: 'jirayu',
         url: 'lavalink.jirayu.net:13592',
         auth: 'youshallnotpass',
         secure: false
     }
+    // heaven-us / heaven-eu removidos: o domínio heavencloud.in não resolve
+    // mais (ENOTFOUND nos logs), o node saiu do ar / mudou de domínio.
 ];
 
 let kazagumo = null;
