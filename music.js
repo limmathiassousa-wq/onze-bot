@@ -56,7 +56,7 @@ const NODES = [
         // Fica sempre em primeiro: é o mais rápido e confiável, já que roda localmente.
         name: 'local',
         url: 'localhost:2333',
-        auth: 'escolha_uma_senha_forte', // precisa ser IGUAL à senha no application.yml
+        auth: '050612@rayan', // precisa ser IGUAL à senha no application.yml
         secure: false
     },
     {
