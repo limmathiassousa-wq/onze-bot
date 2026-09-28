@@ -3059,20 +3059,23 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}limpar`)) {
         let deletadas = 0;
 
         function montarPainelLimpeza(finalizado = false) {
-            const container = new ContainerBuilder()
-                .setAccentColor(0x000000)
+            const segundos = Math.max(0, Math.floor(Date.now() / 1000) - inicioUnix);
+            const tempo = segundos >= 60 ? `${Math.floor(segundos / 60)}m ${segundos % 60}s` : `${segundos}s`;
+            const canalNome = message.channel.name;
+
+            return new ContainerBuilder()
+                .setAccentColor(0xFFFFFF)
                 .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-                    finalizado
-                        ? '### <:check:1548558822711365702> Limpeza concluída'
-                        : '### <a:cerregando2:1548558592133824562> Limpando canal...'
+                    `### ${finalizado ? '<:check:1548558822711365702>' : '<a:carregando3:1548558882681524224>'} ${finalizado ? 'Limpeza concluída' : 'Limpando canal'} — ${canalNome}\n` +
+                    `**Progresso:** \`${deletadas}/${quantidade}\`\n` +
+                    `**Iniciado há:** \`${tempo}\``
                 ))
                 .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
                 .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-                    `**Progresso:** \`${deletadas}/${quantidade}\`\n` +
-                    `**Iniciado:** <t:${inicioUnix}:R>${finalizado ? `\n**Por:** ${message.author}` : ''}`
+                    finalizado
+                        ? `-# **Canal limpo: ${message.channel}** · por ${message.author}`
+                        : `-# **Limpando o canal: ${message.channel}**`
                 ));
-
-            return container;
         }
 
         const msgProgresso = await message.channel.send({
