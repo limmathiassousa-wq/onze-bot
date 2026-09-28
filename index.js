@@ -1778,6 +1778,18 @@ client.on('messageCreate', async (message) => {
     }
 });
 
+// Descobre o alvo de um comando de moderação em prefixo: aceita @menção ou o ID do usuário
+// (ex.: o!ban 1497943125602074860). Funciona mesmo se a pessoa não estiver no servidor.
+async function resolverAlvoPrefixo(message) {
+    const arg = message.content.trim().split(/\s+/)[1] || '';
+    const idArg = (arg.match(/^<@!?(\d{15,25})>$/) || arg.match(/^(\d{15,25})$/) || [])[1];
+
+    if (idArg) {
+        return message.mentions.users.get(idArg) || await client.users.fetch(idArg).catch(() => null);
+    }
+    return message.mentions.users.first() || null;
+}
+
 // Remove qualquer mute do membro: timeout nativo e/ou mute por cargo (restaurando os cargos antigos)
 async function removerMuteCompleto(guild, alvoId, motivo) {
     let membro = await guild.members.fetch({ user: alvoId, force: true }).catch(() => null);
@@ -2077,10 +2089,13 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}ban `) || message.conten
         return aviso('Você não tem permissão para banir membros!');
     }
 
-    const alvo = message.mentions.users.first();
-    if (!alvo) return aviso(`Uso correto: \`${PREFIXO}ban @usuário [motivo]\``);
+    const alvo = await resolverAlvoPrefixo(message);
+    if (!alvo) return aviso(`Uso correto: \`${PREFIXO}ban @usuário|ID [motivo]\` (usuário não encontrado)`);
     if (alvo.id === message.author.id) return aviso('Você não pode se banir!');
     if (alvo.id === client.user.id) return aviso('Eu não posso me banir!');
+
+    const jaBanido = await message.guild.bans.fetch({ user: alvo.id, force: true }).catch(() => null);
+    if (jaBanido) return aviso('Esse usuário já está banido.');
 
     const motivo = message.content.trim().split(/\s+/).slice(2).join(' ') || null;
 
@@ -2106,10 +2121,10 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}unban `) || message.cont
     }
 
     const args = message.content.trim().split(/\s+/);
-    const usuarioId = args[1];
+    const usuarioId = (args[1] || '').replace(/^<@!?(\d+)>$/, '$1');
     const motivo = args.slice(2).join(' ') || null;
 
-    if (!usuarioId || !/^\d{15,25}$/.test(usuarioId)) return aviso(`Uso correto: \`${PREFIXO}unban <id> [motivo]\``);
+    if (!usuarioId || !/^\d{15,25}$/.test(usuarioId)) return aviso(`Uso correto: \`${PREFIXO}unban <ID|@usuário> [motivo]\``);
 
     const banido = await message.guild.bans.fetch({ user: usuarioId, force: true }).catch(() => null);
     if (!banido) return aviso('Esse usuário não está banido, ou o ID é inválido.');
@@ -2132,8 +2147,8 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}kick `) || message.conte
         return aviso('Você não tem permissão para expulsar membros!');
     }
 
-    const alvo = message.mentions.users.first();
-    if (!alvo) return aviso(`Uso correto: \`${PREFIXO}kick @usuário [motivo]\``);
+    const alvo = await resolverAlvoPrefixo(message);
+    if (!alvo) return aviso(`Uso correto: \`${PREFIXO}kick @usuário|ID [motivo]\` (usuário não encontrado)`);
     if (alvo.id === message.author.id) return aviso('Você não pode se expulsar!');
     if (alvo.id === client.user.id) return aviso('Eu não posso me expulsar!');
 
@@ -2159,8 +2174,8 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}mute `) || message.conte
 
     if (!temPermissaoMute(message.member)) return aviso('Você não tem permissão para silenciar membros!');
 
-    const alvo = message.mentions.users.first();
-    if (!alvo) return aviso(`Uso correto: \`${PREFIXO}mute @usuário [motivo]\``);
+    const alvo = await resolverAlvoPrefixo(message);
+    if (!alvo) return aviso(`Uso correto: \`${PREFIXO}mute @usuário|ID [motivo]\` (usuário não encontrado)`);
     if (alvo.id === message.author.id) return aviso('Você não pode se mutar!');
     if (alvo.bot) return aviso('Você não pode mutar um bot!');
 
@@ -2188,8 +2203,8 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}unmute `) || message.con
 
     if (!temPermissaoMute(message.member)) return aviso('Você não tem permissão para remover o silenciamento!');
 
-    const alvo = message.mentions.users.first();
-    if (!alvo) return aviso(`Uso correto: \`${PREFIXO}unmute @usuário [motivo]\``);
+    const alvo = await resolverAlvoPrefixo(message);
+    if (!alvo) return aviso(`Uso correto: \`${PREFIXO}unmute @usuário|ID [motivo]\` (usuário não encontrado)`);
 
     const membroAlvo = await message.guild.members.fetch({ user: alvo.id, force: true }).catch(() => null);
     if (!membroAlvo) return aviso('Esse usuário não está no servidor.');
