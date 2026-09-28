@@ -4055,12 +4055,9 @@ async function darXP(message) {
         }
 
         if (!ehTicket) { // NOVO: só envia se não for ticket
-            const containerLevelUp = new ContainerBuilder()
-                .addTextDisplayComponents(new TextDisplayBuilder().setContent(`Ei ${message.author}, você subiu para o nível **${dados.nivel}**!`));
-
             await message.channel.send({
-                components: [containerLevelUp],
-                flags: [MessageFlags.IsComponentsV2]
+                content: `Ei ${message.author}, você subiu para o nível **${dados.nivel}**!`,
+                allowedMentions: { users: [message.author.id] }
             }).catch(() => null);
         }
     }

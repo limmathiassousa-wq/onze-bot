@@ -1795,6 +1795,13 @@ async function resolverAlvoPrefixo(message) {
     return message.mentions.users.first() || null;
 }
 
+// Extrai só o ID do alvo (mention ou ID puro), sem precisar que o usuário esteja em cache/servidor.
+// Usado em comandos como o!ban, que precisam funcionar mesmo com quem já saiu/foi expulso.
+function extrairIdAlvoPrefixo(message) {
+    const arg = message.content.trim().split(/\s+/)[1] || '';
+    return (arg.match(/^<@!?(\d{15,25})>$/) || arg.match(/^(\d{15,25})$/) || [])[1] || null;
+}
+
 // Remove qualquer mute do membro: timeout nativo e/ou mute por cargo (restaurando os cargos antigos)
 async function removerMuteCompleto(guild, alvoId, motivo) {
     let membro = await guild.members.fetch({ user: alvoId, force: true }).catch(() => null);
@@ -2094,24 +2101,29 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}ban `) || message.conten
         return aviso('Você não tem permissão para banir membros!');
     }
 
-    const alvo = await resolverAlvoPrefixo(message);
-    if (!alvo) return aviso(`Uso correto: \`${PREFIXO}ban @usuário|ID [motivo]\` (usuário não encontrado)`);
-    if (alvo.id === message.author.id) return aviso('Você não pode se banir!');
-    if (alvo.id === client.user.id) return aviso('Eu não posso me banir!');
+    const idAlvo = extrairIdAlvoPrefixo(message);
+    if (!idAlvo) return aviso(`Uso correto: \`${PREFIXO}ban @usuário|ID [motivo]\``);
+    if (idAlvo === message.author.id) return aviso('Você não pode se banir!');
+    if (idAlvo === client.user.id) return aviso('Eu não posso me banir!');
 
-    const jaBanido = await message.guild.bans.fetch({ user: alvo.id, force: true }).catch(() => null);
+    const jaBanido = await message.guild.bans.fetch({ user: idAlvo, force: true }).catch(() => null);
     if (jaBanido) return aviso('Esse usuário já está banido.');
 
     const motivo = message.content.trim().split(/\s+/).slice(2).join(' ') || null;
 
-    const membroAlvo = await message.guild.members.fetch({ user: alvo.id, force: true }).catch(() => null);
+    // Se ainda estiver no servidor, valida a hierarquia de cargos.
+    const membroAlvo = await message.guild.members.fetch({ user: idAlvo, force: true }).catch(() => null);
     if (membroAlvo && !membroAlvo.bannable) return aviso('Não consigo banir esse usuário. Verifique a hierarquia de cargos.');
 
-    const container = montarPainelAcaoModeracao('ban', `${alvo}`, alvo.tag, motivo);
+    // Não precisa que o usuário esteja no servidor: tenta buscar no Discord só pra exibir a tag.
+    const userAlvo = membroAlvo?.user || await client.users.fetch(idAlvo).catch(() => null);
+    if (!userAlvo) return aviso('Não encontrei nenhum usuário com esse ID no Discord.');
+
+    const container = montarPainelAcaoModeracao('ban', `<@${idAlvo}>`, userAlvo.tag, motivo);
     const msgConfirmacao = await message.channel.send({ components: [container], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
 
     confirmacaoModeracaoDB.set(msgConfirmacao.id, {
-        tipo: 'ban', autorId: message.author.id, alvoId: alvo.id, alvoTag: alvo.tag, motivo
+        tipo: 'ban', autorId: message.author.id, alvoId: idAlvo, alvoTag: userAlvo.tag, motivo
     });
     agendarExpiracaoPainel(msgConfirmacao, () => confirmacaoModeracaoDB.delete(msgConfirmacao.id));
     return;
@@ -2531,12 +2543,9 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}xpeditar`)) {
             const moedasGanhas = MOEDAS_POR_NIVEL + bonusMoedas;
             await somarSaldo(alvo.id, moedasGanhas);
 
-            const containerLevelUp = new ContainerBuilder()
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`Ei ${alvo}, você subiu para o nível **${dados.nivel}**!`));
-
         await message.channel.send({
-            components: [containerLevelUp],
-            flags: [MessageFlags.IsComponentsV2]
+            content: `Ei ${alvo}, você subiu para o nível **${dados.nivel}**!`,
+            allowedMentions: { users: [alvo.id] }
         }).catch(() => null);
     }
 
