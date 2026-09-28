@@ -149,9 +149,8 @@ const {
     CargoLoja, VoiceState, ContadorTicket, TicketData,
     ConviteStats,
     ConviteMembro, Sorteio, TellonymPost, InstaPost,
-    HistoricoUsername, HistoricoAvatar, HistoricoBanner,
     Afk, TellonymPendente,
-    MapaPersistenteEntry, HistoricoBio, MuteCargo, TranscriptModel, TranscriptMedia,
+    MapaPersistenteEntry, MuteCargo, TranscriptModel, TranscriptMedia,
     MensagemCriador
 } = require('./models');
 
@@ -183,14 +182,14 @@ const {
     AVATAR_SIZE, CACHE_AUDIT_MS, CANAL_LOGS_CANAIS_TEXTO, CANAL_LOGS_CANAIS_VOZ,
     CARD_RADIUS, CARD_WIDTH, CARGOS_RESTRITOS_GERENCIADOR_LIMITADO, CARGOS_GERENCIADOR_LIMITADO,
     CATEGORIAS_HELP, DESCRICOES_PROTECAO, DIVIDER_BOTTOM, DURACAO_PUNICAO_STAFF_MS,
-    EMOJIS_CONEXAO, EMOJI_SIZE, EMOJI_SIZE_CUSTOM, EXCLUIR_CARGOS_POR_PAGINA,
+    EMOJI_SIZE, EMOJI_SIZE_CUSTOM, EXCLUIR_CARGOS_POR_PAGINA,
     EXT_AUDIO, EXT_IMAGEM, GROLES_POR_PAGINA, HANDLE_SIZE,
     HELP_CATEGORIAS, HELP_CATEGORIA_POR_NOME, HELP_DESCRICAO_PADRAO, HELP_OCULTOS,
     HELP_POR_PAGINA, HELP_PREFIXO_DESCRICOES, HELP_PREFIXO_EXTRAS, HELP_TIPOS_OPCAO,
     INFO_COMANDOS, JANELA_BAN_STAFF_MS, LIMITES_ANTINUKE_EXTRA, LIMITE_BANS_STAFF,
     LIMITE_MEDIA_TRANSCRIPT, LISTA_DE_COMANDOS,
     LISTA_PERMS_EDITAVEIS_GROLES, MESSAGE_LINE_HEIGHT, MESSAGE_SIZE, MapaPersistente,
-    NAME_SIZE, NOMES_BADGES, NOMES_CONEXAO, PADDING_TOP,
+    NAME_SIZE, PADDING_TOP,
     PADDING_X, PERMS_POR_PAGINA, PERM_LABELS_GROLES, PREFIXO,
     PUBLIC_BASE_URL, REGEX_CONVITE_GENERICO, REGEX_EMOJI_INTERNO, REGEX_EVERYONE_HERE,
     REGEX_URL_SERVIDOR, RE_HELP_PREFIXO, RE_HELP_SEM_PREFIXO, SCALE,
@@ -209,9 +208,8 @@ const {
     extrairLinksDoTexto, extrairPrimeiraMediaUrl, fazerBackupServidor, filtrarCargosGRoles,
     filtrarPermsGRoles, finalizarSessaoVoiceSorteio, flushBufferMensagens, flushSessoesVoiceSorteio,
     formatarBytes, formatarConteudoComMencoes, formatarDataBR, formatarDuracaoMs,
-    formatarHorarioRelativo, formatarLinhaConexao, formatarMarkdownDiscord, formatarTempoCurto,
-    formatarTempoRelativo, formatarTimestampDiscord, formatarTop3Texto, garantirHistoricoInicial,
-    gerarBarraProgresso, gerarCardTellonym, gerarListasHelp, gerarTranscriptHTML,
+    formatarHorarioRelativo, formatarMarkdownDiscord, formatarTempoCurto,
+    formatarTempoRelativo, formatarTimestampDiscord, formatarTop3Texto, gerarBarraProgresso, gerarCardTellonym, gerarListasHelp, gerarTranscriptHTML,
     gerenciarCargosDB, getAfk, getCallTemp, getDonoCallTemp,
     getEventoMoedasAtivo, grolesTimeouts, helpPermissaoSlash, helpPrimeiraFrase,
     helpSemAcento, helpUsoOpcoes, hospedarMidiaTranscript, incrementarConviteStats,
@@ -221,28 +219,22 @@ const {
     limparNukeTrackerAntigo, linkPermitido, listarMembros, loadAvatar,
     localizarMensagemPainelTicket, monitorarDesconexaoBotCall, montarAvisoAfk, montarBotoesInsta,
     montarButtonRows, montarCardComentarioTellonym, montarControlesEmbedPlano, montarEmbedSorteioCanal,
-    montarLinhasComEmoji, montarOverwritesRestauracao, montarPainelAntiNuke, montarPainelAvatares,
-    montarPainelBackup, montarPainelBackupSelecionado, montarPainelBanners, montarPainelBios,
-    montarPainelBiosLista, montarPainelEfemeroProtecao, montarPainelGRoles,
+    montarLinhasComEmoji, montarOverwritesRestauracao, montarPainelAntiNuke, montarPainelBackup, montarPainelBackupSelecionado, montarPainelEfemeroProtecao, montarPainelGRoles,
     montarPainelGRolesCriar, montarPainelGRolesEditar, montarPainelGRolesExcluir, montarPainelGRolesExcluirConfirmar,
     montarPainelGRolesPermLista, montarPainelGRolesPermissoes, montarPainelHelp, montarPainelInfoHierarquia,
     montarPainelInstaInfo, montarPainelListaCargo, montarPainelLock,
     montarPainelConfirmacaoAddCargo, montarPainelConfirmacaoRemCargo,
     montarPainelMoedas, montarPainelMsgCriadorBuilder, montarPainelMsgCriadorInicial, montarPainelProgressoBackup,
     montarPainelProtecao, montarPainelRemoverConfirmacao, montarPainelRemoverSelect, montarPainelRoleAllInicial,
-    montarPainelSorteioConfig, montarPainelSorteioInicial, montarPainelStatus, montarPainelUserInfo,
-    montarPainelUsernames, montarPainelVerificacaoCargos, montarPayloadFinalMsgCriador, montarPayloadPainelMsgCriador,
-    montarPermissoesTextoGRoles, montarPreviewMsgCriador, montarSelectUserInfo, montarUrlAvatar, msgCriadorTimeouts, muteCargoTimeouts, nomeTipoCanalLog,
+    montarPainelSorteioConfig, montarPainelSorteioInicial, montarPainelStatus, montarPainelVerificacaoCargos, montarPayloadFinalMsgCriador, montarPayloadPainelMsgCriador,
+    montarPermissoesTextoGRoles, montarPreviewMsgCriador, msgCriadorTimeouts, muteCargoTimeouts, nomeTipoCanalLog,
     nukeTracker, obterCargosExcluiveisGRoles, obterCargosGerenciaveisGRoles, obterDadosAfk,
     obterExecutorAuditLog, obterMembrosCache, obterMemoriaContainer, obterPrimeiroCanalCategoria,
     obterTop3CallSorteio, obterUsoCPU, paineisProtecao, parseBlocosTexto,
     parseDuracaoTexto, parseQuantidadeTexto, participantesElegiveis, protecaoConfig,
     proximoNumeroTicket, punirExecutorNuke, quebrarLinhasComEmoji, reconectarVoiceStates,
-    registrarAcaoNuke, registrarAvatarSeNecessario, registrarBannerSeNecessario,
-    registrarBioSeNecessario, registrarPainelProtecao, registrarUsernameSeNecessario,
-    removerAfk, removerMuteCargo, removerTellonymPendenteUsuario, removerVoiceState,
-    renderComponenteV2, renderComponentesV2, restaurarBackupServidor, rodapeExpiracao,
-    roundedRect, salvarConfigMoedas, salvarEstadoEventoMoedas, salvarProtecao,
+    registrarAcaoNuke, registrarPainelProtecao, removerAfk, removerMuteCargo, removerTellonymPendenteUsuario, removerVoiceState,
+    renderComponenteV2, renderComponentesV2, restaurarBackupServidor, roundedRect, salvarConfigMoedas, salvarEstadoEventoMoedas, salvarProtecao,
     salvarTellonymPendenteUsuario, salvarVoiceState, setAfk,
     setCallTemp, setClient, setEventoMoedasAtivo, somarMensagens,
     sortearGanhadorSorteio, sorteioTimeouts, sorteioVoiceSessions, spamPunicaoEmAndamento,
@@ -372,9 +364,6 @@ app.get('/transcript/media/:id', async (req, res) => {
 
 
 // ============ CRIADOR DE MENSAGENS ============
-
-
-// ============ USERINFO (userinfo / ui) ============
 
 
 // controla sessões de voz abertas em memória: chave `${guildId}_${userId}`
@@ -935,27 +924,6 @@ client.on('inviteDelete', invite => {
     if (cache) cache.delete(invite.code);
 });
 
-
-client.on('userUpdate', async (oldUser, newUser) => {
-    try {
-        if (oldUser.username !== newUser.username) {
-            await registrarUsernameSeNecessario(newUser.id, newUser.username);
-        }
-        if (oldUser.avatar !== newUser.avatar) {
-            const avatarUrl = newUser.displayAvatarURL({ extension: 'png', size: 512 });
-            await registrarAvatarSeNecessario(newUser.id, avatarUrl, newUser.avatar);
-        }
-        if (oldUser.banner !== newUser.banner) {
-            const usuarioCompleto = await newUser.fetch(true).catch(() => newUser);
-            if (usuarioCompleto.banner) {
-                const bannerUrl = usuarioCompleto.bannerURL({ extension: 'png', size: 1024 });
-                await registrarBannerSeNecessario(newUser.id, bannerUrl, usuarioCompleto.banner);
-            }
-        }
-    } catch (err) {
-        console.error('--- Erro ao processar userUpdate para histórico ---', err);
-    }
-});
 
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
     
@@ -2503,34 +2471,6 @@ if (message.content.toLowerCase() === `${PREFIXO}botcall`) {
     return;
 }
 
-if (message.content.toLowerCase().startsWith(`${PREFIXO}userinfo`)) {
-    try {
-        const alvo = message.mentions.users.first() || message.author;
-        const expiraEm = Date.now() + 7 * 60 * 1000;
-
-        const painel = await montarPainelUserInfo(message.guild, alvo, message.author.id, expiraEm);
-        const msgPainel = await message.channel.send({
-            components: [painel],
-            flags: [MessageFlags.IsComponentsV2],
-            allowedMentions: { parse: ['users'] }
-        });
-
-        setTimeout(async () => {
-            await msgPainel.edit({
-                components: containerTexto(' Esse painel de informações expirou.'),
-                flags: [MessageFlags.IsComponentsV2]
-            }).catch(() => null);
-        }, 7 * 60 * 1000);
-
-        return;
-    } catch (err) {
-        console.error('--- Erro no comando t!userinfo ---', err);
-        return message.reply('Ocorreu um erro ao montar as informações do usuário.')
-            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
-    }
-}
-    
- 
 if (message.content.toLowerCase() === `${PREFIXO}painelps`) {
     if (message.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) {
         return message.reply('Você não tem permissão para utilizar este comando!')
@@ -2805,8 +2745,6 @@ if (message.content.toLowerCase() === `${PREFIXO}nuke`) {
     
     atualizarProgressoMensagensSorteio(message.guild.id, message.author.id).catch(() => null);
     
-    
-garantirHistoricoInicial(message.author).catch(() => null);
     
 const motivoAfkBruto = await getAfk(message.author.id);
     if (motivoAfkBruto) {
@@ -5057,56 +4995,6 @@ if (interaction.isButton() && interaction.customId === 'backup_parar') {
     return interaction.reply({ content: 'Parando o processo. Aguarde a etapa atual finalizar.', flags: [MessageFlags.Ephemeral] });
 }
 
-if (interaction.isButton() && interaction.customId.startsWith('userinfo_bios_ver_')) {
-    try {
-        const [alvoId, autorId, expiraTexto] = interaction.customId.replace('userinfo_bios_ver_', '').split('_');
-        const expiraEm = parseInt(expiraTexto) || 0;
-
-        if (interaction.user.id !== autorId) {
-            return interaction.reply({ content: 'Esse painel não pertence a você!', flags: [MessageFlags.Ephemeral] });
-        }
-        const alvoUser = await interaction.client.users.fetch(alvoId, { force: true }).catch(() => null);
-        if (!alvoUser) return interaction.reply({ content: 'Usuário não encontrado.', flags: [MessageFlags.Ephemeral] });
-
-        const painel = await montarPainelBiosLista(alvoUser, autorId, 0, expiraEm);
-        return interaction.reply({
-            components: [painel],
-            flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral],
-            allowedMentions: { parse: ['users'] }
-        });
-    } catch (err) {
-        console.error('--- Erro ao abrir lista de biografias ---', err);
-        return interaction.reply({ content: 'Ocorreu um erro ao carregar as biografias.', flags: [MessageFlags.Ephemeral] }).catch(() => null);
-    }
-}
-
-if (interaction.isButton() && interaction.customId.startsWith('userinfo_bios_pagina_') && interaction.customId !== 'userinfo_bios_pagina_atual') {
-    try {
-        const partes = interaction.customId.replace('userinfo_bios_pagina_', '').split('_');
-        const expiraEm = parseInt(partes.pop()) || 0;
-        const pagina = parseInt(partes.pop());
-        const autorId = partes.pop();
-        const alvoId = partes.pop();
-
-        if (interaction.user.id !== autorId) {
-            return interaction.reply({ content: 'Esse painel não pertence a você!', flags: [MessageFlags.Ephemeral] });
-        }
-        const alvoUser = await interaction.client.users.fetch(alvoId, { force: true }).catch(() => null);
-        if (!alvoUser) return interaction.reply({ content: 'Usuário não encontrado.', flags: [MessageFlags.Ephemeral] });
-
-        await interaction.deferUpdate();
-        const painel = await montarPainelBiosLista(alvoUser, autorId, pagina, expiraEm);
-        return interaction.editReply({
-            components: [painel],
-            flags: [MessageFlags.IsComponentsV2],
-            allowedMentions: { parse: ['users'] }
-        });
-    } catch (err) {
-        console.error('--- Erro ao paginar biografias ---', err);
-        return interaction.reply({ content: 'Ocorreu um erro ao navegar pelas biografias.', flags: [MessageFlags.Ephemeral] }).catch(() => null);
-    }
-}
-	
 if (interaction.isButton() && interaction.customId.startsWith('info_hierarquia_verificar_')) {
     const autorId = interaction.customId.replace('info_hierarquia_verificar_', '');
     if (interaction.user.id !== autorId) {
@@ -5477,103 +5365,7 @@ if (interaction.isButton() && interaction.customId === 'moderacao_cancelar') {
 }
 
 	
-if (interaction.isChatInputCommand() && interaction.commandName === 'ui') {
-    try {
-        let alvo = interaction.options.getUser('usuario');
-
-        if (!alvo) alvo = interaction.user;
-
-        const painel = await montarPainelUserInfo(interaction.guild, alvo, interaction.user.id);
-        return interaction.reply({
-            components: [painel],
-            flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral],
-            allowedMentions: { parse: ['users'] }
-        });
-    } catch (err) {
-        console.error('--- Erro no comando /ui ---', err);
-        return interaction.reply({ content: 'Ocorreu um erro ao montar as informações do usuário.', flags: [MessageFlags.Ephemeral] }).catch(() => null);
-    }
-}
-
-if (interaction.isStringSelectMenu() && interaction.customId.startsWith('userinfo_menu_')) {
-    try {
-        const [, , alvoId, autorId, expiraTexto] = interaction.customId.split('_');
-        const expiraEm = parseInt(expiraTexto) || 0;
-
-        if (interaction.user.id !== autorId) {
-            return interaction.reply({ content: 'Esse painel não pertence a você!', flags: [MessageFlags.Ephemeral] });
-        }
-        const alvoUser = await interaction.client.users.fetch(alvoId, { force: true }).catch(() => null);
-        if (!alvoUser) return interaction.reply({ content: 'Não foi possível encontrar esse usuário.', flags: [MessageFlags.Ephemeral] });
-
-        const opcao = interaction.values[0];
-        let painel;
-
-        if (opcao === 'perfil') painel = await montarPainelUserInfo(interaction.guild, alvoUser, autorId, expiraEm);
-        else if (opcao === 'bios') painel = await montarPainelBios(interaction.guild, alvoUser, autorId, expiraEm);
-        else if (opcao === 'usernames') painel = await montarPainelUsernames(alvoUser, autorId, expiraEm);
-        else if (opcao === 'avatares') painel = await montarPainelAvatares(alvoUser, autorId, 0, expiraEm);
-        else if (opcao === 'banners') painel = await montarPainelBanners(alvoUser, autorId, 0, expiraEm);
-
-        return interaction.update({
-            components: [painel],
-            flags: [MessageFlags.IsComponentsV2],
-            allowedMentions: { parse: ['users'] }
-        });
-    } catch (err) {
-        console.error('--- Erro no select do userinfo ---', err);
-        return interaction.reply({ content: 'Ocorreu um erro ao trocar de aba.', flags: [MessageFlags.Ephemeral] }).catch(() => null);
-    }
-}
-
-if (interaction.isButton() && interaction.customId.startsWith('userinfo_avatar_')) {
-    try {
-        const [alvoId, autorId, indiceTexto, expiraTexto] = interaction.customId.replace('userinfo_avatar_', '').split('_');
-        const expiraEm = parseInt(expiraTexto) || 0;
-
-        if (interaction.user.id !== autorId) {
-            return interaction.reply({ content: 'Esse painel não pertence a você!', flags: [MessageFlags.Ephemeral] });
-        }
-        const alvoUser = await interaction.client.users.fetch(alvoId, { force: true }).catch(() => null);
-        if (!alvoUser) return interaction.reply({ content: 'Usuário não encontrado.', flags: [MessageFlags.Ephemeral] });
-
-        const painel = await montarPainelAvatares(alvoUser, autorId, parseInt(indiceTexto), expiraEm);
-        return interaction.update({
-            components: [painel],
-            flags: [MessageFlags.IsComponentsV2],
-            allowedMentions: { parse: ['users'] }
-        });
-    } catch (err) {
-        console.error('--- Erro no botão de avatares do userinfo ---', err);
-        return interaction.reply({ content: 'Ocorreu um erro ao navegar pelos avatares.', flags: [MessageFlags.Ephemeral] }).catch(() => null);
-    }
-}
-
-if (interaction.isButton() && interaction.customId.startsWith('userinfo_banner_')) {
-    try {
-        const [alvoId, autorId, indiceTexto, expiraTexto] = interaction.customId.replace('userinfo_banner_', '').split('_');
-        const expiraEm = parseInt(expiraTexto) || 0;
-
-        if (interaction.user.id !== autorId) {
-            return interaction.reply({ content: 'Esse painel não pertence a você!', flags: [MessageFlags.Ephemeral] });
-        }
-        const alvoUser = await interaction.client.users.fetch(alvoId, { force: true }).catch(() => null);
-        if (!alvoUser) return interaction.reply({ content: 'Usuário não encontrado.', flags: [MessageFlags.Ephemeral] });
-
-        const painel = await montarPainelBanners(alvoUser, autorId, parseInt(indiceTexto), expiraEm);
-        return interaction.update({
-            components: [painel],
-            flags: [MessageFlags.IsComponentsV2],
-            allowedMentions: { parse: ['users'] }
-        });
-    } catch (err) {
-        console.error('--- Erro no botão de banners do userinfo ---', err);
-        return interaction.reply({ content: 'Ocorreu um erro ao navegar pelos banners.', flags: [MessageFlags.Ephemeral] }).catch(() => null);
-    }
-}
-
-	
-	if (interaction.isChatInputCommand() && interaction.commandName === 'sorteio') {
+if (interaction.isChatInputCommand() && interaction.commandName === 'sorteio') {
     if (interaction.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) {
         return interaction.reply({ content: 'Você não tem permissão para utilizar este comando!', flags: [MessageFlags.Ephemeral] });
     }

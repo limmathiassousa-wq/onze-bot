@@ -135,32 +135,6 @@ const instaPostSchema = new mongoose.Schema({
 });
 const InstaPost = mongoose.model('InstaPost', instaPostSchema);
 
-// ============ HISTÓRICO DE PERFIL (userinfo / ui) ============
-
-const HistoricoUsernameSchema = new mongoose.Schema({
-    userId: { type: String, required: true, index: true },
-    username: { type: String, required: true },
-    desde: { type: Number, required: true },
-    ate: { type: Number, default: null }
-});
-const HistoricoUsername = mongoose.model('HistoricoUsername', HistoricoUsernameSchema);
-
-const HistoricoAvatarSchema = new mongoose.Schema({
-    userId: { type: String, required: true, index: true },
-    avatarUrl: { type: String, required: true },
-    avatarHash: { type: String, default: null },
-    registradoEm: { type: Number, required: true }
-});
-const HistoricoAvatar = mongoose.model('HistoricoAvatar', HistoricoAvatarSchema);
-
-const HistoricoBannerSchema = new mongoose.Schema({
-    userId: { type: String, required: true, index: true },
-    bannerUrl: { type: String, required: true },
-    bannerHash: { type: String, default: null },
-    registradoEm: { type: Number, required: true }
-});
-const HistoricoBanner = mongoose.model('HistoricoBanner', HistoricoBannerSchema);
-
 const AfkSchema = new mongoose.Schema({ _id: String, motivo: String });
 const Afk = mongoose.model('Afk', AfkSchema);
 
@@ -176,13 +150,6 @@ const mapaPersistenteSchema = new mongoose.Schema({
     valor: mongoose.Schema.Types.Mixed
 });
 const MapaPersistenteEntry = mongoose.model('MapaPersistenteEntry', mapaPersistenteSchema);
-
-const HistoricoBioSchema = new mongoose.Schema({
-    userId: { type: String, required: true, index: true },
-    bio: { type: String, default: '' },
-    registradoEm: { type: Number, required: true }
-});
-const HistoricoBio = mongoose.model('HistoricoBio', HistoricoBioSchema);
 
 const serverBackupSchema = new mongoose.Schema({
     guildId: { type: String, required: true },
@@ -302,13 +269,9 @@ module.exports = {
     Sorteio,
     TellonymPost,
     InstaPost,
-    HistoricoUsername,
-    HistoricoAvatar,
-    HistoricoBanner,
     Afk,
     TellonymPendente,
     MapaPersistenteEntry,
-    HistoricoBio,
     MuteCargo,
     TranscriptModel,
     TranscriptMedia,

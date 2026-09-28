@@ -22,8 +22,8 @@ const redis = require('./redis');
 const { supabase } = require('./supabase');
 const {
     ServerBackup, Mensagens, CargoLoja, VoiceState,
-    ContadorTicket, TicketData, ConviteStats, Sorteio, InstaPost, HistoricoUsername,
-    HistoricoAvatar, HistoricoBanner, TellonymPendente, MapaPersistenteEntry, HistoricoBio, MuteCargo,
+    ContadorTicket, TicketData, ConviteStats, Sorteio, InstaPost,
+    TellonymPendente, MapaPersistenteEntry, MuteCargo,
     TranscriptMedia
 } = require('./models');
 const {
@@ -355,82 +355,6 @@ const DESCRICOES_PROTECAO = {
     antibot: 'Expulsa ou bane automaticamente qualquer bot que entrar no servidor.'
 };
 
-// ============ USERINFO (userinfo / ui) ============
-const EMOJIS_CONEXAO = {
-    battlenet:       '<:battlenet:1548555662001176688>',
-    bungie:          '<:bungie:1548555961638326302>',
-    bluesky:         '<:bluesky:1548556057234776204>',
-    crunchyroll:     '<:crunchyroll:1548556177338535946>',
-    domain:          '<:domain:1548556229872320573>',
-    ebay:            '<:ebay:1548557792024068127>',
-    epicgames:       '<:epicgames:1548557748852097125>',
-    facebook:        '<:facebook:1548557702219960420>',
-    github:          '<:github:1548556275300835488>',
-    instagram:       '<:instagram2:1548561559373217792>',
-    leagueoflegends: '<:LOL:1548557912039882843>',
-    mastodon:        '<:mastodon:1548556572689432646>',
-    paypal:          '<:paypal:1548556521888153720>',
-    playstation:     '<:playstation:1548556466686791761>',
-    reddit:          '<:reddit:1548556355571548270>',
-    riotgames:       '<:riotgames:1548557065549512774>',
-    roblox:          '<:roblox:1548557024961237015>',
-    samsung:         '<:samsung:1548556971735781386>',
-    soundcloud:      '<:soundcloud:1548556928014229524>',
-    spotify:         '<:spotify:1548556760531603538>',
-    skype:           '<:skype:1548556807671250944>',
-    steam:           '<:steam:1548557662969528381>',
-    tiktok:          '<:tiktok:1548557613896302724>',
-    twitch:          '<:twitch:1548557548309712958>',
-    twitter:         '<:X_:1548557498376654938>',
-    xbox:            '<:xbox:1548557362795778088>',
-    youtube:         '<:youtube:1548557827185053806>',
-};
-
-const NOMES_CONEXAO = {
-    battlenet: 'Battle.net',
-    bungie: 'Bungie.net',
-    bluesky: 'Bluesky',
-    crunchyroll: 'Crunchyroll',
-    domain: 'Site',
-    ebay: 'eBay',
-    epicgames: 'Epic Games',
-    facebook: 'Facebook',
-    github: 'GitHub',
-    instagram: 'Instagram',
-    leagueoflegends: 'League of Legends',
-    mastodon: 'Mastodon',
-    paypal: 'PayPal',
-    playstation: 'PlayStation Network',
-    reddit: 'Reddit',
-    riotgames: 'Riot Games',
-    roblox: 'Roblox',
-    samsung: 'Samsung Galaxy',
-    soundcloud: 'SoundCloud',
-    spotify: 'Spotify',
-    skype: 'Skype',
-    steam: 'Steam',
-    tiktok: 'TikTok',
-    twitch: 'Twitch',
-    twitter: 'X',
-    xbox: 'Xbox',
-    youtube: 'YouTube',
-};
-
-const NOMES_BADGES = {
-    Staff: 'Funcionário Discord',
-    Partner: 'Parceiro Discord',
-    Hypesquad: 'HypeSquad Eventos',
-    BugHunterLevel1: 'Caçador de Bugs',
-    BugHunterLevel2: 'Caçador de Bugs (Ouro)',
-    HypeSquadOnlineHouse1: 'HypeSquad Bravery',
-    HypeSquadOnlineHouse2: 'HypeSquad Brilliance',
-    HypeSquadOnlineHouse3: 'HypeSquad Balance',
-    PremiumEarlySupporter: 'Apoiador Antigo do Nitro',
-    VerifiedDeveloper: 'Dev Verificado de Bot',
-    CertifiedModerator: 'Moderador Certificado',
-    ActiveDeveloper: 'Desenvolvedor Ativo'
-};
-
 // ============ COMANDO HELP ============
 
 const HELP_POR_PAGINA = 6;
@@ -471,7 +395,6 @@ const HELP_PREFIXO_DESCRICOES = {
     muteinfo: 'Painel com a lista de mutados (adicionar/remover)',
     painelurl: 'Painel de verificação de link na bio',
     info: 'Painel de hierarquia de cargos',
-    userinfo: 'Mostra informações detalhadas de um usuário',
     tiktok: 'Baixa vídeos do TikTok sem marca d\'água',
     msg: 'Cria e envia uma mensagem personalizada em um canal',
     cl: 'Apaga mensagens do autor do comando',
@@ -485,7 +408,7 @@ const HELP_CATEGORIAS = {
     'Administração': ['addemoji', 'regras', 'tickets', 'xpeditar', 'addcargo', 'remcargo', 'groles', 'roleall', 'painelurl'],
     'Economia': ['carteira', 'pix', 'loja', 'moedastp', 'moedaseditar'],
     'Diversão': ['pd', 'tellonym', 'tiktok'],
-    'Utilidades': ['sorteio', 'convite', 'afk', 'botcall', 'avatar', 'ui', 'painelcall', 'info', 'userinfo', 'msg'],
+    'Utilidades': ['sorteio', 'convite', 'afk', 'botcall', 'avatar', 'painelcall', 'info', 'msg'],
     'Ajuda': ['help']
 };
 const HELP_CATEGORIA_POR_NOME = new Map(
@@ -517,7 +440,6 @@ const INFO_COMANDOS = {
     '/botcall': { descricao: 'Envia o painel de controle da call fixa do bot, permitindo conectar, trocar ou desconectar de um canal de voz.', comoUsar: '/botcall', exemplo: '/botcall', permissao: 'Equipe' },
     '/avatar': { descricao: 'Mostra o avatar em alta resolução de você ou de outro usuário, com link direto pra abrir no navegador.', comoUsar: '/avatar usuario:[opcional]', exemplo: '/avatar usuario:@Fulano', permissao: 'Nenhuma' },
     '/help': { descricao: 'Mostra a lista completa de comandos disponíveis, separados entre slash e prefixo.', comoUsar: '/help', exemplo: '/help', permissao: 'Nenhuma' },
-    '/ui': { descricao: 'Mostra informações detalhadas de você ou de outro usuário: bio, conexões, cargos, emblemas, histórico de nomes/avatares/banners.', comoUsar: '/ui usuario:[opcional]', exemplo: '/ui usuario:@Fulano', permissao: 'Nenhuma' },
     [`${PREFIXO}msg`]: { descricao: 'Abre um painel interativo pra montar uma mensagem personalizada (com texto, imagem e botões) e enviá-la em qualquer canal de texto do servidor. O painel expira e é apagado após 20 minutos.', comoUsar: `${PREFIXO}msg`, exemplo: `${PREFIXO}msg`, permissao: 'Equipe' },
     [`${PREFIXO}kick`]: { descricao: 'Expulsa um usuário mencionado do servidor, com uma etapa de confirmação. Diferente do ban, ele pode entrar novamente pelo convite. A embed some em 1 minuto se ninguém agir.', comoUsar: `${PREFIXO}kick @usuário|ID [motivo]`, exemplo: `${PREFIXO}kick @Fulano Comportamento tóxico ou ${PREFIXO}kick 123456789012345678`, permissao: 'Expulsar Membros ou Equipe' },
     [`${PREFIXO}mute`]: { descricao: 'Abre o painel de mute de um usuário: timeout nativo (com tempo definido) ou mute por cargo (5 minutos, cargos voltam sozinhos). A embed some em 1 minuto se ninguém agir.', comoUsar: `${PREFIXO}mute @usuário|ID [motivo]`, exemplo: `${PREFIXO}mute @Fulano Flood ou ${PREFIXO}mute 123456789012345678`, permissao: 'Silenciar Membros ou Equipe' },
@@ -527,7 +449,6 @@ const INFO_COMANDOS = {
     [`${PREFIXO}unban`]: { descricao: 'Remove o banimento de um usuário pelo ID, com uma etapa de confirmação antes de executar. A embed some em 1 minuto se ninguém agir.', comoUsar: `${PREFIXO}unban <ID|@usuário> [motivo]`, exemplo: `${PREFIXO}unban 123456789012345678`, permissao: 'Banir Membros ou Equipe' },
     [`${PREFIXO}painelurl`]: { descricao: 'Envia um painel para o usuário verificar se colocou o link do servidor na bio ou nos pronomes, e recebe um cargo automaticamente se encontrado.', comoUsar: `${PREFIXO}painelurl`, exemplo: `${PREFIXO}painelurl`, permissao: 'Equipe' },
     [`${PREFIXO}info`]: { descricao: 'Envia o painel de hierarquia de cargos, permitindo consultar quem possui cada cargo do servidor.', comoUsar: `${PREFIXO}info`, exemplo: `${PREFIXO}info`, permissao: 'Nenhuma' },
-    [`${PREFIXO}userinfo`]: { descricao: 'Mostra informações detalhadas de você ou de um usuário mencionado: bio, conexões, cargos, emblemas e históricos. Painel expira em 7 minutos.', comoUsar: `${PREFIXO}userinfo [@usuário]`, exemplo: `${PREFIXO}userinfo @Fulano`, permissao: 'Nenhuma' },
     [`${PREFIXO}tiktok`]: { descricao: 'Baixa e envia um vídeo do TikTok sem marca d\'água a partir do link enviado.', comoUsar: `${PREFIXO}tiktok <link do tiktok>`, exemplo: `${PREFIXO}tiktok https://www.tiktok.com/@usuario/video/123`, permissao: 'Nenhuma' },
     [`${PREFIXO}msg`]: { descricao: 'Abre um painel interativo pra montar uma mensagem personalizada (com texto, imagem e botões) e enviá-la em qualquer canal de texto do servidor. O painel expira e é apagado após 20 minutos.', comoUsar: `${PREFIXO}msg`, exemplo: `${PREFIXO}msg`, permissao: 'Equipe' },
     [`${PREFIXO}regras`]: { descricao: 'Envia o painel de regras do servidor no canal atual.', comoUsar: `${PREFIXO}regras`, exemplo: `${PREFIXO}regras`, permissao: 'Equipe' },
@@ -558,10 +479,6 @@ new SlashCommandBuilder()
     new SlashCommandBuilder()
         .setName('help')
         .setDescription('Mostra a lista de comandos do bot'),
-new SlashCommandBuilder()
-        .setName('ui')
-        .setDescription('Mostra informações detalhadas de um usuário')
-        .addUserOption(o => o.setName('usuario').setDescription('Usuário que deseja consultar').setRequired(false)),
 ];
 
 // ============ LOGS DE CANAIS (criação, exclusão, edição) ============
@@ -2216,148 +2133,6 @@ async function restaurarBackupServidor(guild, backupId, onProgresso, estado) {
 
     await notificar('Concluído!', null, null, true);
     return resultado;
-}
-
-async function registrarBioSeNecessario(userId, bio) {
-    try {
-        const bioLimpa = (bio || '').trim();
-
-        // não registra se a bio atual está vazia
-        if (!bioLimpa) return;
-
-        const ultimo = await HistoricoBio.findOne({ userId }).sort({ registradoEm: -1 });
-        if (ultimo && (ultimo.bio || '') === bioLimpa) return;
-
-        await HistoricoBio.create({ userId, bio: bioLimpa, registradoEm: Date.now() });
-    } catch (err) {
-        console.error('--- Erro ao registrar histórico de bio ---', err);
-    }
-}
-
-async function montarPainelBios(guild, alvoUser, autorId, expiraEm = 0) {
-    let bioAtual = null;
-    let erroBioAtual = false;
-    let perfilPrivado = false;
-    
-    const membro = await guild.members.fetch({ user: alvoUser.id, force: true }).catch(() => null);
-
-    try {
-        const perfil = await getUserPerfil(alvoUser.id, membro ? guild.id : null, { force: true });
-
-        bioAtual = perfil.bio || '';
-        perfilPrivado = perfil.privado;
-        if (!perfilPrivado) {
-             await registrarBioSeNecessario(alvoUser.id, bioAtual);
-        }
-} catch (err) {
-        console.error('--- Erro ao consultar bio atual pra registro ---', err.message);
-        erroBioAtual = true;
-        if (String(err.message).includes('PERFIL_INACESSIVEL')) {
-            bioAtual = 'Perfil não acessível';
-            erroBioAtual = false;
-            perfilPrivado = false;
-        }
-    }
-
-    const historicoCompleto = await HistoricoBio.find({ userId: alvoUser.id }).sort({ registradoEm: -1 }).catch(() => []);
-
-    // remove o registro mais recente da lista de "antigas" se ele já for exibido como a atual
-    const historicoAntigas = historicoCompleto.length && !erroBioAtual
-        ? historicoCompleto.slice(1)
-        : historicoCompleto;
-
-    const container = new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## Biografia\n ${alvoUser.username}`))
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-
-    // ---- Bio atual ----
-if (erroBioAtual) {
-    container.addTextDisplayComponents(
-        new TextDisplayBuilder().setContent('**Bio atual:** não foi possível consultar agora.')
-    );
-} else if (perfilPrivado) {
-    container.addTextDisplayComponents(
-        new TextDisplayBuilder().setContent('**Bio atual**\nPerfil privado — a biografia não está disponível para visualização.')
-    );
-} else {
-    const textoAtual = bioAtual?.trim() ? bioAtual : '`sem biografia definida`';
-    container.addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`**Bio atual**\n${textoAtual}`)
-    );
-}
-
-// ---- Histórico ----
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
-        `**Biografias anteriores** · \`${historicoAntigas.length}\` registro(s)`
-    ));
-
-if (!historicoAntigas.length) {
-        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(' Nenhuma biografia anterior catalogada.'));
-    } else {
-        container.addActionRowComponents(
-            new ActionRowBuilder().addComponents(
-                new ButtonBuilder()
-                    .setCustomId(`userinfo_bios_ver_${alvoUser.id}_${autorId}_${expiraEm}`)
-                    .setLabel('Ver biografias')
-                    .setStyle(ButtonStyle.Secondary)
-            )
-        );
-    }
-
-    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-    container.addActionRowComponents(montarSelectUserInfo(alvoUser.id, autorId, 'bios', expiraEm));
-    return rodapeExpiracao(container, expiraEm);
-}
-
-async function montarPainelBiosLista(alvoUser, autorId, pagina = 0, expiraEm = 0) {
-    const historicoCompleto = await HistoricoBio.find({ userId: alvoUser.id }).sort({ registradoEm: -1 }).catch(() => []);
-    const historicoAntigas = historicoCompleto.length ? historicoCompleto.slice(1) : [];
-
-    const POR_PAGINA = 5;
-    const totalPaginas = Math.max(1, Math.ceil(historicoAntigas.length / POR_PAGINA));
-    const paginaAtual = Math.max(0, Math.min(pagina, totalPaginas - 1));
-
-    const container = new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## Biografias anteriores\n ${alvoUser.username}`))
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-
-    if (!historicoAntigas.length) {
-        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(' Nenhuma biografia anterior catalogada.'));
-        return rodapeExpiracao(container, expiraEm);
-    }
-
-    const inicio = paginaAtual * POR_PAGINA;
-    const fatia = historicoAntigas.slice(inicio, inicio + POR_PAGINA);
-
-    const linhas = fatia.map((h, i) => {
-        const texto = h.bio?.trim() ? h.bio : '`bio vazia`';
-        return `**${inicio + i + 1}.** ${texto}\n captada em ${formatarDataBR(h.registradoEm)} · ${formatarTempoRelativo(h.registradoEm)}`;
-    });
-
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(linhas.join('\n\n')));
-    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-
-    container.addActionRowComponents(
-        new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId(`userinfo_bios_pagina_${alvoUser.id}_${autorId}_${paginaAtual - 1}_${expiraEm}`)
-                .setLabel('Voltar')
-                .setStyle(ButtonStyle.Secondary)
-                .setDisabled(paginaAtual === 0),
-            new ButtonBuilder()
-                .setCustomId('userinfo_bios_pagina_atual')
-                .setLabel(`${paginaAtual + 1}/${totalPaginas}`)
-                .setStyle(ButtonStyle.Secondary)
-                .setDisabled(true),
-            new ButtonBuilder()
-                .setCustomId(`userinfo_bios_pagina_${alvoUser.id}_${autorId}_${paginaAtual + 1}_${expiraEm}`)
-                .setLabel('Avançar')
-                .setStyle(ButtonStyle.Secondary)
-                .setDisabled(paginaAtual >= totalPaginas - 1)
-        )
-    );
-
-    return rodapeExpiracao(container, expiraEm);
 }
 
 function montarPainelInfoHierarquia(guild, autorId) {
@@ -6611,13 +6386,6 @@ if (draft.tipo === 'embed') {
     return payload;
 }
 
-function formatarLinhaConexao(conn) {
-    const emoji = EMOJIS_CONEXAO[conn.type]; // sem fallback unicode
-    const nomePlataforma = NOMES_CONEXAO[conn.type] || conn.type;
-    const prefixo = emoji ? `${emoji} ` : '';
-    return `${prefixo}**${nomePlataforma}** · ${conn.name}${conn.verified ? ' · verificada' : ''}`;
-}
-
 function formatarDataBR(timestamp) {
     return new Date(timestamp).toLocaleString('pt-BR', {
         timeZone: 'America/Sao_Paulo',
@@ -6650,331 +6418,6 @@ function formatarTempoRelativo(timestamp) {
     if (horas > 0) return `há ${horas} hora${horas === 1 ? '' : 's'}`;
     const minutos = Math.floor(diff / 60000);
     return `há ${Math.max(minutos, 1)} minuto${minutos === 1 ? '' : 's'}`;
-}
-
-async function registrarUsernameSeNecessario(userId, username) {
-    try {
-        const atual = await HistoricoUsername.findOne({ userId, ate: null });
-        if (atual) {
-            if (atual.username === username) return;
-            atual.ate = Date.now();
-            await atual.save();
-        }
-        await HistoricoUsername.create({ userId, username, desde: Date.now(), ate: null });
-    } catch (err) {
-        console.error('--- Erro ao registrar histórico de username ---', err);
-    }
-}
-
-function montarUrlAvatar(userId, hash, tamanho = 512) {
-    if (!hash) return 'https://cdn.discordapp.com/embed/avatars/0.png';
-    const ext = hash.startsWith('a_') ? 'gif' : 'png';
-    return `https://cdn.discordapp.com/avatars/${userId}/${hash}.${ext}?size=${tamanho}`;
-}
-
-async function registrarAvatarSeNecessario(userId, avatarUrl, avatarHash) {
-    try {
-        const ultimo = await HistoricoAvatar.findOne({ userId }).sort({ registradoEm: -1 });
-        if (ultimo && ultimo.avatarHash === avatarHash) return;
-        await HistoricoAvatar.create({ userId, avatarUrl, avatarHash, registradoEm: Date.now() });
-    } catch (err) {
-        console.error('--- Erro ao registrar histórico de avatar ---', err);
-    }
-}
-
-async function registrarBannerSeNecessario(userId, bannerUrl, bannerHash) {
-    try {
-        const ultimo = await HistoricoBanner.findOne({ userId }).sort({ registradoEm: -1 });
-        if (ultimo && ultimo.bannerHash === bannerHash) return;
-        await HistoricoBanner.create({ userId, bannerUrl, bannerHash, registradoEm: Date.now() });
-    } catch (err) {
-        console.error('--- Erro ao registrar histórico de banner ---', err);
-    }
-}
-
-async function garantirHistoricoInicial(user) {
-    if (!user || user.bot) return;
-    try {
-        const existeUsername = await HistoricoUsername.exists({ userId: user.id });
-        if (!existeUsername) {
-            await HistoricoUsername.create({
-                userId: user.id, username: user.username,
-                desde: user.createdTimestamp, ate: null
-            });
-        }
-        const existeAvatar = await HistoricoAvatar.exists({ userId: user.id });
-        if (!existeAvatar) {
-            await HistoricoAvatar.create({
-                userId: user.id,
-                avatarUrl: user.displayAvatarURL({ extension: 'png', size: 512 }),
-                avatarHash: user.avatar,
-                registradoEm: user.createdTimestamp
-            });
-        }
-    } catch (err) {
-        console.error('--- Erro ao garantir histórico inicial de usuário ---', err);
-    }
-}
-
-
-function montarSelectUserInfo(alvoId, autorId, atual, expiraEm = 0) {
-    return new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-            .setCustomId(`userinfo_menu_${alvoId}_${autorId}_${expiraEm}`)
-            .setPlaceholder('Ver mais informações')
-            .addOptions(
-                { label: 'Perfil', value: 'perfil', description: 'Voltar para as informações principais', default: atual === 'perfil' },
-                { label: 'Biografias anteriores', value: 'bios', description: 'Ver biografias anteriores', default: atual === 'bios' },
-                { label: 'Usernames antigos', value: 'usernames', description: 'Ver nomes de usuário anteriores', default: atual === 'usernames' },
-                { label: 'Avatares usados', value: 'avatares', description: 'Ver avatares anteriores', default: atual === 'avatares' },
-                { label: 'Banners', value: 'banners', description: 'Ver banners anteriores', default: atual === 'banners' }
-            )
-    );
-}
-
-function rodapeExpiracao(container, expiraEm) {
-    if (!expiraEm) return container;
-    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
-        `-# Esse painel expira <t:${Math.floor(expiraEm / 1000)}:R>`
-    ));
-    return container;
-}
-
-async function montarPainelUserInfo(guild, alvoUser, autorId, expiraEm = 0) {
-    const membro = await guild.members.fetch({ user: alvoUser.id, force: true }).catch(() => null);
-    const avatarUrl = alvoUser.displayAvatarURL({ extension: 'png', size: 512 });
-    const badges = (alvoUser.flags?.toArray() || []).map(f => NOMES_BADGES[f] || f);
-
-    let bio = '';
-    let connections = [];
-    try {
-    const perfil = await getUserPerfil(alvoUser.id, guild.id, { force: true });
-    console.log('[DEBUG userinfo] perfil retornado para', alvoUser.id, ':', JSON.stringify(perfil));
-    bio = perfil.bio || '';
-    connections = perfil.connections || [];
-} catch (err) {
-        console.error('--- Erro ao buscar perfil (bio/conexões) para userinfo ---', err.message);
-        if (String(err.message).includes('PERFIL_INACESSIVEL')) {
-            bio = '__Perfil não acessível: nenhuma conta de consulta compartilha um servidor com esse usuário.__';
-        }
-    }
-
-    const container = new ContainerBuilder();
-
-    if (membro?.displayHexColor && membro.displayHexColor !== '#000000') {
-        container.setAccentColor(parseInt(membro.displayHexColor.replace('#', ''), 16));
-    }
-
-    container.addSectionComponents(
-        new SectionBuilder()
-            .addTextDisplayComponents(
-                new TextDisplayBuilder().setContent(`# ${alvoUser.username}\n @${alvoUser.username} · \`${alvoUser.id}\``)
-            )
-            .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
-    );
-
-    if (bio.trim()) {
-        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(bio));
-    }
-
-    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
-        `**Conta criada**\n${formatarDataBR(alvoUser.createdTimestamp)} · ${formatarTempoRelativo(alvoUser.createdTimestamp)}`
-    ));
-
-    if (membro) {
-        container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-        const cargos = membro.roles.cache.filter(r => r.id !== guild.id).sort((a, b) => b.position - a.position);
-        const cargosTexto = cargos.size ? cargos.map(r => `<@&${r.id}>`).slice(0, 15).join(' ') : 'nenhum';
-
-        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            `**Entrou no servidor**\n${formatarDataBR(membro.joinedTimestamp)} · ${formatarTempoRelativo(membro.joinedTimestamp)}\n\n` +
-            `**Apelido:** ${membro.nickname || 'nenhum'}\n` +
-            `**Cargos (${cargos.size}):** ${cargosTexto}`
-        ));
-    }
-
-    if (badges.length) {
-        container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Emblemas**\n${badges.join(' · ')}`));
-    }
-
-    if (connections.length) {
-        container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-        const linhasConexoes = connections.map(c => formatarLinhaConexao(c)).join('\n');
-        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Conexões**\n${linhasConexoes}`));
-    }
-
-    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-    container.addActionRowComponents(montarSelectUserInfo(alvoUser.id, autorId, 'perfil', expiraEm));
-
-    return rodapeExpiracao(container, expiraEm);
-}
-
-async function montarPainelUsernames(alvoUser, autorId, expiraEm = 0) {
-    const historico = await HistoricoUsername.find({ userId: alvoUser.id }).sort({ desde: 1 }).catch(() => []);
-
-    const container = new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## Usernames antigos\n ${alvoUser.username}`))
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-
-    if (!historico.length) {
-        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(' Nenhum histórico de nome de usuário registrado ainda.'));
-    } else {
-        const linhas = historico.map((h, i) => {
-            const duracao = h.ate ? formatarDuracaoMs(h.ate - h.desde) : `${formatarDuracaoMs(Date.now() - h.desde)} (atual)`;
-            return `**${i + 1}.** \`${h.username}\`\n desde ${formatarDataBR(h.desde)} · ficou ${duracao}`;
-        });
-        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(linhas.join('\n\n')));
-    }
-
-    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-    container.addActionRowComponents(montarSelectUserInfo(alvoUser.id, autorId, 'usernames', expiraEm));
-    return rodapeExpiracao(container, expiraEm);
-}
-
-async function montarPainelAvatares(alvoUser, autorId, indice = 0, expiraEm = 0) {
-    let historico = await HistoricoAvatar.find({ userId: alvoUser.id }).sort({ registradoEm: -1 }).catch(() => []);
-
-    const container = new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## Avatares usados\n ${alvoUser.username}`))
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-
-    if (!historico.length) {
-        container.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(alvoUser.displayAvatarURL({ extension: 'png', size: 512 }))));
-        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(' Avatar atual'));
-        container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-        container.addActionRowComponents(montarSelectUserInfo(alvoUser.id, autorId, 'avatares', expiraEm));
-        return rodapeExpiracao(container, expiraEm);
-    }
-
-    let idx = Math.max(0, Math.min(indice, historico.length - 1));
-
-    // ---- Autolimpeza: verifica a URL atual, remove se estiver morta e tenta a próxima ----
-    while (historico.length) {
-        idx = Math.max(0, Math.min(idx, historico.length - 1));
-        const item = historico[idx];
-
-        const temHashValido = typeof item.avatarHash === 'string' && item.avatarHash.length > 0;
-        const urlCandidata = temHashValido ? montarUrlAvatar(alvoUser.id, item.avatarHash) : item.avatarUrl;
-
-        if (await urlValida(urlCandidata)) {
-            // válida, monta o painel normalmente
-            const ehAtual = idx === 0;
-
-            container.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(urlCandidata)));
-            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
-                ehAtual ? ' Avatar atual' : ` Registrado em ${formatarDataBR(item.registradoEm)} · ${idx + 1}/${historico.length}`
-            ));
-
-            container.addActionRowComponents(
-                new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId(`userinfo_avatar_${alvoUser.id}_${autorId}_${idx - 1}_${expiraEm}`).setLabel('Anterior').setStyle(ButtonStyle.Secondary).setDisabled(idx <= 0),
-                    new ButtonBuilder().setCustomId(`userinfo_avatar_${alvoUser.id}_${autorId}_${idx + 1}_${expiraEm}`).setLabel('Próximo').setStyle(ButtonStyle.Secondary).setDisabled(idx >= historico.length - 1)
-                )
-            );
-
-            container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-            container.addActionRowComponents(montarSelectUserInfo(alvoUser.id, autorId, 'avatares', expiraEm));
-            return rodapeExpiracao(container, expiraEm);
-        }
-
-        // morta -> apaga do banco e remove do array em memória, tenta de novo
-        await HistoricoAvatar.deleteOne({ _id: item._id }).catch(() => null);
-        historico.splice(idx, 1);
-        // mantém o idx pra pegar o próximo item que ocupou essa posição (ou o anterior, se era o último)
-    }
-
-    // se limpou tudo e não sobrou nada válido
-    container.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(alvoUser.displayAvatarURL({ extension: 'png', size: 512 }))));
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(' Avatar atual (histórico anterior estava indisponível e foi removido)'));
-    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-    container.addActionRowComponents(montarSelectUserInfo(alvoUser.id, autorId, 'avatares', expiraEm));
-    return rodapeExpiracao(container, expiraEm);
-}
-
-async function montarPainelBanners(alvoUser, autorId, indice = 0, expiraEm = 0) {
-
-    const usuarioCompleto = await alvoUser.fetch(true).catch(() => null);
-    const bannerHashAtual = usuarioCompleto?.banner ?? null;
-    const bannerUrlAtual = bannerHashAtual
-        ? `https://cdn.discordapp.com/banners/${alvoUser.id}/${bannerHashAtual}.${bannerHashAtual.startsWith('a_') ? 'gif' : 'png'}?size=1024`
-        : null;
-
-    if (bannerHashAtual) {
-        await registrarBannerSeNecessario(alvoUser.id, bannerUrlAtual, bannerHashAtual);
-    }
-
-    let historico = await HistoricoBanner.find({ userId: alvoUser.id }).sort({ registradoEm: -1 }).catch(() => []);
-
-    const container = new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## Banners usados\n ${alvoUser.username}`))
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-
-    let totalSlots = 1 + historico.length; // 0 = atual real, 1+ = histórico
-    let idx = Math.max(0, Math.min(indice, totalSlots - 1));
-
-    // ---- Slot 0: banner atual, sem verificação (vem direto do Discord agora) ----
-    if (idx === 0) {
-        if (bannerUrlAtual) {
-            container.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(bannerUrlAtual)));
-            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(' Banner atual'));
-        } else {
-            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(' Esse usuário não possui um banner no momento.'));
-        }
-    } else {
-        // ---- Slots 1+: histórico -> verifica e autolimpa ----
-        let encontrou = false;
-
-        while (historico.length && (idx - 1) < historico.length) {
-            const posHistorico = idx - 1;
-            const item = historico[posHistorico];
-
-            if (await urlValida(item.bannerUrl)) {
-                container.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(item.bannerUrl)));
-                container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
-                    ` Registrado em ${formatarDataBR(item.registradoEm)} · ${idx + 1}/${totalSlots}`
-                ));
-                encontrou = true;
-                break;
-            }
-
-            // morta -> apaga do banco e do array em memória, ajusta totalSlots e tenta a próxima posição
-            await HistoricoBanner.deleteOne({ _id: item._id }).catch(() => null);
-            historico.splice(posHistorico, 1);
-            totalSlots = 1 + historico.length;
-            idx = Math.max(0, Math.min(idx, totalSlots - 1));
-
-            // se depois de ajustar caiu no slot 0, sai do while e deixa o bloco de baixo tratar
-            if (idx === 0) break;
-        }
-
-        if (!encontrou && idx === 0) {
-            // caiu de volta pro banner atual depois de limpar tudo
-            if (bannerUrlAtual) {
-                container.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(bannerUrlAtual)));
-                container.addTextDisplayComponents(new TextDisplayBuilder().setContent(' Banner atual'));
-            } else {
-                container.addTextDisplayComponents(new TextDisplayBuilder().setContent(' Esse usuário não possui um banner no momento.'));
-            }
-        } else if (!encontrou) {
-            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(' Nenhum banner disponível no histórico.'));
-        }
-    }
-
-    if (totalSlots > 1) {
-        container.addActionRowComponents(
-            new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(`userinfo_banner_${alvoUser.id}_${autorId}_${idx - 1}_${expiraEm}`).setLabel('Anterior').setStyle(ButtonStyle.Secondary).setDisabled(idx <= 0),
-                new ButtonBuilder().setCustomId(`userinfo_banner_${alvoUser.id}_${autorId}_${idx + 1}_${expiraEm}`).setLabel('Próximo').setStyle(ButtonStyle.Secondary).setDisabled(idx >= totalSlots - 1)
-            )
-        );
-    }
-
-    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-    container.addActionRowComponents(montarSelectUserInfo(alvoUser.id, autorId, 'banners', expiraEm));
-    return rodapeExpiracao(container, expiraEm);
 }
 
 function helpPrimeiraFrase(texto) {
@@ -7378,7 +6821,6 @@ module.exports = {
     DURACAO_PUNICAO_STAFF_MS,
     EMOJI_SIZE,
     EMOJI_SIZE_CUSTOM,
-    EMOJIS_CONEXAO,
     eventoMoedas,
     EXCLUIR_CARGOS_POR_PAGINA,
     EXT_AUDIO,
@@ -7408,8 +6850,6 @@ module.exports = {
     msgCriadorTimeouts,
     muteCargoTimeouts,
     NAME_SIZE,
-    NOMES_BADGES,
-    NOMES_CONEXAO,
     nukeTracker,
     PADDING_TOP,
     PADDING_X,
@@ -7499,13 +6939,11 @@ module.exports = {
     formatarDataBR,
     formatarDuracaoMs,
     formatarHorarioRelativo,
-    formatarLinhaConexao,
     formatarMarkdownDiscord,
     formatarTempoCurto,
     formatarTempoRelativo,
     formatarTimestampDiscord,
     formatarTop3Texto,
-    garantirHistoricoInicial,
     gerarBarraProgresso,
     gerarCardTellonym,
     gerarListasHelp,
@@ -7545,12 +6983,8 @@ module.exports = {
     montarLinhasComEmoji,
     montarOverwritesRestauracao,
     montarPainelAntiNuke,
-    montarPainelAvatares,
     montarPainelBackup,
     montarPainelBackupSelecionado,
-    montarPainelBanners,
-    montarPainelBios,
-    montarPainelBiosLista,
     montarPainelEfemeroProtecao,
     montarPainelGRoles,
     montarPainelGRolesCriar,
@@ -7575,15 +7009,11 @@ module.exports = {
     montarPainelSorteioConfig,
     montarPainelSorteioInicial,
     montarPainelStatus,
-    montarPainelUserInfo,
-    montarPainelUsernames,
     montarPainelVerificacaoCargos,
     montarPayloadFinalMsgCriador,
     montarPayloadPainelMsgCriador,
     montarPermissoesTextoGRoles,
     montarPreviewMsgCriador,
-    montarSelectUserInfo,
-    montarUrlAvatar,
     nomeTipoCanalLog,
     obterCargosExcluiveisGRoles,
     obterCargosGerenciaveisGRoles,
@@ -7603,11 +7033,7 @@ module.exports = {
     quebrarLinhasComEmoji,
     reconectarVoiceStates,
     registrarAcaoNuke,
-    registrarAvatarSeNecessario,
-    registrarBannerSeNecessario,
-    registrarBioSeNecessario,
     registrarPainelProtecao,
-    registrarUsernameSeNecessario,
     removerAfk,
     removerMuteCargo,
     removerTellonymPendenteUsuario,
@@ -7615,7 +7041,6 @@ module.exports = {
     renderComponentesV2,
     renderComponenteV2,
     restaurarBackupServidor,
-    rodapeExpiracao,
     roundedRect,
     salvarConfigMoedas,
     salvarEstadoEventoMoedas,
