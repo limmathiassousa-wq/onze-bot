@@ -6720,19 +6720,22 @@ try {
 
 let msgModeracao;
 try {
-    await canalMod.send({
+    // Ping do cargo: com retry e sem travar o card se falhar de vez
+    await comRetryRede(() => canalMod.send({
         components: [new TextDisplayBuilder().setContent('<@&1546552147804692480>')],
-    flags: [MessageFlags.IsComponentsV2],
-    allowedMentions: { roles: ['1546552147804692480'] }
-    });
-    msgModeracao = await comRetry(() => canalMod.send({
+        flags: [MessageFlags.IsComponentsV2],
+        allowedMentions: { roles: ['1546552147804692480'] }
+    })).catch(err => console.error('--- Erro ao enviar ping do Tellonym ---', err?.code || err?.message));
+
+    // Card: o "other side closed" (UND_ERR_SOCKET) é conexão velha morta, uma nova tentativa resolve
+    msgModeracao = await comRetryRede(() => canalMod.send({
         components: [containerMod],
         files: [anexo],
         flags: [MessageFlags.IsComponentsV2]
-    }));
+    }), 6, 1000);
 } catch (err) {
     console.error('--- Erro ao enviar Tellonym pra moderação ---', err);
-    return interaction.editReply({ content: 'Ocorreu um erro ao enviar seu Tellonym pra avaliação.' });
+    return interaction.editReply({ content: 'Ocorreu um erro ao enviar seu Tellonym pra avaliação. Tente novamente em instantes.' });
 }
 
 const imagemUrl = extrairPrimeiraMediaUrl(msgModeracao.components?.map(c => c.toJSON?.() ?? c) ?? []);
@@ -6884,11 +6887,11 @@ if (interaction.isButton() && interaction.customId === 'tellonym_permitir') {
 
     let msgEnviada;
     try {
-        msgEnviada = await comRetry(() => canalDestino.send({
+        msgEnviada = await comRetryRede(() => canalDestino.send({
             content: marcado ? `> ${marcado}` : undefined,
             files: [anexo],
             components: [linhaBotoes]
-        }));
+        }), 6, 1000);
     } catch (err) {
         console.error('--- Erro ao enviar Tellonym aprovado ---', err);
         return interaction.followUp({ content: 'Ocorreu um erro ao enviar o Tellonym pro canal.', flags: [MessageFlags.Ephemeral] });
