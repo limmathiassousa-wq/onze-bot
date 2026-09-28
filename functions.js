@@ -1607,8 +1607,8 @@ async function montarPainelGRoles(guild, draft, adminId) {
 
     const souEuMesmo = draft.alvoId === adminId;
     const textoTopo = souEuMesmo
-        ? `## Gerenciamento de Cargos\n\nVocê está gerenciando seus próprios **cargos**.`
-        : `## Gerenciamento de Cargos\n\nVocê esta gerenciando os **cargos** de <@${alvoMembro.id}>.`;
+        ? `## Gerenciamento de Cargos\n\nIae <@${adminId}>, você está gerenciando seus próprios **cargos**.`
+        : `## Gerenciamento de Cargos\n\nIae <@${adminId}>, você está gerenciando os **cargos** de <@${alvoMembro.id}>.`;
 
     container.addSectionComponents(
         new SectionBuilder()
@@ -1633,7 +1633,10 @@ async function montarPainelGRoles(guild, draft, adminId) {
     }
 
     if (!fatia.length) {
-        container.addTextDisplayComponents(new TextDisplayBuilder().setContent('Nenhum cargo encontrado com esses critérios.'));
+        const semNenhumCargo = alvoMembro.roles.cache.filter(r => r.id !== guild.id).size === 0;
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            semNenhumCargo ? 'Este usuário não possui nenhum cargo.' : 'Nenhum cargo encontrado com esses critérios.'
+        ));
     }
 
 for (const cargo of fatia) {

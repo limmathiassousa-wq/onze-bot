@@ -729,7 +729,7 @@ client.on('channelUpdate', async (canalAntigo, canalNovo) => {
         const catNova = canalNovo.parent ? canalNovo.parent.name : 'Nenhuma';
         alteracoes.push(`**Categoria:** \`${catAntiga}\` → \`${catNova}\``);
     }
-    if ('topic' in canalAntigo && canalAntigo.topic !== canalNovo.topic) {
+    if ('topic' in canalAntigo && (canalAntigo.topic || null) !== (canalNovo.topic || null)) {
         alteracoes.push(`**Tópico:** \`${canalAntigo.topic || 'Nenhum'}\` → \`${canalNovo.topic || 'Nenhum'}\``);
     }
     if ('nsfw' in canalAntigo && canalAntigo.nsfw !== canalNovo.nsfw) {
@@ -1802,6 +1802,26 @@ function extrairIdAlvoPrefixo(message) {
     return (arg.match(/^<@!?(\d{15,25})>$/) || arg.match(/^(\d{15,25})$/) || [])[1] || null;
 }
 
+// Verifica se um ID já está banido no servidor. Primeiro tenta o fetch direto (mais rápido);
+// se der erro que não seja "não está banido" (ex: falha de rede/API), confere na lista completa
+// de bans antes de concluir que não está banido, pra nunca deixar passar batido por erro de fetch.
+async function verificarUsuarioBanido(guild, userId) {
+    try {
+        const ban = await guild.bans.fetch({ user: userId, force: true });
+        return !!ban;
+    } catch (err) {
+        if (err?.code === 10026) return false; // Unknown Ban -> realmente não está banido
+
+        try {
+            const lista = await guild.bans.fetch({ force: true });
+            return lista.has(userId);
+        } catch (err2) {
+            console.error('--- Erro ao verificar lista de banidos ---', err2);
+            return false;
+        }
+    }
+}
+
 // Remove qualquer mute do membro: timeout nativo e/ou mute por cargo (restaurando os cargos antigos)
 async function removerMuteCompleto(guild, alvoId, motivo) {
     let membro = await guild.members.fetch({ user: alvoId, force: true }).catch(() => null);
@@ -2106,7 +2126,7 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}ban `) || message.conten
     if (idAlvo === message.author.id) return aviso('Você não pode se banir!');
     if (idAlvo === client.user.id) return aviso('Eu não posso me banir!');
 
-    const jaBanido = await message.guild.bans.fetch({ user: idAlvo, force: true }).catch(() => null);
+    const jaBanido = await verificarUsuarioBanido(message.guild, idAlvo);
     if (jaBanido) return aviso('Esse usuário já está banido.');
 
     const motivo = message.content.trim().split(/\s+/).slice(2).join(' ') || null;
@@ -2115,15 +2135,16 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}ban `) || message.conten
     const membroAlvo = await message.guild.members.fetch({ user: idAlvo, force: true }).catch(() => null);
     if (membroAlvo && !membroAlvo.bannable) return aviso('Não consigo banir esse usuário. Verifique a hierarquia de cargos.');
 
-    // Não precisa que o usuário esteja no servidor: tenta buscar no Discord só pra exibir a tag.
+    // Não precisa que o usuário esteja no servidor: tenta buscar no Discord só pra exibir a tag,
+    // mas se não conseguir, bane mesmo assim usando o ID (o banimento em si não depende disso).
     const userAlvo = membroAlvo?.user || await client.users.fetch(idAlvo).catch(() => null);
-    if (!userAlvo) return aviso('Não encontrei nenhum usuário com esse ID no Discord.');
+    const alvoTag = userAlvo?.tag || idAlvo;
 
-    const container = montarPainelAcaoModeracao('ban', `<@${idAlvo}>`, userAlvo.tag, motivo);
+    const container = montarPainelAcaoModeracao('ban', `<@${idAlvo}>`, alvoTag, motivo);
     const msgConfirmacao = await message.channel.send({ components: [container], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
 
     confirmacaoModeracaoDB.set(msgConfirmacao.id, {
-        tipo: 'ban', autorId: message.author.id, alvoId: idAlvo, alvoTag: userAlvo.tag, motivo
+        tipo: 'ban', autorId: message.author.id, alvoId: idAlvo, alvoTag, motivo
     });
     agendarExpiracaoPainel(msgConfirmacao, () => confirmacaoModeracaoDB.delete(msgConfirmacao.id));
     return;
