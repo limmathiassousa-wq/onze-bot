@@ -75,6 +75,43 @@ function comTimeout(fn, ms, rotulo) {
     });
 }
 
+// Envia uma mensagem com arquivo pelo fetch/FormData nativos do Node (mesma saída que resolveu o
+// Insta), sem passar pelo upload do discord.js, que está caindo com "other side closed".
+// Aceita o arquivo como buffer (card gerado aqui) ou como URL (baixa e sobe direto).
+async function enviarMensagemComArquivoNativo(canalId, { payload, buffer, urlArquivo, nomeArquivo = 'arquivo.png', timeoutMs = 20000 }) {
+    let blob;
+    if (buffer) {
+        blob = new Blob([buffer], { type: 'image/png' });
+    } else {
+        const respArquivo = await fetch(urlArquivo, { signal: AbortSignal.timeout(timeoutMs) });
+        if (!respArquivo.ok) throw new Error(`download da mídia HTTP ${respArquivo.status}`);
+        blob = await respArquivo.blob();
+    }
+
+    const form = new FormData();
+    form.append('payload_json', JSON.stringify({ ...payload, attachments: [{ id: 0, filename: nomeArquivo }] }));
+    form.append('files[0]', blob, nomeArquivo);
+
+    const resp = await fetch(`https://discord.com/api/v10/channels/${canalId}/messages`, {
+        method: 'POST',
+        headers: { Authorization: `Bot ${client.token}` },
+        body: form,
+        signal: AbortSignal.timeout(timeoutMs)
+    });
+
+    if (!resp.ok) {
+        const corpo = await resp.text().catch(() => '');
+        const erro = new Error(`envio HTTP ${resp.status}: ${corpo.slice(0, 300)}`);
+        if (resp.status === 429) { // deixa o comRetry esperar o tempo certo e tentar de novo
+            erro.status = 429;
+            try { erro.retry_after = JSON.parse(corpo).retry_after; } catch (_) { /* ignora */ }
+        }
+        throw erro;
+    }
+
+    return await resp.json();
+}
+
 // Testa (sem baixar o arquivo) qual link da mídia o servidor consegue alcançar.
 // O discord.js baixa a URL do anexo na hora de reenviar; se o CDN não responde daqui,
 // o envio inteiro trava — então escolhe o link que responde, ou desiste rápido.
@@ -6727,12 +6764,25 @@ try {
         allowedMentions: { roles: ['1546552147804692480'] }
     })).catch(err => console.error('--- Erro ao enviar ping do Tellonym ---', err?.code || err?.message));
 
-    // Card: o "other side closed" (UND_ERR_SOCKET) é conexão velha morta, uma nova tentativa resolve
-    msgModeracao = await comRetryRede(() => canalMod.send({
-        components: [containerMod],
-        files: [anexo],
-        flags: [MessageFlags.IsComponentsV2]
-    }), 6, 1000);
+    // Card: primeiro pelo fetch nativo (o upload do discord.js é o que está caindo com
+    // "other side closed"); se falhar, tenta pelo próprio discord.js como reserva.
+    const inicioTellonym = Date.now();
+    try {
+        msgModeracao = await comRetryRede(() => comTimeout(() => enviarMensagemComArquivoNativo(canalMod.id, {
+            payload: { flags: MessageFlags.IsComponentsV2, components: [containerMod.toJSON()] },
+            buffer: imagemBuffer,
+            nomeArquivo: 'tellonym.png'
+        }), 20000, 'envio nativo'), 3, 500);
+        console.log(`[Tellonym] card enviado via fetch nativo | id=${msgModeracao.id} | ${Date.now() - inicioTellonym}ms`);
+    } catch (errNativo) {
+        console.error(`[Tellonym] envio nativo falhou após ${Date.now() - inicioTellonym}ms:`, errNativo.code || errNativo.cause?.code || errNativo.name, '-', errNativo.message);
+        msgModeracao = await comRetryRede(() => comTimeout(() => canalMod.send({
+            components: [containerMod],
+            files: [anexo],
+            flags: [MessageFlags.IsComponentsV2]
+        }), 15000, 'envio pelo bot'), 3, 500);
+        console.log(`[Tellonym] card enviado via bot (reserva) | id=${msgModeracao.id} | total ${Date.now() - inicioTellonym}ms`);
+    }
 } catch (err) {
     console.error('--- Erro ao enviar Tellonym pra moderação ---', err);
     return interaction.editReply({ content: 'Ocorreu um erro ao enviar seu Tellonym pra avaliação. Tente novamente em instantes.' });
@@ -6887,11 +6937,20 @@ if (interaction.isButton() && interaction.customId === 'tellonym_permitir') {
 
     let msgEnviada;
     try {
-        msgEnviada = await comRetryRede(() => canalDestino.send({
-            content: marcado ? `> ${marcado}` : undefined,
-            files: [anexo],
-            components: [linhaBotoes]
-        }), 6, 1000);
+        try {
+            msgEnviada = await comRetryRede(() => comTimeout(() => enviarMensagemComArquivoNativo(canalDestino.id, {
+                payload: { content: marcado ? `> ${marcado}` : undefined, components: [linhaBotoes.toJSON()] },
+                urlArquivo: imagemUrl,
+                nomeArquivo: 'tellonym.png'
+            }), 20000, 'envio nativo'), 3, 500);
+        } catch (errNativo) {
+            console.error('[Tellonym] envio aprovado nativo falhou:', errNativo.code || errNativo.cause?.code || errNativo.name, '-', errNativo.message);
+            msgEnviada = await comRetryRede(() => comTimeout(() => canalDestino.send({
+                content: marcado ? `> ${marcado}` : undefined,
+                files: [anexo],
+                components: [linhaBotoes]
+            }), 15000, 'envio pelo bot'), 3, 500);
+        }
     } catch (err) {
         console.error('--- Erro ao enviar Tellonym aprovado ---', err);
         return interaction.followUp({ content: 'Ocorreu um erro ao enviar o Tellonym pro canal.', flags: [MessageFlags.Ephemeral] });
