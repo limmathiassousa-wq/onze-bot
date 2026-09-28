@@ -96,13 +96,15 @@ async function registrarPainelBotCall(guildId, channelId, messageId) {
 
 function montarPainelMuteInicial(draft) {
     return new ContainerBuilder()
+        .setAccentColor(COR_EMBED)
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            `### Mutar usuário\n-# <@${draft.alvoId}>`
+            `## Mutar usuário\n<@${draft.alvoId}>`
         ))
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
             `**Mutar** \`timeout nativo\`\n**Mutar por cargo** \`5 minutos, cargos voltam sozinhos\``
         ))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(avisoExpiracao(draft)))
         .addActionRowComponents(
             new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('mute_modo_timeout').setLabel('Mutar').setStyle(ButtonStyle.Primary),
@@ -114,15 +116,16 @@ function montarPainelMuteInicial(draft) {
 function montarPainelMuteTimeout(draft) {
     const configCompleta = !!draft.duracaoMs;
     return new ContainerBuilder()
+        .setAccentColor(COR_EMBED)
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            `### Mutar · Timeout\n-# <@${draft.alvoId}>`
+            `## Mutar · Timeout\n<@${draft.alvoId}>`
         ))
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
             `**Tempo** \`${draft.duracaoTexto || 'não definido'}\`\n` +
             `**Motivo** ${draft.motivo ? draft.motivo : '`não informado`'}`
         ))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(avisoExpiracao(draft)))
         .addActionRowComponents(
             new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('mute_voltar').setLabel('Voltar').setStyle(ButtonStyle.Secondary),
@@ -135,15 +138,16 @@ function montarPainelMuteTimeout(draft) {
 
 function montarPainelMuteCargo(draft) {
     return new ContainerBuilder()
+        .setAccentColor(COR_EMBED)
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            `### Mutar · Por cargo\n-# <@${draft.alvoId}>`
+            `## Mutar · Por cargo\n<@${draft.alvoId}>`
         ))
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
             `**Cargo** <@&${CARGO_MUTADO}> \`5 minutos\`\n` +
             `**Motivo** ${draft.motivo ? draft.motivo : '`não informado`'}`
         ))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(avisoExpiracao(draft)))
         .addActionRowComponents(
             new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('mute_voltar').setLabel('Voltar').setStyle(ButtonStyle.Secondary),
@@ -151,6 +155,153 @@ function montarPainelMuteCargo(draft) {
                 new ButtonBuilder().setCustomId('mute_cargo_aplicar').setLabel('Mutar').setStyle(ButtonStyle.Danger)
             )
         );
+}
+
+// ============ MODERAÇÃO (PREFIXO): estilo único + expiração de 1 min ============
+
+const TEMPO_PAINEL_MOD_MS = 60 * 1000;
+const AVISO_EXPIRACAO = '-# Você tem 1 min até essa embed ser deletada';
+
+// Painéis efêmeros (vindos do muteinfo) não podem ser deletados pelo bot, então não mostram o aviso.
+function avisoExpiracao(draft) {
+    return draft && draft.efemero ? '-# Use os botões abaixo' : AVISO_EXPIRACAO;
+}
+
+// Apaga a embed depois de 1 min e limpa os rascunhos ligados a ela.
+function agendarExpiracaoPainel(msg, limpar) {
+    setTimeout(async () => {
+        try { if (limpar) limpar(); } catch (_) { /* ignora */ }
+        await msg.delete().catch(() => null);
+    }, TEMPO_PAINEL_MOD_MS);
+}
+
+// Painel de confirmação de ban / unban / kick / unmute (mesmo estilo dos outros)
+function montarPainelAcaoModeracao(tipo, alvoMencao, alvoTag, motivo) {
+    const config = {
+        ban:    { titulo: 'Deseja realmente banir?',     botao: 'Banir' },
+        unban:  { titulo: 'Deseja realmente desbanir?',  botao: 'Desbanir' },
+        kick:   { titulo: 'Deseja realmente expulsar?',  botao: 'Expulsar' },
+        mute:   { titulo: 'Deseja realmente mutar?',     botao: 'Mutar' },
+        unmute: { titulo: 'Deseja realmente desmutar?',  botao: 'Desmutar' }
+    }[tipo] || { titulo: 'Deseja realmente continuar?', botao: 'Confirmar' };
+
+    return new ContainerBuilder()
+        .setAccentColor(COR_EMBED)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${config.titulo}`))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${alvoMencao} · \`${alvoTag}\``))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# **Motivo:** ${motivo || '_'}`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(AVISO_EXPIRACAO))
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('moderacao_confirmar').setLabel(config.botao).setStyle(ButtonStyle.Danger),
+                new ButtonBuilder().setCustomId('moderacao_cancelar').setLabel('Cancelar').setStyle(ButtonStyle.Secondary)
+            )
+        );
+}
+
+// ============ MUTEINFO (PREFIXO) ============
+
+function temPermissaoMute(membro) {
+    if (!membro) return false;
+    if (membro.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) return false;
+    return membro.permissions.has('ModerateMembers') || membro.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
+}
+
+function estaEmTimeout(membro) {
+    return !!membro.communicationDisabledUntilTimestamp && membro.communicationDisabledUntilTimestamp > Date.now();
+}
+
+const ultimoFetchMutados = new Map();
+
+// Lista quem está mutado agora (timeout nativo OU cargo de mutado)
+async function listarMutados(guild) {
+    const agora = Date.now();
+    if (agora - (ultimoFetchMutados.get(guild.id) || 0) > 30 * 1000) {
+        await guild.members.fetch().catch(() => null);
+        ultimoFetchMutados.set(guild.id, agora);
+    }
+
+    const mutados = [];
+    for (const membro of guild.members.cache.values()) {
+        const timeout = estaEmTimeout(membro);
+        const cargo = membro.roles.cache.has(CARGO_MUTADO);
+        if (timeout || cargo) mutados.push({ membro, timeout, cargo });
+    }
+    mutados.sort((a, b) => a.membro.displayName.localeCompare(b.membro.displayName, 'pt-BR'));
+    return mutados;
+}
+
+function montarPainelMuteInfo(mutados, donoId) {
+    const MAX_LISTA = 40;
+    const linhas = mutados.slice(0, MAX_LISTA).map(m => `<@${m.membro.id}>`);
+    if (mutados.length > MAX_LISTA) linhas.push(`*e mais ${mutados.length - MAX_LISTA}...*`);
+    const lista = linhas.length ? linhas.join('\n') : '*Ninguém está mutado.*';
+
+    return new ContainerBuilder()
+        .setAccentColor(COR_EMBED)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            `## Mute informações\n-# **Pessoas mutadas: ${mutados.length}**\nMembros:\n${lista}`
+        ))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId(`muteinfo_btn_add_${donoId}`).setLabel('Adicionar').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId(`muteinfo_btn_rem_${donoId}`).setLabel('Remover').setStyle(ButtonStyle.Secondary).setDisabled(mutados.length === 0)
+            )
+        );
+}
+
+// Efêmero do botão "Adicionar": só o select de usuário
+function montarSelectMutarMuteInfo(painelId) {
+    return new ContainerBuilder()
+        .setAccentColor(COR_EMBED)
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new UserSelectMenuBuilder()
+                    .setCustomId(`muteinfo_sel_add_${painelId}`)
+                    .setPlaceholder('Selecione quem deseja mutar')
+                    .setMinValues(1)
+                    .setMaxValues(1)
+            )
+        );
+}
+
+// Efêmero do botão "Remover": select só com quem está mutado (limite do Discord: 25 opções)
+function montarSelectRemoverMuteInfo(mutados, painelId) {
+    const options = mutados.slice(0, 25).map(m => ({
+        label: m.membro.displayName.slice(0, 100),
+        description: `@${m.membro.user.username} • ${[m.timeout ? 'timeout' : null, m.cargo ? 'cargo' : null].filter(Boolean).join(' + ')}`.slice(0, 100),
+        value: m.membro.id
+    }));
+
+    return new ContainerBuilder()
+        .setAccentColor(COR_EMBED)
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new StringSelectMenuBuilder()
+                    .setCustomId(`muteinfo_sel_rem_${painelId}`)
+                    .setPlaceholder('Selecione quem deseja desmutar')
+                    .addOptions(options)
+            )
+        );
+}
+
+// Atualiza a mensagem pública do muteinfo. idsRefetch: força buscar esses membros antes (o cache pode estar atrasado)
+async function atualizarPainelMuteInfo(guild, info, idsRefetch = []) {
+    if (!info || !info.painelId) return;
+    const canal = guild.channels.cache.get(info.canalId) ?? await guild.channels.fetch(info.canalId).catch(() => null);
+    const msg = canal ? await canal.messages.fetch(info.painelId).catch(() => null) : null;
+    if (!msg) return;
+
+    for (const id of idsRefetch) await guild.members.fetch({ user: id, force: true }).catch(() => null);
+    const mutados = await listarMutados(guild);
+
+    await msg.edit({
+        components: [montarPainelMuteInfo(mutados, info.donoId)],
+        flags: [MessageFlags.IsComponentsV2],
+        allowedMentions: { parse: [] }
+    }).catch(err => console.error('--- Erro ao atualizar painel muteinfo ---', err));
 }
 
 async function obterPrimeirasDamas(guildId, setterId) {
@@ -295,182 +446,6 @@ registrar(
             content: `${interaction.user}, seu **AFK** foi setado: \`${motivo}\``,
             allowedMentions: { users: [] }
         });
-    }
-);
-
-registrar(
-    new SlashCommandBuilder().setName('ban').setDescription('Bane um usuário do servidor')
-        .addUserOption(o => o.setName('usuario').setDescription('Usuário a ser banido').setRequired(true))
-        .addStringOption(o => o.setName('motivo').setDescription('Motivo do banimento').setRequired(false))
-        .addIntegerOption(o => o.setName('dias_mensagens').setDescription('Dias de mensagens do usuário a apagar (0 a 7)').setRequired(false).setMinValue(0).setMaxValue(7)),
-    async (interaction) => {
-        if (interaction.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) {
-            return interaction.reply({ content: 'Você não tem permissão para banir membros!', flags: [MessageFlags.Ephemeral] });
-        }
-        if (!interaction.member.permissions.has('BanMembers') && !interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
-            return interaction.reply({ content: 'Você não tem permissão para banir membros!', flags: [MessageFlags.Ephemeral] });
-        }
-
-        const alvo = interaction.options.getUser('usuario');
-        const motivo = interaction.options.getString('motivo');
-        const diasMensagens = interaction.options.getInteger('dias_mensagens') || 0;
-
-        if (alvo.id === interaction.user.id) return interaction.reply({ content: 'Você não pode se banir!', flags: [MessageFlags.Ephemeral] });
-        if (alvo.id === interaction.client.user.id) return interaction.reply({ content: 'Eu não posso me banir!', flags: [MessageFlags.Ephemeral] });
-
-        const membroAlvo = await interaction.guild.members.fetch({ user: alvo.id, force: true }).catch(() => null);
-        if (membroAlvo && !membroAlvo.bannable) {
-            return interaction.reply({ content: 'Não consigo banir esse usuário. Verifique a hierarquia de cargos.', flags: [MessageFlags.Ephemeral] });
-        }
-
-        const container = montarPainelConfirmacaoModeracao('ban', `${alvo}`, alvo.tag, motivo);
-        const msgConfirmacao = await interaction.reply({
-            components: [container], flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral], fetchReply: true
-        });
-
-        confirmacaoModeracaoDB.set(msgConfirmacao.id, {
-            tipo: 'ban', autorId: interaction.user.id, alvoId: alvo.id, alvoTag: alvo.tag, motivo, diasMensagens
-        });
-        setTimeout(() => confirmacaoModeracaoDB.delete(msgConfirmacao.id), 2 * 60 * 1000);
-    }
-);
-
-registrar(
-    new SlashCommandBuilder().setName('unban').setDescription('Remove o banimento de um usuário')
-        .addStringOption(o => o.setName('usuario_id').setDescription('ID do usuário banido').setRequired(true))
-        .addStringOption(o => o.setName('motivo').setDescription('Motivo do desbanimento').setRequired(false)),
-    async (interaction) => {
-        if (interaction.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) {
-            return interaction.reply({ content: 'Você não tem permissão para desbanir membros!', flags: [MessageFlags.Ephemeral] });
-        }
-        if (!interaction.member.permissions.has('BanMembers') && !interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
-            return interaction.reply({ content: 'Você não tem permissão para desbanir membros!', flags: [MessageFlags.Ephemeral] });
-        }
-
-        const usuarioId = interaction.options.getString('usuario_id');
-        const motivo = interaction.options.getString('motivo');
-
-        const banido = await interaction.guild.bans.fetch({ user: usuarioId, force: true }).catch(() => null);
-        if (!banido) return interaction.reply({ content: 'Esse usuário não está banido, ou o ID é inválido.', flags: [MessageFlags.Ephemeral] });
-
-        const container = montarPainelConfirmacaoModeracao('unban', `<@${usuarioId}>`, banido.user.tag, motivo);
-        const msgConfirmacao = await interaction.reply({
-            components: [container], flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral], fetchReply: true
-        });
-
-        confirmacaoModeracaoDB.set(msgConfirmacao.id, {
-            tipo: 'unban', autorId: interaction.user.id, alvoId: usuarioId, alvoTag: banido.user.tag, motivo
-        });
-        setTimeout(() => confirmacaoModeracaoDB.delete(msgConfirmacao.id), 2 * 60 * 1000);
-    }
-);
-
-registrar(
-    new SlashCommandBuilder().setName('kick').setDescription('Expulsa um usuário do servidor')
-        .addUserOption(o => o.setName('usuario').setDescription('Usuário a ser expulso').setRequired(true))
-        .addStringOption(o => o.setName('motivo').setDescription('Motivo da expulsão').setRequired(false)),
-    async (interaction) => {
-        if (interaction.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) {
-            return interaction.reply({ content: 'Você não tem permissão para expulsar membros!', flags: [MessageFlags.Ephemeral] });
-        }
-        if (!interaction.member.permissions.has('KickMembers') && !interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
-            return interaction.reply({ content: 'Você não tem permissão para expulsar membros!', flags: [MessageFlags.Ephemeral] });
-        }
-
-        const alvo = interaction.options.getUser('usuario');
-        const motivo = interaction.options.getString('motivo');
-
-        if (alvo.id === interaction.user.id) return interaction.reply({ content: 'Você não pode se expulsar!', flags: [MessageFlags.Ephemeral] });
-
-        const membroAlvo = await interaction.guild.members.fetch({ user: alvo.id, force: true }).catch(() => null);
-        if (!membroAlvo) return interaction.reply({ content: 'Esse usuário não está no servidor.', flags: [MessageFlags.Ephemeral] });
-        if (!membroAlvo.kickable) return interaction.reply({ content: 'Não consigo expulsar esse usuário. Verifique a hierarquia de cargos.', flags: [MessageFlags.Ephemeral] });
-
-        try {
-            await membroAlvo.kick(motivo || 'Não informado');
-        } catch (err) {
-            console.error('--- Erro ao expulsar ---', err);
-            return interaction.reply({ content: 'Ocorreu um erro ao expulsar esse usuário.', flags: [MessageFlags.Ephemeral] });
-        }
-
-        await logar('EXPULSÃO', `${alvo} (${alvo.tag})`, interaction.user, {
-                guild: interaction.guild, alvoUser: alvo, motivo, canalId: CANAL_LOGS_KICKS
-        });
-
-        enviarSucessoModeracao(interaction.channel, {
-            tipo: 'kick', alvoId: alvo.id, alvoTag: alvo.tag, alvoUser: alvo,
-            autor: interaction.user, motivo
-        });
-
-        return interaction.reply({ content: `${alvo.tag} foi expulso com sucesso!`, flags: [MessageFlags.Ephemeral] });
-    }
-);
-
-registrar(
-    new SlashCommandBuilder().setName('mute').setDescription('Abre o painel de mute de um usuário')
-        .addUserOption(o => o.setName('usuario').setDescription('Usuário a ser mutado').setRequired(true)),
-    async (interaction) => {
-        if (interaction.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) {
-            return interaction.reply({ content: 'Você não tem permissão para silenciar membros!', flags: [MessageFlags.Ephemeral] });
-        }
-        const temPermissao = interaction.member.permissions.has('ModerateMembers') || interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
-        if (!temPermissao) return interaction.reply({ content: 'Você não tem permissão para silenciar membros!', flags: [MessageFlags.Ephemeral] });
-
-        const alvo = interaction.options.getUser('usuario');
-        if (alvo.id === interaction.user.id) return interaction.reply({ content: 'Você não pode se mutar!', flags: [MessageFlags.Ephemeral] });
-        if (alvo.bot) return interaction.reply({ content: 'Você não pode mutar um bot!', flags: [MessageFlags.Ephemeral] });
-
-        const membroAlvo = await interaction.guild.members.fetch({ user: alvo.id, force: true }).catch(() => null);
-        if (!membroAlvo) return interaction.reply({ content: 'Esse usuário não está no servidor.', flags: [MessageFlags.Ephemeral] });
-
-        const draft = { autorId: interaction.user.id, alvoId: alvo.id, modo: null, duracaoTexto: null, duracaoMs: null, motivo: null };
-
-        const msgPainel = await interaction.reply({
-            components: [montarPainelMuteInicial(draft)],
-            flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral],
-            fetchReply: true
-        });
-
-        muteDraftDB.set(msgPainel.id, draft);
-    }
-);
-
-registrar(
-    new SlashCommandBuilder().setName('unmute').setDescription('Remove o silenciamento (timeout) de um usuário')
-        .addUserOption(o => o.setName('usuario').setDescription('Usuário a ter o mute removido').setRequired(true))
-        .addStringOption(o => o.setName('motivo').setDescription('Motivo da remoção do mute').setRequired(false)),
-    async (interaction) => {
-        if (interaction.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) {
-            return interaction.reply({ content: 'Você não tem permissão para remover o silenciamento!', flags: [MessageFlags.Ephemeral] });
-        }
-        if (!interaction.member.permissions.has('ModerateMembers') && !interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
-            return interaction.reply({ content: 'Você não tem permissão para remover o silenciamento!', flags: [MessageFlags.Ephemeral] });
-        }
-
-        const alvo = interaction.options.getUser('usuario');
-        const motivo = interaction.options.getString('motivo');
-
-        const membroAlvo = await interaction.guild.members.fetch({ user: alvo.id, force: true }).catch(() => null);
-        if (!membroAlvo) return interaction.reply({ content: 'Esse usuário não está no servidor.', flags: [MessageFlags.Ephemeral] });
-        if (!membroAlvo.communicationDisabledUntil) return interaction.reply({ content: 'Esse usuário não está silenciado.', flags: [MessageFlags.Ephemeral] });
-
-        try {
-            await membroAlvo.timeout(null, motivo || 'Não informado');
-        } catch (err) {
-            console.error('--- Erro ao remover mute ---', err);
-            return interaction.reply({ content: 'Ocorreu um erro ao remover o silenciamento.', flags: [MessageFlags.Ephemeral] });
-        }
-
-        await logar('UNMUTE', `${alvo} (${alvo.tag})`, interaction.user, {
-                 guild: interaction.guild, alvoUser: alvo, motivo
-        });
-
-        enviarSucessoModeracao(interaction.channel, {
-            tipo: 'unmute', alvoId: alvo.id, alvoTag: alvo.tag, alvoUser: alvo,
-            autor: interaction.user, motivo
-        });
-
-        return interaction.reply({ content: `O silenciamento de ${alvo.tag} foi removido!`, flags: [MessageFlags.Ephemeral] });
     }
 );
 
@@ -710,4 +685,4 @@ registrar(
 );
 
 
-module.exports = { comandos, montarPainelBotCall, registrarPainelBotCall, montarPainelPD, montarSelectAdicionarPD, montarSelectRemoverPD, atualizarPainelPD, obterPrimeirasDamas, montarPainelMuteInicial, montarPainelMuteTimeout, montarPainelMuteCargo };
+module.exports = { comandos, montarPainelBotCall, registrarPainelBotCall, montarPainelPD, montarSelectAdicionarPD, montarSelectRemoverPD, atualizarPainelPD, obterPrimeirasDamas, montarPainelMuteInicial, montarPainelMuteTimeout, montarPainelMuteCargo, montarPainelAcaoModeracao, agendarExpiracaoPainel, temPermissaoMute, estaEmTimeout, listarMutados, montarPainelMuteInfo, montarSelectMutarMuteInfo, montarSelectRemoverMuteInfo, atualizarPainelMuteInfo };

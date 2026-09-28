@@ -465,6 +465,10 @@ const HELP_PREFIXO_DESCRICOES = {
     painelps: 'Painel de proteção do servidor',
     ban: 'Bane um usuário com confirmação',
     unban: 'Desbane um usuário pelo ID com confirmação',
+    kick: 'Expulsa um usuário com confirmação',
+    mute: 'Abre o painel de mute (timeout ou por cargo)',
+    unmute: 'Remove o mute de um usuário com confirmação',
+    muteinfo: 'Painel com a lista de mutados (adicionar/remover)',
     painelurl: 'Painel de verificação de link na bio',
     info: 'Painel de hierarquia de cargos',
     userinfo: 'Mostra informações detalhadas de um usuário',
@@ -477,7 +481,7 @@ const HELP_PREFIXO_DESCRICOES = {
 
 // Só pra preencher o "Ajuda › Categoria › comando". Comando fora daqui cai em "Geral".
 const HELP_CATEGORIAS = {
-    'Moderação': ['ban', 'unban', 'kick', 'mute', 'unmute', 'limpar', 'nuke', 'painelps', 'cl'],
+    'Moderação': ['ban', 'unban', 'kick', 'mute', 'unmute', 'muteinfo', 'limpar', 'nuke', 'painelps', 'cl'],
     'Administração': ['addemoji', 'regras', 'tickets', 'xpeditar', 'addcargo', 'remcargo', 'groles', 'roleall', 'painelurl'],
     'Economia': ['carteira', 'pix', 'loja', 'moedastp', 'moedaseditar'],
     'Diversão': ['pd', 'tellonym', 'tiktok'],
@@ -502,11 +506,6 @@ const CATEGORIAS_HELP = {
 };
 
 const INFO_COMANDOS = {
-    '/ban': { descricao: 'Bane um usuário do servidor, removendo seu acesso permanentemente. Pode apagar mensagens recentes dele e pede confirmação antes de executar.', comoUsar: '/ban usuario:@usuário motivo:[opcional] dias_mensagens:[opcional]', exemplo: '/ban usuario:@Fulano motivo:Spam dias_mensagens:1', permissao: 'Banir Membros' },
-    '/unban': { descricao: 'Remove o banimento de um usuário, permitindo que ele volte a entrar no servidor.', comoUsar: '/unban usuario_id:<ID> motivo:[opcional]', exemplo: '/unban usuario_id:123456789012345678', permissao: 'Banir Membros' },
-    '/kick': { descricao: 'Expulsa um usuário do servidor. Diferente do ban, ele pode entrar novamente pelo convite.', comoUsar: '/kick usuario:@usuário motivo:[opcional]', exemplo: '/kick usuario:@Fulano motivo:Comportamento tóxico', permissao: 'Expulsar Membros' },
-    '/mute': { descricao: 'Aplica um timeout no usuário, impedindo-o de enviar mensagens ou falar em call durante o tempo definido.', comoUsar: '/mute usuario:@usuário duracao:<minutos> motivo:[opcional]', exemplo: '/mute usuario:@Fulano duracao:60 motivo:Flood', permissao: 'Silenciar Membros' },
-    '/unmute': { descricao: 'Remove o timeout de um usuário antes do tempo original acabar.', comoUsar: '/unmute usuario:@usuário motivo:[opcional]', exemplo: '/unmute usuario:@Fulano', permissao: 'Silenciar Membros' },
     '/limpar': { descricao: 'Apaga uma quantidade de mensagens do canal atual, mostrando o progresso em tempo real.', comoUsar: '/limpar quantidade:<número de 1 a 300>', exemplo: '/limpar quantidade:50', permissao: 'Gerenciar Mensagens' },
     '/addemoji': { descricao: 'Adiciona um emoji de outro servidor ao seu, colando o emoji ou apenas o ID numérico dele.', comoUsar: '/addemoji emoji:<emoji ou ID> nome:[opcional]', exemplo: '/addemoji emoji:<:exemplo:123456789012345678>', permissao: 'Administrador ou Equipe' },
     '/pd': { descricao: 'Abre o painel pra escolher e gerenciar suas Primeiras Damas no servidor, com limite configurado.', comoUsar: '/pd', exemplo: '/pd', permissao: 'Cargo específico' },
@@ -520,8 +519,12 @@ const INFO_COMANDOS = {
     '/help': { descricao: 'Mostra a lista completa de comandos disponíveis, separados entre slash e prefixo.', comoUsar: '/help', exemplo: '/help', permissao: 'Nenhuma' },
     '/ui': { descricao: 'Mostra informações detalhadas de você ou de outro usuário: bio, conexões, cargos, emblemas, histórico de nomes/avatares/banners.', comoUsar: '/ui usuario:[opcional]', exemplo: '/ui usuario:@Fulano', permissao: 'Nenhuma' },
     [`${PREFIXO}msg`]: { descricao: 'Abre um painel interativo pra montar uma mensagem personalizada (com texto, imagem e botões) e enviá-la em qualquer canal de texto do servidor. O painel expira e é apagado após 20 minutos.', comoUsar: `${PREFIXO}msg`, exemplo: `${PREFIXO}msg`, permissao: 'Equipe' },
-    [`${PREFIXO}ban`]: { descricao: 'Bane um usuário mencionado do servidor, com uma etapa de confirmação antes de executar.', comoUsar: `${PREFIXO}ban @usuário [motivo]`, exemplo: `${PREFIXO}ban @Fulano Spam`, permissao: 'Banir Membros ou Equipe' },
-    [`${PREFIXO}unban`]: { descricao: 'Remove o banimento de um usuário pelo ID, com uma etapa de confirmação antes de executar.', comoUsar: `${PREFIXO}unban <id> [motivo]`, exemplo: `${PREFIXO}unban 123456789012345678`, permissao: 'Banir Membros ou Equipe' },
+    [`${PREFIXO}kick`]: { descricao: 'Expulsa um usuário mencionado do servidor, com uma etapa de confirmação. Diferente do ban, ele pode entrar novamente pelo convite. A embed some em 1 minuto se ninguém agir.', comoUsar: `${PREFIXO}kick @usuário [motivo]`, exemplo: `${PREFIXO}kick @Fulano Comportamento tóxico`, permissao: 'Expulsar Membros ou Equipe' },
+    [`${PREFIXO}mute`]: { descricao: 'Abre o painel de mute de um usuário: timeout nativo (com tempo definido) ou mute por cargo (5 minutos, cargos voltam sozinhos). A embed some em 1 minuto se ninguém agir.', comoUsar: `${PREFIXO}mute @usuário [motivo]`, exemplo: `${PREFIXO}mute @Fulano Flood`, permissao: 'Silenciar Membros ou Equipe' },
+    [`${PREFIXO}unmute`]: { descricao: 'Remove o silenciamento (timeout ou mute por cargo) de um usuário, com uma etapa de confirmação.', comoUsar: `${PREFIXO}unmute @usuário [motivo]`, exemplo: `${PREFIXO}unmute @Fulano`, permissao: 'Silenciar Membros ou Equipe' },
+    [`${PREFIXO}muteinfo`]: { descricao: 'Mostra quantas pessoas estão mutadas e quem são, com botões para mutar (Adicionar) ou desmutar (Remover) pelo painel.', comoUsar: `${PREFIXO}muteinfo`, exemplo: `${PREFIXO}muteinfo`, permissao: 'Silenciar Membros ou Equipe' },
+    [`${PREFIXO}ban`]: { descricao: 'Bane um usuário mencionado do servidor, com uma etapa de confirmação antes de executar. A embed some em 1 minuto se ninguém agir.', comoUsar: `${PREFIXO}ban @usuário [motivo]`, exemplo: `${PREFIXO}ban @Fulano Spam`, permissao: 'Banir Membros ou Equipe' },
+    [`${PREFIXO}unban`]: { descricao: 'Remove o banimento de um usuário pelo ID, com uma etapa de confirmação antes de executar. A embed some em 1 minuto se ninguém agir.', comoUsar: `${PREFIXO}unban <id> [motivo]`, exemplo: `${PREFIXO}unban 123456789012345678`, permissao: 'Banir Membros ou Equipe' },
     [`${PREFIXO}painelurl`]: { descricao: 'Envia um painel para o usuário verificar se colocou o link do servidor na bio ou nos pronomes, e recebe um cargo automaticamente se encontrado.', comoUsar: `${PREFIXO}painelurl`, exemplo: `${PREFIXO}painelurl`, permissao: 'Equipe' },
     [`${PREFIXO}info`]: { descricao: 'Envia o painel de hierarquia de cargos, permitindo consultar quem possui cada cargo do servidor.', comoUsar: `${PREFIXO}info`, exemplo: `${PREFIXO}info`, permissao: 'Nenhuma' },
     [`${PREFIXO}userinfo`]: { descricao: 'Mostra informações detalhadas de você ou de um usuário mencionado: bio, conexões, cargos, emblemas e históricos. Painel expira em 7 minutos.', comoUsar: `${PREFIXO}userinfo [@usuário]`, exemplo: `${PREFIXO}userinfo @Fulano`, permissao: 'Nenhuma' },

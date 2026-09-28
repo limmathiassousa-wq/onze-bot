@@ -22,7 +22,8 @@ const path = require("path");
 const os = require('os');
 const crypto = require('crypto');
 
-const { comandos, montarPainelBotCall, registrarPainelBotCall, montarPainelPD, montarSelectAdicionarPD, montarSelectRemoverPD, atualizarPainelPD, obterPrimeirasDamas, montarPainelMuteInicial, montarPainelMuteTimeout, montarPainelMuteCargo } = require('./commands');
+const { comandos, montarPainelBotCall, registrarPainelBotCall, montarPainelPD, montarSelectAdicionarPD, montarSelectRemoverPD, atualizarPainelPD, obterPrimeirasDamas, montarPainelMuteInicial, montarPainelMuteTimeout, montarPainelMuteCargo,
+    montarPainelAcaoModeracao, agendarExpiracaoPainel, temPermissaoMute, estaEmTimeout, listarMutados, montarPainelMuteInfo, montarSelectMutarMuteInfo, montarSelectRemoverMuteInfo, atualizarPainelMuteInfo } = require('./commands');
 const { botCallDB, botCallPaineis, confirmacaoModeracaoDB, msgCriadorDB, sorteioDraftDB, muteDraftDB } = require('./state');
 
 const {
@@ -138,7 +139,7 @@ const {
     DOMINIOS_CONVITE, EXTENSOES_IMAGEM,
     CACHE_MEMBROS_MS,
     INTERVALO_LIMPEZA_INVITES_MS,
-    CATEGORIA_STATUS_SORTEIO, CARGOS_BOOST, CARGO_MUTADO, CANAL_LOGS_BANS, CANAL_LOGS_MEMBROS, CANAL_LOGS_CARGOS, CANAL_LOGS_CALLTEMP, CARGO_BLOQUEADO_MODERACAO, CARGO_RESTRITO_UNICO
+    CATEGORIA_STATUS_SORTEIO, CARGOS_BOOST, CARGO_MUTADO, CANAL_LOGS_BANS, CANAL_LOGS_KICKS, CANAL_LOGS_MEMBROS, CANAL_LOGS_CARGOS, CANAL_LOGS_CALLTEMP, CARGO_BLOQUEADO_MODERACAO, CARGO_RESTRITO_UNICO
 } = require('./constants');
 
 const {
@@ -995,7 +996,8 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
                     alvo: `${newMember.user} (${newMember.user.tag})`,
                     alvoUser: newMember.user,
                     autor: executorCargo,
-                    motivo: entradaCargo?.reason || null
+                    motivo: entradaCargo?.reason || null,
+                    canalId: '1546306998411329577'
                 }).catch(err => console.error('--- Erro ao logar mute por cargo manual ---', err));
             } else {
                 await logarMute({
@@ -1004,7 +1006,8 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
                     alvo: `${newMember.user} (${newMember.user.tag})`,
                     alvoUser: newMember.user,
                     autor: executorCargo,
-                    motivo: entradaCargo?.reason || null
+                    motivo: entradaCargo?.reason || null,
+                    canalId: '1546306998411329577'
                 }).catch(err => console.error('--- Erro ao logar unmute por cargo manual ---', err));
             }
         }
@@ -1630,7 +1633,8 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
             guild: newMessage.guild, tipo: 'MUTE AUTOMÁTICO (MENÇÃO @everyone - EDITADA)',
             alvo: `${newMessage.author} (${newMessage.author.tag})`, alvoUser: newMessage.author,
             autor: client.user, motivo: 'Menção não autorizada a @everyone/@here (mensagem editada)',
-            extra: '**Duração:** `5 minutos`'
+            extra: '**Duração:** `5 minutos`',
+            canalId: '1546306998411329577'
         });
         return;
     }
@@ -1774,9 +1778,40 @@ client.on('messageCreate', async (message) => {
     }
 });
 
+// Remove qualquer mute do membro: timeout nativo e/ou mute por cargo (restaurando os cargos antigos)
+async function removerMuteCompleto(guild, alvoId, motivo) {
+    let membro = await guild.members.fetch({ user: alvoId, force: true }).catch(() => null);
+    if (!membro) return { ok: false, falha: 'sem_membro' };
+
+    const tinhaTimeout = estaEmTimeout(membro);
+    const tinhaCargo = membro.roles.cache.has(CARGO_MUTADO);
+    if (!tinhaTimeout && !tinhaCargo) return { ok: false, falha: 'nao_mutado', membro };
+
+    if (tinhaTimeout) await membro.timeout(null, motivo || 'Não informado');
+
+    if (tinhaCargo) {
+        const registro = await MuteCargo.findById(`${guild.id}_${alvoId}`).catch(() => null);
+        if (registro) await removerMuteCargo(guild.id, alvoId);
+        membro = await guild.members.fetch({ user: alvoId, force: true }).catch(() => membro);
+        if (membro.roles.cache.has(CARGO_MUTADO)) await membro.roles.remove(CARGO_MUTADO, motivo || 'Não informado');
+    }
+
+    membro = await guild.members.fetch({ user: alvoId, force: true }).catch(() => membro);
+    return { ok: true, membro, tinhaTimeout, tinhaCargo };
+}
+
 client.on(Events.MessageCreate, async (message) => {
     if (!message.guild || !message.channel) return; 
-    if (message.author.bot) return;
+    if (message.author.id === client.user.id) return; // ignora só o próprio bot
+
+    if (message.author.bot) {
+        // NOVO: bots estranhos (comprometidos/invasores) continuam passando pelo anti-spam e anti-link
+        const travouSpamBot = await verificarSpamMensagem(message).catch(() => false);
+        if (travouSpamBot) return;
+
+        await verificarAntiLink(message).catch(() => null);
+        return;
+    }
     
 
 if (ticketDB.has(message.channel.id)) {
@@ -1814,7 +1849,8 @@ if (ticketDB.has(message.channel.id)) {
         guild: message.guild, tipo: 'MUTE AUTOMÁTICO (MENÇÃO @everyone)',
         alvo: `${message.author} (${message.author.tag})`, alvoUser: message.author,
         autor: client.user, motivo: 'Menção não autorizada a @everyone/@here',
-        extra: '**Duração:** `5 minutos`'
+        extra: '**Duração:** `5 minutos`',
+        canalId: '1546306998411329577'
     });
 
     return;
@@ -2030,150 +2066,158 @@ if (message.content.toLowerCase() === `${PREFIXO}info`) {
     });
 }
 
+// ============ MODERAÇÃO (PREFIXO): ban / unban / kick / mute / unmute / muteinfo ============
+// Todas as embeds seguem o mesmo estilo (branca) e são apagadas em 1 min se ninguém agir.
+
 if (message.content.toLowerCase().startsWith(`${PREFIXO}ban `) || message.content.toLowerCase() === `${PREFIXO}ban`) {
-    if (message.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) {
-        return message.reply('Você não tem permissão para banir membros!')
-            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
-    }
+    const aviso = (texto) => message.channel.send({ content: `${message.author} ${texto}`, allowedMentions: { users: [message.author.id] } }).then(m => apagarMensagemApos(m));
+
+    if (message.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) return aviso('Você não tem permissão para banir membros!');
     if (!message.member.permissions.has('BanMembers') && !message.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
-        return message.reply('Você não tem permissão para banir membros!')
-            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
+        return aviso('Você não tem permissão para banir membros!');
     }
 
     const alvo = message.mentions.users.first();
-    if (!alvo) {
-        return message.channel.send(`Uso correto: \`${PREFIXO}ban @usuário [motivo]\``)
-            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
-    }
-    if (alvo.id === message.author.id) {
-        return message.reply('Você não pode se banir!')
-            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
-    }
-    if (alvo.id === client.user.id) {
-        return message.reply('Eu não posso me banir!')
-            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
-    }
+    if (!alvo) return aviso(`Uso correto: \`${PREFIXO}ban @usuário [motivo]\``);
+    if (alvo.id === message.author.id) return aviso('Você não pode se banir!');
+    if (alvo.id === client.user.id) return aviso('Eu não posso me banir!');
 
     const motivo = message.content.trim().split(/\s+/).slice(2).join(' ') || null;
 
     const membroAlvo = await message.guild.members.fetch({ user: alvo.id, force: true }).catch(() => null);
-    if (membroAlvo && !membroAlvo.bannable) {
-        return message.reply('Não consigo banir esse usuário. Verifique a hierarquia de cargos.')
-            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
-    }
+    if (membroAlvo && !membroAlvo.bannable) return aviso('Não consigo banir esse usuário. Verifique a hierarquia de cargos.');
 
-    const container = montarPainelConfirmacaoModeracao('ban', `${alvo}`, alvo.tag, motivo);
-    const msgConfirmacao = await message.channel.send({ components: [container], flags: [MessageFlags.IsComponentsV2] });
+    const container = montarPainelAcaoModeracao('ban', `${alvo}`, alvo.tag, motivo);
+    const msgConfirmacao = await message.channel.send({ components: [container], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
 
-confirmacaoModeracaoDB.set(msgConfirmacao.id, {
-    tipo: 'ban', autorId: message.author.id, alvoId: alvo.id, alvoTag: alvo.tag, motivo
-});
-    setTimeout(() => confirmacaoModeracaoDB.delete(msgConfirmacao.id), 2 * 60 * 1000);
+    confirmacaoModeracaoDB.set(msgConfirmacao.id, {
+        tipo: 'ban', autorId: message.author.id, alvoId: alvo.id, alvoTag: alvo.tag, motivo
+    });
+    agendarExpiracaoPainel(msgConfirmacao, () => confirmacaoModeracaoDB.delete(msgConfirmacao.id));
     return;
 }
 
 if (message.content.toLowerCase().startsWith(`${PREFIXO}unban `) || message.content.toLowerCase() === `${PREFIXO}unban`) {
-    if (message.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) {
-        return message.reply('Você não tem permissão para desbanir membros!')
-            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
-    }
+    const aviso = (texto) => message.channel.send({ content: `${message.author} ${texto}`, allowedMentions: { users: [message.author.id] } }).then(m => apagarMensagemApos(m));
+
+    if (message.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) return aviso('Você não tem permissão para desbanir membros!');
     if (!message.member.permissions.has('BanMembers') && !message.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
-        return message.reply('Você não tem permissão para desbanir membros!')
-            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
+        return aviso('Você não tem permissão para desbanir membros!');
     }
 
     const args = message.content.trim().split(/\s+/);
     const usuarioId = args[1];
     const motivo = args.slice(2).join(' ') || null;
 
-    if (!usuarioId || !/^\d{15,25}$/.test(usuarioId)) {
-        return message.channel.send(`Uso correto: \`${PREFIXO}unban <id> [motivo]\``)
-            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
-    }
+    if (!usuarioId || !/^\d{15,25}$/.test(usuarioId)) return aviso(`Uso correto: \`${PREFIXO}unban <id> [motivo]\``);
 
     const banido = await message.guild.bans.fetch({ user: usuarioId, force: true }).catch(() => null);
-    if (!banido) {
-        return message.reply('Esse usuário não está banido, ou o ID é inválido.')
-            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
-    }
+    if (!banido) return aviso('Esse usuário não está banido, ou o ID é inválido.');
 
-    const container = montarPainelConfirmacaoModeracao('unban', `<@${usuarioId}>`, banido.user.tag, motivo);
-    const msgConfirmacao = await message.channel.send({ components: [container], flags: [MessageFlags.IsComponentsV2] });
+    const container = montarPainelAcaoModeracao('unban', `<@${usuarioId}>`, banido.user.tag, motivo);
+    const msgConfirmacao = await message.channel.send({ components: [container], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
 
     confirmacaoModeracaoDB.set(msgConfirmacao.id, {
         tipo: 'unban', autorId: message.author.id, alvoId: usuarioId, alvoTag: banido.user.tag, motivo
     });
-    setTimeout(() => confirmacaoModeracaoDB.delete(msgConfirmacao.id), 2 * 60 * 1000);
+    agendarExpiracaoPainel(msgConfirmacao, () => confirmacaoModeracaoDB.delete(msgConfirmacao.id));
     return;
 }
-    
-if (message.content.toLowerCase().startsWith(`${PREFIXO}mute `) || message.content.toLowerCase() === `${PREFIXO}mute`) {
-    const aviso = (texto) => message.channel.send(`${message.author} ${texto}`).then(m => apagarMensagemApos(m));
 
-    if (message.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) {
-        return aviso('Você não tem permissão para silenciar membros!');
-    }
-    if (!message.member.permissions.has('ModerateMembers') && !message.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
-        return aviso('Você não tem permissão para silenciar membros!');
+if (message.content.toLowerCase().startsWith(`${PREFIXO}kick `) || message.content.toLowerCase() === `${PREFIXO}kick`) {
+    const aviso = (texto) => message.channel.send({ content: `${message.author} ${texto}`, allowedMentions: { users: [message.author.id] } }).then(m => apagarMensagemApos(m));
+
+    if (message.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) return aviso('Você não tem permissão para expulsar membros!');
+    if (!message.member.permissions.has('KickMembers') && !message.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
+        return aviso('Você não tem permissão para expulsar membros!');
     }
 
-    const args = message.content.trim().split(/\s+/);
     const alvo = message.mentions.users.first();
-    const tempoTexto = args[2];
-    const duracaoMs = tempoTexto ? parseDuracaoTexto(tempoTexto) : null;
+    if (!alvo) return aviso(`Uso correto: \`${PREFIXO}kick @usuário [motivo]\``);
+    if (alvo.id === message.author.id) return aviso('Você não pode se expulsar!');
+    if (alvo.id === client.user.id) return aviso('Eu não posso me expulsar!');
 
-    if (!alvo || !duracaoMs) {
-        return aviso(`Uso correto: \`${PREFIXO}mute @usuário <tempo> [motivo]\` (ex: \`10m\`, \`2h\`, \`1d\`)`);
-    }
-    if (duracaoMs > 28 * 24 * 60 * 60 * 1000) {
-        return aviso('O tempo máximo de mute é de **28 dias**!');
-    }
+    const motivo = message.content.trim().split(/\s+/).slice(2).join(' ') || null;
+
+    const membroAlvo = await message.guild.members.fetch({ user: alvo.id, force: true }).catch(() => null);
+    if (!membroAlvo) return aviso('Esse usuário não está no servidor.');
+    if (!membroAlvo.kickable) return aviso('Não consigo expulsar esse usuário. Verifique a hierarquia de cargos.');
+
+    const container = montarPainelAcaoModeracao('kick', `${alvo}`, alvo.tag, motivo);
+    const msgConfirmacao = await message.channel.send({ components: [container], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
+
+    confirmacaoModeracaoDB.set(msgConfirmacao.id, {
+        tipo: 'kick', autorId: message.author.id, alvoId: alvo.id, alvoTag: alvo.tag, motivo
+    });
+    agendarExpiracaoPainel(msgConfirmacao, () => confirmacaoModeracaoDB.delete(msgConfirmacao.id));
+    return;
+}
+
+// o!mute @usuário [motivo] -> abre o painel (Mutar / Mutar por cargo), igual ao antigo /mute
+if (message.content.toLowerCase().startsWith(`${PREFIXO}mute `) || message.content.toLowerCase() === `${PREFIXO}mute`) {
+    const aviso = (texto) => message.channel.send({ content: `${message.author} ${texto}`, allowedMentions: { users: [message.author.id] } }).then(m => apagarMensagemApos(m));
+
+    if (!temPermissaoMute(message.member)) return aviso('Você não tem permissão para silenciar membros!');
+
+    const alvo = message.mentions.users.first();
+    if (!alvo) return aviso(`Uso correto: \`${PREFIXO}mute @usuário [motivo]\``);
     if (alvo.id === message.author.id) return aviso('Você não pode se mutar!');
     if (alvo.bot) return aviso('Você não pode mutar um bot!');
 
     const membroAlvo = await message.guild.members.fetch({ user: alvo.id, force: true }).catch(() => null);
     if (!membroAlvo) return aviso('Esse usuário não está no servidor.');
+    if (estaEmTimeout(membroAlvo) || membroAlvo.roles.cache.has(CARGO_MUTADO)) return aviso('Esse usuário já está mutado.');
     if (!membroAlvo.moderatable) return aviso('Não consigo silenciar esse usuário. Verifique a hierarquia de cargos.');
 
-    const motivo = args.slice(3).join(' ') || null;
+    const motivo = message.content.trim().split(/\s+/).slice(2).join(' ') || null;
+    const draft = { autorId: message.author.id, alvoId: alvo.id, modo: null, duracaoTexto: null, duracaoMs: null, motivo };
 
-    const container = montarPainelConfirmacaoMute('mute', `${alvo}`, alvo.tag, motivo, tempoTexto);
-    const msgConfirmacao = await message.channel.send({ components: [container], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
-
-    confirmacaoModeracaoDB.set(msgConfirmacao.id, {
-        tipo: 'mute', autorId: message.author.id, alvoId: alvo.id, alvoTag: alvo.tag, motivo,
-        duracaoMs, duracaoTexto: tempoTexto
+    const msgPainel = await message.channel.send({
+        components: [montarPainelMuteInicial(draft)],
+        flags: [MessageFlags.IsComponentsV2],
+        allowedMentions: { parse: [] }
     });
-    setTimeout(() => confirmacaoModeracaoDB.delete(msgConfirmacao.id), 2 * 60 * 1000);
+
+    muteDraftDB.set(msgPainel.id, draft);
+    agendarExpiracaoPainel(msgPainel, () => muteDraftDB.delete(msgPainel.id));
     return;
 }
 
 if (message.content.toLowerCase().startsWith(`${PREFIXO}unmute `) || message.content.toLowerCase() === `${PREFIXO}unmute`) {
-    const aviso = (texto) => message.channel.send(`${message.author} ${texto}`).then(m => apagarMensagemApos(m));
+    const aviso = (texto) => message.channel.send({ content: `${message.author} ${texto}`, allowedMentions: { users: [message.author.id] } }).then(m => apagarMensagemApos(m));
 
-    if (message.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) {
-        return aviso('Você não tem permissão para remover o silenciamento!');
-    }
-    if (!message.member.permissions.has('ModerateMembers') && !message.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
-        return aviso('Você não tem permissão para remover o silenciamento!');
-    }
+    if (!temPermissaoMute(message.member)) return aviso('Você não tem permissão para remover o silenciamento!');
 
     const alvo = message.mentions.users.first();
     if (!alvo) return aviso(`Uso correto: \`${PREFIXO}unmute @usuário [motivo]\``);
 
     const membroAlvo = await message.guild.members.fetch({ user: alvo.id, force: true }).catch(() => null);
     if (!membroAlvo) return aviso('Esse usuário não está no servidor.');
-    if (!membroAlvo.communicationDisabledUntil) return aviso('Esse usuário não está silenciado.');
+    if (!estaEmTimeout(membroAlvo) && !membroAlvo.roles.cache.has(CARGO_MUTADO)) return aviso('Esse usuário não está silenciado.');
 
     const motivo = message.content.trim().split(/\s+/).slice(2).join(' ') || null;
 
-    const container = montarPainelConfirmacaoMute('unmute', `${alvo}`, alvo.tag, motivo);
+    const container = montarPainelAcaoModeracao('unmute', `${alvo}`, alvo.tag, motivo);
     const msgConfirmacao = await message.channel.send({ components: [container], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
 
     confirmacaoModeracaoDB.set(msgConfirmacao.id, {
         tipo: 'unmute', autorId: message.author.id, alvoId: alvo.id, alvoTag: alvo.tag, motivo
     });
-    setTimeout(() => confirmacaoModeracaoDB.delete(msgConfirmacao.id), 2 * 60 * 1000);
+    agendarExpiracaoPainel(msgConfirmacao, () => confirmacaoModeracaoDB.delete(msgConfirmacao.id));
+    return;
+}
+
+if (message.content.toLowerCase() === `${PREFIXO}muteinfo`) {
+    const aviso = (texto) => message.channel.send({ content: `${message.author} ${texto}`, allowedMentions: { users: [message.author.id] } }).then(m => apagarMensagemApos(m));
+
+    if (!temPermissaoMute(message.member)) return aviso('Você não tem permissão para utilizar este comando!');
+
+    const mutados = await listarMutados(message.guild);
+    await message.channel.send({
+        components: [montarPainelMuteInfo(mutados, message.author.id)],
+        flags: [MessageFlags.IsComponentsV2],
+        allowedMentions: { parse: [] }
+    });
     return;
 }
 
@@ -3527,7 +3571,8 @@ if (interaction.isButton() && interaction.customId === 'mute_timeout_confirmar')
 await enviarLogModeracao({
         guild: interaction.guild, tipo: 'MUTE (TIMEOUT)',
         alvo: `${membroAlvo} (${membroAlvo.user.tag})`, alvoUser: membroAlvo.user,
-        autor: interaction.user, motivo: draft.motivo, extra: `**Duração:** \`${draft.duracaoTexto}\``
+        autor: interaction.user, motivo: draft.motivo, extra: `**Duração:** \`${draft.duracaoTexto}\``,
+        canalId: '1546306998411329577'
     });
 
     muteDraftDB.delete(interaction.message.id);
@@ -3537,10 +3582,12 @@ await enviarLogModeracao({
         autor: interaction.user, motivo: draft.motivo, duracao: draft.duracaoTexto
     });
 
-    return interaction.editReply({
+    await interaction.editReply({
         components: containerTexto(`${membroAlvo} foi mutado por **${draft.duracaoTexto}**!${draft.motivo ? `\n**Motivo:** ${draft.motivo}` : ''}`),
         flags: [MessageFlags.IsComponentsV2]
     });
+    if (draft.muteInfo) await atualizarPainelMuteInfo(interaction.guild, draft.muteInfo, [membroAlvo.id]);
+    return apagarInteracaoApos(interaction);
 }
 
 // ---- Motivo (cargo) ----
@@ -3590,7 +3637,8 @@ await enviarLogModeracao({
         guild: interaction.guild, tipo: 'MUTE POR CARGO',
         alvo: `${membroAlvo} (${membroAlvo.user.tag})`, alvoUser: membroAlvo.user,
         autor: interaction.user, motivo: draft.motivo,
-        extra: '**Duração:** `5 minutos` (os cargos anteriores voltam automaticamente)'
+        extra: '**Duração:** `5 minutos` (os cargos anteriores voltam automaticamente)',
+        canalId: '1546306998411329577'
     });
 
     muteDraftDB.delete(interaction.message.id);
@@ -3600,10 +3648,12 @@ await enviarLogModeracao({
         autor: interaction.user, motivo: draft.motivo, duracao: '5 minutos (mute por cargo)'
     });
 
-    return interaction.editReply({
+    await interaction.editReply({
         components: containerTexto(`${membroAlvo} foi mutado por cargo por **5 minutos**!${draft.motivo ? `\n**Motivo:** ${draft.motivo}` : ''}`),
         flags: [MessageFlags.IsComponentsV2]
     });
+    if (draft.muteInfo) await atualizarPainelMuteInfo(interaction.guild, draft.muteInfo, [membroAlvo.id]);
+    return apagarInteracaoApos(interaction);
 }
 	
 if (interaction.isUserSelectMenu() && interaction.customId === 'groles_alvo_select') {
@@ -5286,7 +5336,8 @@ if (draft.tipo === 'ban') {
         await enviarLogModeracao({
             guild: interaction.guild, tipo: 'MUTE (TIMEOUT)',
             alvo: `${membroAlvo} (${membroAlvo.user.tag})`, alvoUser: membroAlvo.user,
-            autor: interaction.user, motivo: draft.motivo, extra: `**Duração:** \`${draft.duracaoTexto}\``
+            autor: interaction.user, motivo: draft.motivo, extra: `**Duração:** \`${draft.duracaoTexto}\``,
+            canalId: '1546306998411329577'
         });
 
         enviarSucessoModeracao(interaction.channel, {
@@ -5298,23 +5349,58 @@ if (draft.tipo === 'ban') {
         return apagarInteracaoApos(interaction);
     }
 
-    if (draft.tipo === 'unmute') {
+    if (draft.tipo === 'kick') {
         const membroAlvo = await interaction.guild.members.fetch({ user: draft.alvoId, force: true }).catch(() => null);
         if (!membroAlvo) {
             await interaction.editReply({ components: containerTexto('Esse usuário não está mais no servidor.'), flags: [MessageFlags.IsComponentsV2] });
             return apagarInteracaoApos(interaction);
         }
+        if (!membroAlvo.kickable) {
+            await interaction.editReply({ components: containerTexto('Não consigo expulsar esse usuário. Verifique a hierarquia de cargos.'), flags: [MessageFlags.IsComponentsV2] });
+            return apagarInteracaoApos(interaction);
+        }
 
         try {
-            await membroAlvo.timeout(null, draft.motivo || 'Não informado');
+            await membroAlvo.kick(draft.motivo || 'Não informado');
+        } catch (err) {
+            console.error('--- Erro ao expulsar (confirmação) ---', err);
+            await interaction.editReply({ components: containerTexto('Ocorreu um erro ao expulsar esse usuário.'), flags: [MessageFlags.IsComponentsV2] });
+            return apagarInteracaoApos(interaction);
+        }
+
+        await logar('EXPULSÃO', `${membroAlvo} (${membroAlvo.user.tag})`, interaction.user, {
+            guild: interaction.guild, alvoUser: membroAlvo.user, motivo: draft.motivo, canalId: CANAL_LOGS_KICKS
+        });
+
+        enviarSucessoModeracao(interaction.channel, {
+            tipo: 'kick', alvoId: draft.alvoId, alvoTag: draft.alvoTag, alvoUser: membroAlvo.user,
+            autor: interaction.user, motivo: draft.motivo
+        });
+
+        await interaction.editReply({ components: containerTexto(`**${draft.alvoTag}** foi expulso com sucesso!`), flags: [MessageFlags.IsComponentsV2] });
+        return apagarInteracaoApos(interaction);
+    }
+
+    if (draft.tipo === 'unmute') {
+        let resultado;
+        try {
+            resultado = await removerMuteCompleto(interaction.guild, draft.alvoId, draft.motivo);
         } catch (err) {
             console.error('--- Erro ao remover mute (confirmação) ---', err);
             await interaction.editReply({ components: containerTexto('Ocorreu um erro ao remover o silenciamento.'), flags: [MessageFlags.IsComponentsV2] });
             return apagarInteracaoApos(interaction);
         }
 
+        if (!resultado.ok) {
+            const texto = resultado.falha === 'sem_membro' ? 'Esse usuário não está mais no servidor.' : 'Esse usuário não está mais silenciado.';
+            await interaction.editReply({ components: containerTexto(texto), flags: [MessageFlags.IsComponentsV2] });
+            return apagarInteracaoApos(interaction);
+        }
+
+        const membroAlvo = resultado.membro;
         await logar('UNMUTE', `${membroAlvo} (${membroAlvo.user.tag})`, interaction.user, {
-            guild: interaction.guild, alvoUser: membroAlvo.user, motivo: draft.motivo
+            guild: interaction.guild, alvoUser: membroAlvo.user, motivo: draft.motivo,
+            canalId: '1546306998411329577'
         });
 
         enviarSucessoModeracao(interaction.channel, {
@@ -7208,6 +7294,115 @@ if (interaction.isUserSelectMenu() && interaction.customId === 'select_call_expu
         });
     }
     
+
+// ---- MUTEINFO: botões Adicionar / Remover do painel público ----
+if (interaction.isButton() && (interaction.customId.startsWith('muteinfo_btn_add_') || interaction.customId.startsWith('muteinfo_btn_rem_'))) {
+    const ehAdicionar = interaction.customId.startsWith('muteinfo_btn_add_');
+    const donoId = interaction.customId.replace(ehAdicionar ? 'muteinfo_btn_add_' : 'muteinfo_btn_rem_', '');
+
+    if (interaction.user.id !== donoId) {
+        return interaction.reply({ content: 'Esse painel não pertence a você!', flags: [MessageFlags.Ephemeral] });
+    }
+    if (!temPermissaoMute(interaction.member)) {
+        return interaction.reply({ content: 'Você não tem permissão para utilizar isso!', flags: [MessageFlags.Ephemeral] });
+    }
+
+    if (ehAdicionar) {
+        return interaction.reply({
+            components: [montarSelectMutarMuteInfo(interaction.message.id)],
+            flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
+        });
+    }
+
+    const mutados = await listarMutados(interaction.guild);
+    if (!mutados.length) {
+        return interaction.reply({ content: 'Não há ninguém mutado no momento.', flags: [MessageFlags.Ephemeral] });
+    }
+    return interaction.reply({
+        components: [montarSelectRemoverMuteInfo(mutados, interaction.message.id)],
+        flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
+    });
+}
+
+// Adicionar: escolheu quem mutar -> verifica e abre o painel de mute (efêmero, mesmo do o!mute)
+if (interaction.isUserSelectMenu() && interaction.customId.startsWith('muteinfo_sel_add_')) {
+    const painelId = interaction.customId.replace('muteinfo_sel_add_', '');
+
+    if (!temPermissaoMute(interaction.member)) {
+        return interaction.reply({ content: 'Você não tem permissão para utilizar isso!', flags: [MessageFlags.Ephemeral] });
+    }
+
+    const alvoId = interaction.values[0];
+    if (alvoId === interaction.user.id) return interaction.reply({ content: 'Você não pode se mutar!', flags: [MessageFlags.Ephemeral] });
+
+    const alvoMembro = await interaction.guild.members.fetch({ user: alvoId, force: true }).catch(() => null);
+    if (!alvoMembro) return interaction.reply({ content: 'Esse usuário não foi encontrado no servidor.', flags: [MessageFlags.Ephemeral] });
+    if (alvoMembro.user.bot) return interaction.reply({ content: 'Você não pode mutar um bot!', flags: [MessageFlags.Ephemeral] });
+    if (estaEmTimeout(alvoMembro)) return interaction.reply({ content: `${alvoMembro} já está mutado (timeout).`, flags: [MessageFlags.Ephemeral], allowedMentions: { parse: [] } });
+    if (alvoMembro.roles.cache.has(CARGO_MUTADO)) return interaction.reply({ content: `${alvoMembro} já está mutado (por cargo).`, flags: [MessageFlags.Ephemeral], allowedMentions: { parse: [] } });
+    if (!alvoMembro.moderatable) return interaction.reply({ content: 'Não consigo silenciar esse usuário. Verifique a hierarquia de cargos.', flags: [MessageFlags.Ephemeral] });
+    if (interaction.guild.ownerId !== interaction.user.id && alvoMembro.roles.highest.position >= interaction.member.roles.highest.position) {
+        return interaction.reply({ content: 'Você não pode mutar alguém com cargo igual ou superior ao seu.', flags: [MessageFlags.Ephemeral] });
+    }
+
+    const draft = {
+        autorId: interaction.user.id, alvoId, modo: null, duracaoTexto: null, duracaoMs: null, motivo: null,
+        efemero: true,
+        muteInfo: { canalId: interaction.channel.id, painelId, donoId: interaction.user.id }
+    };
+    muteDraftDB.set(interaction.message.id, draft);
+    const painelEfemeroId = interaction.message.id;
+    setTimeout(() => muteDraftDB.delete(painelEfemeroId), 15 * 60 * 1000);
+
+    return interaction.update({ components: [montarPainelMuteInicial(draft)], flags: [MessageFlags.IsComponentsV2] });
+}
+
+// Remover: escolheu quem desmutar (timeout e/ou cargo)
+if (interaction.isStringSelectMenu() && interaction.customId.startsWith('muteinfo_sel_rem_')) {
+    const painelId = interaction.customId.replace('muteinfo_sel_rem_', '');
+
+    if (!temPermissaoMute(interaction.member)) {
+        return interaction.reply({ content: 'Você não tem permissão para utilizar isso!', flags: [MessageFlags.Ephemeral] });
+    }
+
+    const alvoId = interaction.values[0];
+
+    let resultado;
+    try {
+        resultado = await removerMuteCompleto(interaction.guild, alvoId, 'Removido pelo painel muteinfo');
+    } catch (err) {
+        console.error('--- Erro ao remover mute (muteinfo) ---', err);
+        return interaction.reply({ content: 'Ocorreu um erro ao remover o silenciamento.', flags: [MessageFlags.Ephemeral] });
+    }
+    if (!resultado.ok) {
+        await atualizarPainelMuteInfo(interaction.guild, { canalId: interaction.channel.id, painelId, donoId: interaction.user.id }, [alvoId]);
+        return interaction.reply({
+            content: resultado.falha === 'sem_membro' ? 'Esse usuário não está mais no servidor.' : 'Esse usuário não está mais mutado.',
+            flags: [MessageFlags.Ephemeral]
+        });
+    }
+
+    const membroAlvo = resultado.membro;
+    await logar('UNMUTE', `${membroAlvo} (${membroAlvo.user.tag})`, interaction.user, {
+        guild: interaction.guild, alvoUser: membroAlvo.user, motivo: null, canalId: '1546306998411329577'
+    });
+
+    enviarSucessoModeracao(interaction.channel, {
+        tipo: 'unmute', alvoId, alvoTag: membroAlvo.user.tag, alvoUser: membroAlvo.user,
+        autor: interaction.user, motivo: null
+    });
+
+    await atualizarPainelMuteInfo(interaction.guild, { canalId: interaction.channel.id, painelId, donoId: interaction.user.id }, [alvoId]);
+
+    const restantes = await listarMutados(interaction.guild);
+    if (!restantes.length) {
+        return interaction.update({ components: containerTexto('Não há mais ninguém mutado.'), flags: [MessageFlags.IsComponentsV2] });
+    }
+    return interaction.update({
+        components: [montarSelectRemoverMuteInfo(restantes, painelId)],
+        flags: [MessageFlags.IsComponentsV2]
+    });
+}
 
 // ---- PD: botões Adicionar / Remover do painel público ----
 if (interaction.isButton() && (interaction.customId.startsWith('pd_btn_adicionar_') || interaction.customId.startsWith('pd_btn_remover_'))) {
