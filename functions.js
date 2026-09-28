@@ -4458,8 +4458,8 @@ async function verificarSpamMensagem(message) {
             const membro = await message.guild.members.fetch(userId).catch(() => null);
 
             if (ehBot) {
-                if (membro && membro.kickable) {
-                    await membro.kick('Anti-Spam: bot detectado floodando mensagens');
+                if (membro && membro.bannable) {
+                    await membro.ban({ reason: 'Anti-Spam: bot detectado floodando mensagens' });
                 }
             } else if (membro && membro.moderatable) {
                 await membro.timeout(cfg.muteMinutos * 60 * 1000, 'Anti-Spam: flood/mensagens duplicadas');
@@ -4476,7 +4476,7 @@ async function verificarSpamMensagem(message) {
             motivo: flood ? 'Flood de mensagens' : 'Mensagens duplicadas',
             canal: message.channel,
             muteMinutos: ehBot ? null : cfg.muteMinutos,
-            acao: ehBot ? 'kick' : 'mute'
+            acao: ehBot ? 'banir' : 'mute'
         }).catch(() => null);
 
         return true;

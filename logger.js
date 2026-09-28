@@ -449,9 +449,9 @@ async function logarAntiSpam({ guild, usuario, motivo, canal: canalOrigem, muteM
         const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
         const avatarUrl = obterAvatarUrl(usuario);
 
-        const ehKick = acao === 'kick';
-        const textoAcao = ehKick
-            ? 'Mensagens apagadas + **expulsão** (bot detectado)'
+        const ehBanimento = acao === 'banir' || acao === 'kick'; // 'kick' mantido por compatibilidade com logs antigos
+        const textoAcao = ehBanimento
+            ? 'Mensagens apagadas + **banimento** (bot detectado)'
             : `Mensagens apagadas + timeout de \`${muteMinutos}\` minuto(s)`;
 
         const container = new ContainerBuilder()
@@ -460,7 +460,7 @@ async function logarAntiSpam({ guild, usuario, motivo, canal: canalOrigem, muteM
                 new SectionBuilder()
                     .addTextDisplayComponents(
                         new TextDisplayBuilder().setContent(`### Anti-Spam — ${guild.name}`),
-                        new TextDisplayBuilder().setContent(`**Usuário:** ${usuario} — \`${obterTag(usuario)}\` (\`${usuario?.id ?? '?'}\`)${ehKick ? ' — **BOT**' : ''}`),
+                        new TextDisplayBuilder().setContent(`**Usuário:** ${usuario} — \`${obterTag(usuario)}\` (\`${usuario?.id ?? '?'}\`)${ehBanimento ? ' — **BOT**' : ''}`),
                         new TextDisplayBuilder().setContent('**Executado por:** Sistema Automático')
                     )
                     .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
@@ -1041,6 +1041,5 @@ module.exports = {
     COR_EMBED, TEMPO_EMBED_SUCESSO_MS, linhaCampo,
     montarEmbedDetalhada, enviarEmbedDetalhada,
     montarEmbedSucessoModeracao, enviarSucessoModeracao, apagarInteracaoApos,
-    apagarMensagemApos, montarPainelConfirmacaoMute,
-    obterDataHora
+    apagarMensagemApos, montarPainelConfirmacaoMute
 };
