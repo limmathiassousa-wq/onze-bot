@@ -3958,7 +3958,7 @@ if (interaction.isButton() && interaction.customId === 'groles_criar_editar') {
     }
 
     const modal = new ModalBuilder()
-        .setCustomId(`groles_modal_criar_${interaction.message.id}`)
+        .setCustomId(`groles_modal_criar_${interaction.message.id}_${Date.now().toString(36)}`)
         .setTitle(cc.editandoId ? 'Re-configurar cargo' : 'Criar cargo');
 
     const inputNome = new TextInputBuilder()
@@ -4025,7 +4025,7 @@ if (interaction.isButton() && interaction.customId === 'groles_criar_editar') {
 
 // ---- Submit do modal de criar cargo ----
 if (interaction.isModalSubmit() && interaction.customId.startsWith('groles_modal_criar_')) {
-    const painelId = interaction.customId.replace('groles_modal_criar_', '');
+    const painelId = interaction.customId.replace('groles_modal_criar_', '').split('_')[0];
     const draft = gerenciarCargosDB.get(painelId);
     if (!draft || draft.autorId !== interaction.user.id) {
         return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
@@ -4227,7 +4227,7 @@ if (interaction.isButton() && interaction.customId === 'groles_permlista_pesquis
     agendarExpiracaoGRoles(interaction.message.id, interaction.channel.id);
 
     const modal = new ModalBuilder()
-        .setCustomId(`groles_modal_permlista_${interaction.message.id}`)
+        .setCustomId(`groles_modal_permlista_${interaction.message.id}_${Date.now().toString(36)}`)
         .setTitle('Pesquisar cargo');
     const inputBusca = new TextInputBuilder()
         .setCustomId('termo_busca_cargo')
@@ -4245,7 +4245,7 @@ if (interaction.isButton() && interaction.customId === 'groles_permlista_pesquis
 }
 
 if (interaction.isModalSubmit() && interaction.customId.startsWith('groles_modal_permlista_')) {
-    const painelId = interaction.customId.replace('groles_modal_permlista_', '');
+    const painelId = interaction.customId.replace('groles_modal_permlista_', '').split('_')[0];
     const draft = gerenciarCargosDB.get(painelId);
     if (!draft || draft.autorId !== interaction.user.id) {
         return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
@@ -4285,7 +4285,7 @@ if (interaction.isButton() && interaction.customId === 'groles_excluir_pesquisar
     agendarExpiracaoGRoles(interaction.message.id, interaction.channel.id);
 
     const modal = new ModalBuilder()
-        .setCustomId(`groles_modal_excluirbusca_${interaction.message.id}`)
+        .setCustomId(`groles_modal_excluirbusca_${interaction.message.id}_${Date.now().toString(36)}`)
         .setTitle('Pesquisar cargo');
     const inputBusca = new TextInputBuilder()
         .setCustomId('termo_busca_cargo')
@@ -4303,7 +4303,7 @@ if (interaction.isButton() && interaction.customId === 'groles_excluir_pesquisar
 }
 
 if (interaction.isModalSubmit() && interaction.customId.startsWith('groles_modal_excluirbusca_')) {
-    const painelId = interaction.customId.replace('groles_modal_excluirbusca_', '');
+    const painelId = interaction.customId.replace('groles_modal_excluirbusca_', '').split('_')[0];
     const draft = gerenciarCargosDB.get(painelId);
     if (!draft || draft.autorId !== interaction.user.id) {
         return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
