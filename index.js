@@ -228,7 +228,7 @@ const {
     montarPainelProtecao, montarPainelRemoverConfirmacao, montarPainelRemoverSelect, montarPainelRoleAllInicial,
     montarPainelSorteioConfig, montarPainelSorteioInicial, montarPainelStatus, montarPainelVerificacaoCargos, montarPayloadFinalMsgCriador, montarPayloadPainelMsgCriador,
     montarPermissoesTextoGRoles, montarPreviewMsgCriador, msgCriadorTimeouts, muteCargoTimeouts, nomeTipoCanalLog,
-    nukeTracker, obterCargosExcluiveisGRoles, obterCargosGerenciaveisGRoles, obterDadosAfk,
+    nukeTracker, antiBotRecentes, obterCargosExcluiveisGRoles, obterCargosGerenciaveisGRoles, obterDadosAfk,
     obterExecutorAuditLog, obterMembrosCache, obterMemoriaContainer, obterPrimeiroCanalCategoria,
     obterTop3CallSorteio, obterUsoCPU, paineisProtecao, parseBlocosTexto,
     parseDuracaoTexto, parseQuantidadeTexto, participantesElegiveis, protecaoConfig,
@@ -462,6 +462,13 @@ client.on('roleDelete', async (cargo) => {
 });
 
 client.on('guildMemberRemove', async (member) => {
+    // Se foi o próprio Anti-Bot que acabou de kickar/banir esse bot, não loga mais nada
+    // aqui — só o log do Anti-Bot mesmo (evita duplicar Saída/Expulsão pro mesmo evento).
+    if (member.user?.bot && antiBotRecentes.has(member.id)) {
+        antiBotRecentes.delete(member.id);
+        return;
+    }
+
     // Usuário saiu, foi kickado ou banido do servidor: limpa ele da
     // memória do bot pra não ficar acumulando dados de gente que já foi.
     removerUsuarioDoCache(member.id);
@@ -1089,6 +1096,11 @@ client.on('roleCreate', async (role) => {
 });
 
 client.on('roleDelete', async (role) => {
+    // Cargos "managed" são criados/apagados automaticamente pelo Discord quando um bot
+    // entra/sai do servidor — não é uma exclusão manual, então não loga (evita duplicar
+    // com o log do Anti-Bot quando ele kicka/bane um bot convidado, por exemplo).
+    if (role.managed) return;
+
     try {
         const entries = await buscarAuditLogsComCache(role.guild, AuditLogEvent.RoleDelete);
         const entrada = entries.find(e => (Date.now() - e.createdTimestamp) < 15000 && e.target?.id === role.id);
@@ -1182,6 +1194,8 @@ client.on('guildMemberAdd', async (member) => {
 	// ============ ANTI BOT ============
 	if (member.user.bot && protecaoConfig.antiBot.ativo) {
     const acaoBot = protecaoConfig.antiBot.acao;
+    antiBotRecentes.add(member.id);
+    setTimeout(() => antiBotRecentes.delete(member.id), 15000);
 
     try {
         if (acaoBot === 'banir') {
@@ -1626,7 +1640,7 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
     if (newMessage.author?.bot) return;
 
     const membro = newMessage.member ?? await newMessage.guild.members.fetch(newMessage.author.id).catch(() => null);
-    if (membro && contemEveryoneOuHere(newMessage.content) &&
+    if (membro && contemEveryoneOuHere(newMessage.content) && !ticketDB.has(newMessage.channel.id) &&
         !membro.permissions.has('Administrator') &&
         !membro.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
 
@@ -1882,7 +1896,7 @@ if (ticketDB.has(message.channel.id)) {
         message.delete().catch(() => null);
     }
     
-    if (contemEveryoneOuHere(message.content) && !message.member.permissions.has('Administrator') && !message.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
+    if (contemEveryoneOuHere(message.content) && !ticketDB.has(message.channel.id) && !message.member.permissions.has('Administrator') && !message.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
     await message.delete().catch(() => null);
 
     await aplicarMuteCargo(message.guild, message.member, 'Menção não autorizada a @everyone/@here', client.user.id).catch(err =>

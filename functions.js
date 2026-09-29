@@ -325,6 +325,11 @@ const nukeTracker = {
     canaisProtegidos: new Map()
 };
 
+// IDs de bots que acabaram de ser kickados/banidos pelo Anti-Bot. Usado pra suprimir
+// os outros logs automáticos (Saída, Cargo Excluído do cargo de integração, etc.) que
+// disparariam junto, deixando só o log do Anti-Bot mesmo.
+const antiBotRecentes = new Set();
+
 const LIMITES_ANTINUKE_EXTRA = {
     canaisCriados: 4,
     canaisEditados: 5,
@@ -6851,6 +6856,7 @@ module.exports = {
     muteCargoTimeouts,
     NAME_SIZE,
     nukeTracker,
+    antiBotRecentes,
     PADDING_TOP,
     PADDING_X,
     paineisProtecao,
