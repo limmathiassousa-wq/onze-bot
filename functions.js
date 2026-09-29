@@ -83,11 +83,51 @@ class MapaPersistente extends Map {
     }
 }
 
+class PainelGRolesDB extends MapaPersistente {
+    constructor() {
+        super('groles_paineis');
+        this.timersSalvar = new Map();
+    }
+
+    // Salva no banco com debounce: os handlers alteram o draft direto (draft.modo = ...),
+    // então qualquer acesso agenda uma gravação do estado mais recente.
+    _agendarSalvar(chave) {
+        const antigo = this.timersSalvar.get(chave);
+        if (antigo) clearTimeout(antigo);
+        this.timersSalvar.set(chave, setTimeout(() => {
+            this.timersSalvar.delete(chave);
+            const valor = Map.prototype.get.call(this, chave);
+            if (valor !== undefined) this.definir(chave, valor);
+        }, 1500));
+    }
+
+    get(chave) {
+        const valor = super.get(chave);
+        if (valor !== undefined) this._agendarSalvar(chave);
+        return valor;
+    }
+
+    set(chave, valor) {
+        super.set(chave, valor);
+        this._agendarSalvar(chave);
+        return this;
+    }
+
+    delete(chave) {
+        const timer = this.timersSalvar.get(chave);
+        if (timer) clearTimeout(timer);
+        this.timersSalvar.delete(chave);
+        const existia = super.delete(chave);
+        MapaPersistenteEntry.deleteOne({ _id: `${this.namespace}:${chave}` }).catch(() => {});
+        return existia;
+    }
+}
+
 // ============ MAPS ============
 const tellonymPendentesDB = new Map();
 
 const ticketDB = new Map();
-const gerenciarCargosDB = new Map();
+const gerenciarCargosDB = new PainelGRolesDB();
 const sorteioVoiceSessions = new Map();
 const farmCallSessions = new Map();
 

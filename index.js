@@ -845,6 +845,15 @@ carregarTellonymPendentes();
     await carregarTickets();
     await respostasBotoesMsg.carregar();
     await canaisLockDB.carregar();
+    try {
+        await gerenciarCargosDB.carregar();
+        for (const [painelId, draft] of gerenciarCargosDB) {
+            if (draft?.canalId) agendarExpiracaoGRoles(painelId, draft.canalId);
+            else gerenciarCargosDB.delete(painelId);
+        }
+    } catch (err) {
+        console.error('--- Erro ao carregar painéis de cargos (groles) ---', err);
+    }
     await inicializarAntiNukeCanais();
     try {
     const mutesPendentes = await MuteCargo.find();
@@ -1990,6 +1999,7 @@ if (message.content.toLowerCase() === `${PREFIXO}áreas` || message.content.toLo
     const container = await montarPainelGRoles(message.guild, draft, message.author.id);
     const msgPainel = await message.channel.send({ components: [container], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
 
+    draft.canalId = msgPainel.channel.id;
     gerenciarCargosDB.set(msgPainel.id, draft);
     agendarExpiracaoGRoles(msgPainel.id, msgPainel.channel.id);
     return;
