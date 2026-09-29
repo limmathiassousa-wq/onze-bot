@@ -2558,8 +2558,54 @@ function obterUsoCPU() {
     });
 }
 
+// Histórico de amostras de CPU (1 leitura a cada 30s, guarda ~11 min) para calcular a média
+// e não depender de um único segundo, que num plano de ~0,1 vCPU sobe a 100% com qualquer rajada.
+const amostrasCpu = [];
+
+function lerAmostraCpuUsec() {
+    const c = lerCpuContainerUsec();
+    if (c !== null) return c;
+    const p = process.cpuUsage();                 // fallback: só o processo do bot
+    return p.user + p.system;
+}
+
+function registrarAmostraCpu() {
+    const agora = Date.now();
+    amostrasCpu.push({ t: agora, usec: lerAmostraCpuUsec() });
+    while (amostrasCpu.length && agora - amostrasCpu[0].t > 11 * 60 * 1000) amostrasCpu.shift();
+}
+
+registrarAmostraCpu();
+setInterval(registrarAmostraCpu, 30 * 1000).unref();
+
+function obterMediaCpu(janelaMs = 5 * 60 * 1000) {
+    registrarAmostraCpu();
+    if (amostrasCpu.length < 2) return null;
+
+    const fim = amostrasCpu[amostrasCpu.length - 1];
+    const inicio = amostrasCpu.find(a => a.t >= fim.t - janelaMs) || amostrasCpu[0];
+    const decorridoUs = (fim.t - inicio.t) * 1000;
+    if (decorridoUs < 60 * 1000 * 1000) return null;   // menos de 1 min de histórico
+
+    const limite = lerLimiteCpuContainer() || 1;
+    const pct = ((fim.usec - inicio.usec) / (decorridoUs * limite)) * 100;
+    return {
+        pct: Math.max(0, Math.min(100, Math.round(pct))),
+        minutos: Math.max(1, Math.round((fim.t - inicio.t) / 60000))
+    };
+}
+
+async function obterInfoCPU() {
+    const instantaneo = await obterUsoCPU();
+    return { instantaneo, media: obterMediaCpu(), limite: lerLimiteCpuContainer() };
+}
+
 async function montarPainelStatus(botClient) {
-    const cpuUso = await obterUsoCPU();
+    const infoCpu = await obterInfoCPU();
+    const cpuUso = infoCpu.instantaneo;
+    const cpuDetalhe = infoCpu.media
+        ? `agora (1s): ${cpuUso}% · média ${infoCpu.media.minutos} min: ${infoCpu.media.pct}% · limite: ${infoCpu.limite.toFixed(2)} vCPU`
+        : `agora (1s): ${cpuUso}% · média disponível após 1 min no ar · limite: ${infoCpu.limite.toFixed(2)} vCPU`;
 
     const memProcesso = process.memoryUsage();
     const { total: ramTotalSistema, usada: ramUsadaSistema, livre: ramLivreSistema, fonte: fonteMemoria } = await obterMemoriaContainer();
@@ -2576,7 +2622,8 @@ async function montarPainelStatus(botClient) {
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## Status da aninha`))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            `**CPU**\n\`\`\`${gerarBarraProgresso(cpuUso)}  ${cpuUso}%\`\`\``
+            `**CPU**\n\`\`\`${gerarBarraProgresso(infoCpu.media ? infoCpu.media.pct : cpuUso)}  ${infoCpu.media ? infoCpu.media.pct : cpuUso}%\`\`\`\n` +
+            `-# ${cpuDetalhe}`
         ))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
             `**RAM (Sistema)**\n\`\`\`${gerarBarraProgresso(ramPercentualSistema)}  ${ramPercentualSistema.toFixed(1)}%\`\`\`\n` +
@@ -7294,6 +7341,7 @@ module.exports = {
     obterPrimeiroCanalCategoria,
     obterTop3CallSorteio,
     obterUsoCPU,
+    obterInfoCPU,
     parseBlocosTexto,
     parseDuracaoTexto,
     parseQuantidadeTexto,
