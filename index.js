@@ -812,9 +812,23 @@ client.on('invalidated', () => {
 });
 
 // Log de memória a cada 5 min pra ver se tá vazando RAM (não temos Metrics no plano free)
-setInterval(() => {
+let ultimoCpuProc = process.cpuUsage();
+let ultimoCpuTempo = process.hrtime.bigint();
+setInterval(async () => {
     const mem = process.memoryUsage();
-    console.log(`[MEMÓRIA] RSS: ${(mem.rss / 1024 / 1024).toFixed(1)}MB | Heap: ${(mem.heapUsed / 1024 / 1024).toFixed(1)}/${(mem.heapTotal / 1024 / 1024).toFixed(1)}MB`);
+
+    // CPU do processo do bot desde o último log (100% = 1 núcleo inteiro)
+    const cpuProc = process.cpuUsage(ultimoCpuProc);
+    const agora = process.hrtime.bigint();
+    const decorridoUs = Number(agora - ultimoCpuTempo) / 1000;
+    const cpuProcPct = ((cpuProc.user + cpuProc.system) / decorridoUs) * 100;
+    ultimoCpuProc = process.cpuUsage();
+    ultimoCpuTempo = agora;
+
+    // CPU do container em relação ao limite do plano (mesmo valor do comando status)
+    const cpuContainer = await obterUsoCPU().catch(() => -1);
+
+    console.log(`[MEMÓRIA] RSS: ${(mem.rss / 1024 / 1024).toFixed(1)}MB | Heap: ${(mem.heapUsed / 1024 / 1024).toFixed(1)}/${(mem.heapTotal / 1024 / 1024).toFixed(1)}MB | [CPU] processo: ${cpuProcPct.toFixed(1)}% de 1 núcleo | container: ${cpuContainer}% do limite`);
 }, 5 * 60 * 1000);
 
 // Log de ping do gateway a cada 5 min

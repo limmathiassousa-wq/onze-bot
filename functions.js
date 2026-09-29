@@ -2504,28 +2504,57 @@ async function obterMemoriaContainer() {
     return { total, usada: total - livre, livre, fonte: 'host (os module)' };
 }
 
+// Lê o consumo de CPU do CONTAINER (cgroup v2/v1). O os.cpus() mostra a CPU da máquina
+// inteira (host compartilhado), não a do bot, e por isso o valor ficava enganoso.
+function lerCpuContainerUsec() {
+    try {
+        const txt = fs.readFileSync('/sys/fs/cgroup/cpu.stat', 'utf8');
+        const m = txt.match(/usage_usec\s+(\d+)/);
+        if (m) return parseInt(m[1]);
+    } catch { /* tenta v1 */ }
+    try {
+        const ns = parseInt(fs.readFileSync('/sys/fs/cgroup/cpuacct/cpuacct.usage', 'utf8').trim());
+        if (!isNaN(ns)) return Math.floor(ns / 1000);
+    } catch { /* sem cgroup */ }
+    return null;
+}
+
+function lerLimiteCpuContainer() {
+    try {
+        const [quota, periodo] = fs.readFileSync('/sys/fs/cgroup/cpu.max', 'utf8').trim().split(/\s+/);
+        if (quota !== 'max') return parseInt(quota) / parseInt(periodo);
+    } catch { /* tenta v1 */ }
+    try {
+        const quota = parseInt(fs.readFileSync('/sys/fs/cgroup/cpu/cpu.cfs_quota_us', 'utf8').trim());
+        const periodo = parseInt(fs.readFileSync('/sys/fs/cgroup/cpu/cpu.cfs_period_us', 'utf8').trim());
+        if (quota > 0 && periodo > 0) return quota / periodo;
+    } catch { /* sem limite */ }
+    return os.availableParallelism ? os.availableParallelism() : os.cpus().length;
+}
+
 function obterUsoCPU() {
     return new Promise((resolve) => {
-        const inicio = os.cpus();
+        const intervaloMs = 1000;
+        const inicioContainer = lerCpuContainerUsec();
+        const inicioProc = process.cpuUsage();
+        const t0 = process.hrtime.bigint();
+
         setTimeout(() => {
-            const fim = os.cpus();
-            let totalIdle = 0;
-            let totalTick = 0;
+            const decorridoUs = Number(process.hrtime.bigint() - t0) / 1000;
+            const fimContainer = lerCpuContainerUsec();
+            const limite = lerLimiteCpuContainer() || 1;
 
-            for (let i = 0; i < inicio.length; i++) {
-                const cpuInicio = inicio[i].times;
-                const cpuFim = fim[i].times;
-
-                const totalInicio = Object.values(cpuInicio).reduce((a, b) => a + b, 0);
-                const totalFim = Object.values(cpuFim).reduce((a, b) => a + b, 0);
-
-                totalIdle += (cpuFim.idle - cpuInicio.idle);
-                totalTick += (totalFim - totalInicio);
+            let usoUs;
+            if (inicioContainer !== null && fimContainer !== null) {
+                usoUs = fimContainer - inicioContainer;           // tudo que roda no container
+            } else {
+                const p = process.cpuUsage(inicioProc);           // só o processo do bot
+                usoUs = p.user + p.system;
             }
 
-            const uso = totalTick > 0 ? 100 - Math.floor((totalIdle / totalTick) * 100) : 0;
-            resolve(Math.max(0, Math.min(100, uso)));
-        }, 300);
+            const pct = (usoUs / (decorridoUs * limite)) * 100;
+            resolve(Math.max(0, Math.min(100, Math.round(pct))));
+        }, intervaloMs);
     });
 }
 
