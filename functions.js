@@ -6,7 +6,7 @@ const {
     ChannelType, EmbedBuilder, SlashCommandBuilder, StringSelectMenuBuilder, UserSelectMenuBuilder,
     ChannelSelectMenuBuilder, RoleSelectMenuBuilder, Routes, PermissionFlagsBits, AuditLogEvent, OverwriteType
 } = require('discord.js');
-const { joinVoiceChannel, getVoiceConnection, VoiceConnectionStatus, entersState } = require('@discordjs/voice');
+const { joinVoiceChannel, getVoiceConnection, VoiceConnectionStatus, VoiceConnectionDisconnectReason, entersState } = require('@discordjs/voice');
 const { createCanvas, loadImage, GlobalFonts } = require("@napi-rs/canvas");
 const { getUserPerfil } = require('./bio_fetcher.js');
 const fs = require('fs');
@@ -5518,21 +5518,165 @@ async function carregarBotCallPaineis() {
     }
 }
 
+// ============ BOTCALL: MANTER O BOT NA CALL ============
+// guildId -> canalId em que o bot DEVE estar. Só é apagado quando a saída é
+// intencional (botão Desconectar, kick/canal apagado) ou quando desistimos.
+const botCallIntencao = new Map();
+const botCallReconectando = new Set();
+const botCallGeracao = new Map();
+const BOTCALL_BACKOFF_MS = [5000, 15000, 30000, 60000, 120000];
+
+function cancelarReconexaoBotCall(guildId) {
+    botCallIntencao.delete(guildId);
+    botCallReconectando.delete(guildId);
+    botCallGeracao.set(guildId, (botCallGeracao.get(guildId) || 0) + 1);
+}
+
+async function encerrarBotCall(guildId) {
+    cancelarReconexaoBotCall(guildId);
+    await removerVoiceState(guildId).catch(() => null);
+    const dadosAtuais = botCallDB.get(guildId) || { canalId: null, conectado: false };
+    botCallDB.set(guildId, { canalId: dadosAtuais.canalId, conectado: false });
+    await atualizarPainelBotCallAuto(guildId).catch(() => null);
+}
+
+async function reconectarBotCall(guildId) {
+    if (botCallReconectando.has(guildId)) return;
+    const canalId = botCallIntencao.get(guildId);
+    if (!canalId) return;
+
+    botCallReconectando.add(guildId);
+    const geracao = botCallGeracao.get(guildId) || 0;
+    const cancelado = () => (botCallGeracao.get(guildId) || 0) !== geracao || !botCallIntencao.has(guildId);
+
+    try {
+        for (let i = 0; i < BOTCALL_BACKOFF_MS.length; i++) {
+            await new Promise(r => setTimeout(r, BOTCALL_BACKOFF_MS[i]));
+            if (cancelado()) return;
+
+            const guild = client.guilds.cache.get(guildId);
+            if (!guild) continue;
+
+            const canal = await guild.channels.fetch(canalId).catch(() => null);
+            if (!canal) {
+                console.log(`[Voice] Canal ${canalId} não existe mais em ${guildId}, desistindo da reconexão.`);
+                await encerrarBotCall(guildId);
+                return;
+            }
+
+            const meuCanal = guild.members.me?.voice?.channelId;
+            if (meuCanal && meuCanal !== canalId) {
+                console.log(`[Voice] Bot já está em outra call (${meuCanal}) em ${guildId}, abortando reconexão.`);
+                botCallIntencao.set(guildId, meuCanal);
+                return;
+            }
+
+            console.log(`[Voice] Reconexão ${i + 1}/${BOTCALL_BACKOFF_MS.length} em ${guild.name}...`);
+            const antiga = getVoiceConnection(guildId);
+            if (antiga) antiga.destroy();
+
+            const connection = joinVoiceChannel({
+                channelId: canal.id,
+                guildId: guild.id,
+                adapterCreator: guild.voiceAdapterCreator,
+                selfDeaf: false,
+                selfMute: false
+            });
+
+            try {
+                await entersState(connection, VoiceConnectionStatus.Ready, 15000);
+                if (cancelado()) { connection.destroy(); return; }
+                monitorarDesconexaoBotCall(guildId, connection);
+                botCallDB.set(guildId, { canalId: canal.id, conectado: true });
+                await salvarVoiceState(guildId, canal.id);
+                await atualizarPainelBotCallAuto(guildId).catch(() => null);
+                console.log(`[Voice] Reconectado em ${canal.name} (${guild.name}).`);
+                return;
+            } catch (err) {
+                connection.destroy();
+                console.error(`[Voice] Tentativa ${i + 1} falhou em ${guild.name}: ${err.message}`);
+            }
+        }
+
+        if (!cancelado()) {
+            console.error(`[Voice] Todas as tentativas de reconexão falharam em ${guildId}. Desistindo.`);
+            await encerrarBotCall(guildId);
+        }
+    } finally {
+        botCallReconectando.delete(guildId);
+    }
+}
+
+// Rede de segurança: se por qualquer motivo o bot deveria estar na call e não há
+// conexão viva (e nenhuma reconexão em andamento), tenta voltar.
+function iniciarWatchdogBotCall() {
+    setInterval(() => {
+        for (const guildId of botCallIntencao.keys()) {
+            if (botCallReconectando.has(guildId)) continue;
+            const conexao = getVoiceConnection(guildId);
+            if (!conexao || conexao.state.status === VoiceConnectionStatus.Destroyed) {
+                console.log(`[Voice] Watchdog: sem conexão viva em ${guildId}, reconectando.`);
+                reconectarBotCall(guildId).catch(err => console.error('--- Erro no watchdog botcall ---', err));
+            }
+        }
+    }, 60 * 1000);
+}
+
 function monitorarDesconexaoBotCall(guildId, connection) {
+    botCallIntencao.set(guildId, connection.joinConfig.channelId);
+
+    connection.on('error', (err) => {
+        console.error('[Voice] Erro na conexão de voz:', err.message);
+    });
+
+    // Se o bot foi movido de canal pelo Discord, acompanha o canal novo.
+    connection.on(VoiceConnectionStatus.Ready, () => {
+        if (botCallIntencao.has(guildId)) botCallIntencao.set(guildId, connection.joinConfig.channelId);
+    });
+
+    // Workaround conhecido do @discordjs/voice: o keep-alive do UDP pode derrubar
+    // a conexão ociosa aos poucos.
+    const aoMudarNetworking = (_old, novo) => {
+        clearInterval(Reflect.get(novo, 'udp')?.keepAliveInterval);
+    };
+    connection.on('stateChange', (antigo, novo) => {
+        Reflect.get(antigo, 'networking')?.off('stateChange', aoMudarNetworking);
+        Reflect.get(novo, 'networking')?.on('stateChange', aoMudarNetworking);
+    });
+
     connection.on(VoiceConnectionStatus.Disconnected, async (oldState, newState) => {
         console.log(`[Voice Debug] Desconectado — reason: ${newState?.reason}, closeCode: ${newState?.closeCode}`);
 
-        // Não tenta reconectar em nenhuma hipótese: kick pelo perfil, canal deletado,
-        // permissão removida ou botão do painel — o bot sai e fica fora.
-        connection.destroy();
-        console.log(`[Voice] Conexão encerrada, o bot não vai tentar voltar pro canal sozinho.`);
+        // Troca de servidor de voz / bot movido de canal / oscilação rápida de rede:
+        // o Discord já está religando sozinho. Dá 5s antes de considerar queda.
+        try {
+            await Promise.race([
+                entersState(connection, VoiceConnectionStatus.Signalling, 5000),
+                entersState(connection, VoiceConnectionStatus.Connecting, 5000)
+            ]);
+            console.log('[Voice] Conexão se recuperou sozinha.');
+            return;
+        } catch {
+            // não recuperou
+        }
 
-        await removerVoiceState(guildId).catch(() => null);
+        if (connection.state.status !== VoiceConnectionStatus.Destroyed) connection.destroy();
 
+        // 4014 = expulso da call / canal apagado / permissão removida: respeita e fica fora.
+        const saidaForcada =
+            newState?.reason === VoiceConnectionDisconnectReason.WebSocketClose && newState?.closeCode === 4014;
+
+        if (saidaForcada) {
+            console.log('[Voice] Bot foi removido da call (4014), não vai tentar voltar.');
+            await encerrarBotCall(guildId);
+            return;
+        }
+
+        console.log('[Voice] Queda inesperada, iniciando reconexão automática.');
         const dadosAtuais = botCallDB.get(guildId) || { canalId: null, conectado: false };
         botCallDB.set(guildId, { canalId: dadosAtuais.canalId, conectado: false });
-
         await atualizarPainelBotCallAuto(guildId).catch(() => null);
+        reconectarBotCall(guildId).catch(err => console.error('--- Erro ao reconectar botcall ---', err));
     });
 }
 
@@ -5705,9 +5849,10 @@ async function reconectarVoiceStates() {
                 console.log(`[Voice] Reconectado em ${canal.name} (${guild.name})`);
             } catch (errConexao) {
                 connection.destroy();
-                await removerVoiceState(guildId);
                 botCallDB.set(guild.id, { canalId: canal.id, conectado: false });
-                console.error(`--- Falha ao confirmar reconexão em ${guild.name} ---`, errConexao);
+                console.error(`--- Falha ao confirmar reconexão em ${guild.name}, tentando de novo em segundo plano ---`, errConexao);
+                botCallIntencao.set(guild.id, canal.id);
+                reconectarBotCall(guild.id).catch(() => null);
             }
         } catch (err) {
             console.error('--- Erro ao reconectar voice state ---', err);
@@ -7067,6 +7212,9 @@ module.exports = {
     localizarMensagemPainelTicket,
     MapaPersistente,
     monitorarDesconexaoBotCall,
+    cancelarReconexaoBotCall,
+    iniciarWatchdogBotCall,
+    botCallIntencao,
     montarAvisoAfk,
     montarBotoesInsta,
     montarButtonRows,

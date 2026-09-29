@@ -217,7 +217,7 @@ const {
     inicializarSessoesVoiceSorteio, iniciarSessaoVoiceSorteio, invitesCache, limitarCache,
     limiteNukeAcao, limiteNukeAcaoExtra, limparEstadoEventoMoedas, limparInvitesCacheDesatualizado,
     limparNukeTrackerAntigo, linkPermitido, listarMembros, loadAvatar,
-    localizarMensagemPainelTicket, monitorarDesconexaoBotCall, montarAvisoAfk, montarBotoesInsta,
+    localizarMensagemPainelTicket, monitorarDesconexaoBotCall, cancelarReconexaoBotCall, iniciarWatchdogBotCall, botCallIntencao, montarAvisoAfk, montarBotoesInsta,
     montarButtonRows, montarCardComentarioTellonym, montarControlesEmbedPlano, montarEmbedSorteioCanal,
     montarLinhasComEmoji, montarOverwritesRestauracao, montarPainelAntiNuke, montarPainelBackup, montarPainelBackupSelecionado, montarPainelEfemeroProtecao, montarPainelGRoles,
     montarPainelGRolesCriar, montarPainelGRolesEditar, montarPainelGRolesExcluir, montarPainelGRolesExcluirConfirmar,
@@ -909,6 +909,7 @@ setInterval(flushSessoesFarmCall, INTERVALO_TICK_CALL_SORTEIO_MS);
         console.log(`[BotCall] ${botCallPaineis.size} painel(is) em memória após carregamento.`);
 
         await reconectarVoiceStates();
+        iniciarWatchdogBotCall();
 
         for (const guildId of botCallPaineis.keys()) {
             await atualizarPainelBotCallAuto(guildId);
@@ -1623,7 +1624,9 @@ if (oldState.channel && oldState.channelId !== CANAL_GERADOR_ID) {
             if (!canalAtualId) {
                 
                 botCallDB.set(guildId, { canalId: dadosAtuais.canalId, conectado: false });
-                await removerVoiceState(guildId);
+                // Se ainda existe intenção de ficar na call (queda/reconexão em andamento), não
+                // apaga o canal salvo — assim o bot também volta após um reinício.
+                if (!botCallIntencao.has(guildId)) await removerVoiceState(guildId);
                 console.log(`[Voice] Bot saiu da call em ${guildId}, sincronizando painel.`);
             } else if (canalAtualId !== dadosAtuais.canalId || !dadosAtuais.conectado) {
                 
@@ -6345,6 +6348,7 @@ if (interaction.isButton() && interaction.customId === 'botcall_conectar') {
             flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
         });
 
+        cancelarReconexaoBotCall(interaction.guild.id);
         const conexaoAtual = getVoiceConnection(interaction.guild.id);
         if (conexaoAtual) conexaoAtual.destroy();
 
@@ -6443,6 +6447,7 @@ if (interaction.isChannelSelectMenu() && interaction.customId.startsWith('botcal
         flags: [MessageFlags.IsComponentsV2]
     });
 
+    cancelarReconexaoBotCall(interaction.guild.id);
     const conexaoAtual = getVoiceConnection(interaction.guild.id);
     if (conexaoAtual) conexaoAtual.destroy();
 
@@ -6489,6 +6494,7 @@ if (interaction.isButton() && interaction.customId === 'botcall_desconectar') {
         return interaction.reply({ content: 'Você não tem permissão para utilizar este comando!', flags: [MessageFlags.Ephemeral] });
     }
 
+    cancelarReconexaoBotCall(interaction.guild.id);
     const conexao = getVoiceConnection(interaction.guild.id);
     if (conexao) conexao.destroy();
 
