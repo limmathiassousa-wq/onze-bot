@@ -1339,6 +1339,26 @@ function temPermissaoEditarCargosGRoles(member) {
     return member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
 }
 
+function membroEhGerenciadorLimitadoGRoles(member) {
+    return !!member?.roles?.cache?.some(r => CARGOS_GERENCIADOR_LIMITADO.includes(r.id));
+}
+
+// true = o membro NÃO pode editar / re-configurar / excluir esse cargo
+function cargoBloqueadoParaMembroGRoles(member, cargoId) {
+    return membroEhGerenciadorLimitadoGRoles(member) && CARGOS_RESTRITOS_GERENCIADOR_LIMITADO.includes(cargoId);
+}
+
+function normalizarTextoGRoles(texto) {
+    return String(texto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+}
+
+function filtrarCargosPorNomeGRoles(lista, busca) {
+    if (!busca) return lista;
+    const termo = normalizarTextoGRoles(busca.replace(/^<@&/, '').replace(/>$/, '').replace(/^@/, ''));
+    if (!termo) return lista;
+    return lista.filter(c => c.id === termo || normalizarTextoGRoles(c.name).includes(termo));
+}
+
 function montarPainelGRolesEditar() {
     return new ContainerBuilder()
         .setAccentColor(0xFFFFFF)
@@ -1364,7 +1384,7 @@ function montarPainelGRolesEditar() {
                 new ButtonBuilder().setCustomId('groles_permeditar_abrir').setLabel('Editar').setStyle(ButtonStyle.Primary)
             )
         )
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent('-# Edita as permissões de um cargo já existente no servidor. Apenas administradores.'))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('-# Pesquise um cargo pelo nome para editar as permissões ou re-configurar (nome, cor e opções). Apenas administradores.'))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addActionRowComponents(
             new ActionRowBuilder().addComponents(
@@ -1376,13 +1396,15 @@ function montarPainelGRolesEditar() {
 function montarPainelGRolesCriar(draft) {
     const cc = draft.criarCargo || {};
     const corFinal = cc.corHex || cc.corPredefinida || null;
+    const editando = !!cc.editandoId;
 
     return new ContainerBuilder()
         .setAccentColor(0xFFFFFF)
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent('## Criar cargo'))
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent('-# Gerenciamento de Cargos > Editar > Criar'))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(editando ? '## Re-configurar cargo' : '## Criar cargo'))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(editando ? '-# Gerenciamento de Cargos > Editar > Re-configurar' : '-# Gerenciamento de Cargos > Editar > Criar'))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            (editando ? `**Cargo:** <@&${cc.editandoId}>\n` : '') +
             `**Nome:** ${cc.nome ? `\`${cc.nome}\`` : '\`não definido\`'}\u2003\u2003\u2003**Cor:** ${corFinal ? `\`#${corFinal}\`` : '\`padrão\`'}\n` +
             `**Mostrar separadamente:** ${cc.mostrarSeparadamente ? EMOJI_ATIVADO : EMOJI_DESATIVADO}\u2003\u2003\u2003**Menções a qualquer um:** ${cc.permitirMencoes ? EMOJI_ATIVADO : EMOJI_DESATIVADO}`
         ))
@@ -1390,23 +1412,24 @@ function montarPainelGRolesCriar(draft) {
         .addActionRowComponents(
             new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('groles_criar_editar').setLabel('Configurações').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId('groles_criar_confirmar').setLabel('Criar').setStyle(ButtonStyle.Success).setDisabled(!cc.nome)
+                new ButtonBuilder().setCustomId('groles_criar_confirmar').setLabel(editando ? 'Salvar' : 'Criar').setStyle(ButtonStyle.Success).setDisabled(!cc.nome)
             )
         )
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addActionRowComponents(
             new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('groles_editar_voltar_menu').setLabel('Voltar').setStyle(ButtonStyle.Secondary)
+                new ButtonBuilder().setCustomId(editando ? 'groles_reconfigurar_voltar' : 'groles_editar_voltar_menu').setLabel('Voltar').setStyle(ButtonStyle.Secondary)
             )
         );
 }
 
-function obterCargosExcluiveisGRoles(guild) {
-    return [...guild.roles.cache.filter(r => r.id !== guild.id).values()].sort((a, b) => b.position - a.position);
+function obterCargosExcluiveisGRoles(guild, busca = null) {
+    const lista = [...guild.roles.cache.filter(r => r.id !== guild.id).values()].sort((a, b) => b.position - a.position);
+    return filtrarCargosPorNomeGRoles(lista, busca);
 }
 
-function montarPainelGRolesExcluir(guild, pagina = 0) {
-    const lista = obterCargosExcluiveisGRoles(guild);
+function montarPainelGRolesExcluir(guild, pagina = 0, busca = null, member = null) {
+    const lista = obterCargosExcluiveisGRoles(guild, busca);
     const totalPaginas = Math.max(1, Math.ceil(lista.length / EXCLUIR_CARGOS_POR_PAGINA));
     const paginaAtual = Math.max(0, Math.min(pagina, totalPaginas - 1));
     const inicio = paginaAtual * EXCLUIR_CARGOS_POR_PAGINA;
@@ -1418,17 +1441,25 @@ function montarPainelGRolesExcluir(guild, pagina = 0) {
         .addTextDisplayComponents(new TextDisplayBuilder().setContent('-# Gerenciamento de Cargos > Editar > Excluir'))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true));
 
+    if (busca) {
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            `-# Busca ativa: \`${busca}\` · ${lista.length} resultado(s)`
+        ));
+    }
+
     if (!fatia.length) {
-        container.addTextDisplayComponents(new TextDisplayBuilder().setContent('Nenhum cargo encontrado.'));
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(busca ? 'Nenhum cargo encontrado com esse nome.' : 'Nenhum cargo encontrado.'));
     }
 
 for (const cargo of fatia) {
+    const bloqueado = member ? cargoBloqueadoParaMembroGRoles(member, cargo.id) : false;
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
-        `<@&${cargo.id}>\n<:pessoa:1548558766230872224> **${cargo.members.size}** membro(s)`
+        `<@&${cargo.id}>\n<:pessoa:1548558766230872224> **${cargo.members.size}** membro(s)` +
+        (bloqueado ? '\n-# 🔒 Você não tem permissão para gerenciar este cargo.' : '')
     ));
     container.addActionRowComponents(
         new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`groles_excluir_cargo_${cargo.id}_${paginaAtual}`).setLabel('Excluir').setStyle(ButtonStyle.Danger)
+            new ButtonBuilder().setCustomId(`groles_excluir_cargo_${cargo.id}_${paginaAtual}`).setLabel('Excluir').setStyle(ButtonStyle.Danger).setDisabled(bloqueado)
         )
     );
     container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
@@ -1444,15 +1475,17 @@ for (const cargo of fatia) {
 
     container.addActionRowComponents(
         new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('groles_editar_voltar_menu').setLabel('Voltar ao menu').setStyle(ButtonStyle.Secondary)
+            new ButtonBuilder().setCustomId('groles_editar_voltar_menu').setLabel('Voltar ao menu').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('groles_excluir_pesquisar').setEmoji('🔍').setLabel('Pesquisar').setStyle(ButtonStyle.Primary),
+            ...(busca ? [new ButtonBuilder().setCustomId('groles_excluir_limpar').setLabel('Limpar pesquisa').setStyle(ButtonStyle.Secondary)] : [])
         )
     );
 
     return container;
 }
 
-function montarPainelGRolesPermLista(guild, pagina = 0) {
-    const lista = obterCargosGerenciaveisGRoles(guild);
+function montarPainelGRolesPermLista(guild, pagina = 0, busca = null, member = null) {
+    const lista = filtrarCargosPorNomeGRoles(obterCargosGerenciaveisGRoles(guild), busca);
     const totalPaginas = Math.max(1, Math.ceil(lista.length / EXCLUIR_CARGOS_POR_PAGINA));
     const paginaAtual = Math.max(0, Math.min(pagina, totalPaginas - 1));
     const inicio = paginaAtual * EXCLUIR_CARGOS_POR_PAGINA;
@@ -1464,17 +1497,26 @@ function montarPainelGRolesPermLista(guild, pagina = 0) {
         .addTextDisplayComponents(new TextDisplayBuilder().setContent('-# Gerenciamento de Cargos > Editar > Permissões'))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true));
 
+    if (busca) {
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            `-# Busca ativa: \`${busca}\` · ${lista.length} resultado(s)`
+        ));
+    }
+
     if (!fatia.length) {
-        container.addTextDisplayComponents(new TextDisplayBuilder().setContent('Nenhum cargo encontrado.'));
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(busca ? 'Nenhum cargo encontrado com esse nome.' : 'Nenhum cargo encontrado.'));
     }
 
     for (const cargo of fatia) {
+        const bloqueado = member ? cargoBloqueadoParaMembroGRoles(member, cargo.id) : false;
         container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            `<@&${cargo.id}>\n<:lista:1548558969860132864> **Permissões atuais:** ${montarPermissoesTextoGRoles(cargo)}`
+            `<@&${cargo.id}>\n<:lista:1548558969860132864> **Permissões atuais:** ${montarPermissoesTextoGRoles(cargo)}` +
+            (bloqueado ? '\n-# 🔒 Você não tem permissão para gerenciar este cargo.' : '')
         ));
         container.addActionRowComponents(
             new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(`groles_permeditar_cargo_${cargo.id}_${paginaAtual}`).setLabel('Editar').setStyle(ButtonStyle.Secondary)
+                new ButtonBuilder().setCustomId(`groles_permeditar_cargo_${cargo.id}_${paginaAtual}`).setLabel('Editar').setStyle(ButtonStyle.Secondary).setDisabled(bloqueado),
+                new ButtonBuilder().setCustomId(`groles_reconfigurar_cargo_${cargo.id}_${paginaAtual}`).setLabel('Re-configurar').setStyle(ButtonStyle.Secondary).setDisabled(bloqueado)
             )
         );
         container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
@@ -1490,7 +1532,9 @@ function montarPainelGRolesPermLista(guild, pagina = 0) {
 
     container.addActionRowComponents(
         new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('groles_editar_voltar_menu').setLabel('Voltar ao menu').setStyle(ButtonStyle.Secondary)
+            new ButtonBuilder().setCustomId('groles_editar_voltar_menu').setLabel('Voltar ao menu').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('groles_permlista_pesquisar').setEmoji('🔍').setLabel('Pesquisar').setStyle(ButtonStyle.Primary),
+            ...(busca ? [new ButtonBuilder().setCustomId('groles_permlista_limpar').setLabel('Limpar pesquisa').setStyle(ButtonStyle.Secondary)] : [])
         )
     );
 
@@ -6922,6 +6966,9 @@ module.exports = {
     drawAvatar,
     editarWebhook,
     ehAdminGRoles,
+    cargoBloqueadoParaMembroGRoles,
+    membroEhGerenciadorLimitadoGRoles,
+    filtrarCargosPorNomeGRoles,
     encerrarSorteio,
     enviarAlertaProtecao,
     enviarEventoMoedas,

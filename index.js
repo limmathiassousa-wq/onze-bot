@@ -203,7 +203,7 @@ const {
     classificarAnexoTranscript, coletarComandosPrefixoHelp, coletarComandosSlashHelp, construirEmbedPreview,
     contemConviteDoServidor, contemEveryoneOuHere, darXP, definirStatusCanal,
     delCallTempPorCanal, destravarTodosCanais, drawAvatar, editarWebhook,
-    ehAdminGRoles, encerrarSorteio, enviarAlertaProtecao, enviarEventoMoedas,
+    ehAdminGRoles, cargoBloqueadoParaMembroGRoles, encerrarSorteio, enviarAlertaProtecao, enviarEventoMoedas,
     enviarWebhook, enviarWebhookComArquivo, escapeHTML, eventoMoedas, extrairDadosComponente,
     extrairLinksDoTexto, extrairPrimeiraMediaUrl, fazerBackupServidor, filtrarCargosGRoles,
     filtrarPermsGRoles, finalizarSessaoVoiceSorteio, flushBufferMensagens, flushSessoesVoiceSorteio,
@@ -3913,6 +3913,7 @@ if (interaction.isButton() && interaction.customId === 'groles_editar_voltar_men
 
     agendarExpiracaoGRoles(interaction.message.id, interaction.channel.id);
     draft.modo = 'editar';
+    if (draft.criarCargo?.editandoId) draft.criarCargo = { nome: null, corHex: null, corPredefinida: null, mostrarSeparadamente: false, permitirMencoes: false };
 
     return interaction.update({ components: [montarPainelGRolesEditar()], flags: [MessageFlags.IsComponentsV2] });
 }
@@ -3929,7 +3930,7 @@ if (interaction.isButton() && interaction.customId === 'groles_criar_abrir') {
 
     agendarExpiracaoGRoles(interaction.message.id, interaction.channel.id);
     draft.modo = 'criar';
-    if (!draft.criarCargo) draft.criarCargo = { nome: null, corHex: null, corPredefinida: null, mostrarSeparadamente: false, permitirMencoes: false };
+    if (!draft.criarCargo || draft.criarCargo.editandoId) draft.criarCargo = { nome: null, corHex: null, corPredefinida: null, mostrarSeparadamente: false, permitirMencoes: false };
 
     return interaction.update({ components: [montarPainelGRolesCriar(draft)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
 }
@@ -3947,9 +3948,18 @@ if (interaction.isButton() && interaction.customId === 'groles_criar_editar') {
     agendarExpiracaoGRoles(interaction.message.id, interaction.channel.id);
     const cc = draft.criarCargo || {};
 
+    if (cc.editandoId) {
+        if (cargoBloqueadoParaMembroGRoles(interaction.member, cc.editandoId)) {
+            return interaction.reply({ content: 'Você não tem permissão para gerenciar esse cargo!', flags: [MessageFlags.Ephemeral] });
+        }
+        if (!interaction.guild.roles.cache.has(cc.editandoId)) {
+            return interaction.reply({ content: 'Esse cargo não existe mais.', flags: [MessageFlags.Ephemeral] });
+        }
+    }
+
     const modal = new ModalBuilder()
         .setCustomId(`groles_modal_criar_${interaction.message.id}`)
-        .setTitle('Criar cargo');
+        .setTitle(cc.editandoId ? 'Re-configurar cargo' : 'Criar cargo');
 
     const inputNome = new TextInputBuilder()
         .setCustomId('nome_cargo')
@@ -4024,6 +4034,10 @@ if (interaction.isModalSubmit() && interaction.customId.startsWith('groles_modal
         return interaction.reply({ content: 'Você não tem permissão para criar cargos!', flags: [MessageFlags.Ephemeral] });
     }
 
+    if (draft.criarCargo?.editandoId && cargoBloqueadoParaMembroGRoles(interaction.member, draft.criarCargo.editandoId)) {
+        return interaction.reply({ content: 'Você não tem permissão para gerenciar esse cargo!', flags: [MessageFlags.Ephemeral] });
+    }
+
     agendarExpiracaoGRoles(painelId, interaction.channel.id);
 
     const nome = interaction.fields.getTextInputValue('nome_cargo').trim();
@@ -4067,6 +4081,49 @@ if (interaction.isButton() && interaction.customId === 'groles_criar_confirmar')
         return interaction.reply({ content: 'Defina o nome do cargo antes de criar!', flags: [MessageFlags.Ephemeral] });
     }
 
+    if (cc.editandoId) {
+        if (cargoBloqueadoParaMembroGRoles(interaction.member, cc.editandoId)) {
+            return interaction.reply({ content: 'Você não tem permissão para gerenciar esse cargo!', flags: [MessageFlags.Ephemeral] });
+        }
+        const cargoEdit = interaction.guild.roles.cache.get(cc.editandoId);
+        if (!cargoEdit) {
+            return interaction.reply({ content: 'Esse cargo não existe mais.', flags: [MessageFlags.Ephemeral] });
+        }
+        if (!cargoEdit.editable) {
+            return interaction.reply({ content: 'Não consigo editar esse cargo (hierarquia).', flags: [MessageFlags.Ephemeral] });
+        }
+
+        agendarExpiracaoGRoles(interaction.message.id, interaction.channel.id);
+        await interaction.deferUpdate();
+
+        const corEdit = cc.corHex || cc.corPredefinida || null;
+        const nomeEditado = cc.nome;
+        const paginaVoltar = cc.editandoPagina ?? 0;
+
+        try {
+            await cargoEdit.edit({
+                name: cc.nome,
+                color: corEdit ? parseInt(corEdit, 16) : 0,
+                hoist: !!cc.mostrarSeparadamente,
+                mentionable: !!cc.permitirMencoes,
+                reason: `Cargo re-configurado via painel de gerenciamento por ${interaction.user.tag}`
+            });
+        } catch (err) {
+            console.error('--- Erro ao re-configurar cargo pelo painel groles ---', err);
+            return interaction.editReply({ components: containerTexto('Ocorreu um erro ao re-configurar o cargo. Verifique minhas permissões.'), flags: [MessageFlags.IsComponentsV2] });
+        }
+
+        draft.criarCargo = { nome: null, corHex: null, corPredefinida: null, mostrarSeparadamente: false, permitirMencoes: false };
+        draft.modo = 'permeditar';
+
+        await interaction.editReply({ components: containerTexto(`Cargo **${nomeEditado}** re-configurado com sucesso!`), flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
+
+        setTimeout(async () => {
+            await interaction.editReply({ components: [montarPainelGRolesPermLista(interaction.guild, paginaVoltar, draft.buscaCargoEditar, interaction.member)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } }).catch(() => null);
+        }, 2500);
+        return;
+    }
+
     agendarExpiracaoGRoles(interaction.message.id, interaction.channel.id);
     await interaction.deferUpdate();
 
@@ -4097,6 +4154,184 @@ if (interaction.isButton() && interaction.customId === 'groles_criar_confirmar')
     return;
 }
 
+// ---- Re-configurar: abre o MESMO painel/modal do Criar, preenchido com os dados do cargo ----
+if (interaction.isButton() && interaction.customId.startsWith('groles_reconfigurar_cargo_')) {
+    const draft = gerenciarCargosDB.get(interaction.message.id);
+    if (!draft || draft.autorId !== interaction.user.id) {
+        return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
+    }
+    if (!temPermissaoEditarCargosGRoles(interaction.member)) {
+        return interaction.reply({ content: 'Você não tem permissão para editar cargos!', flags: [MessageFlags.Ephemeral] });
+    }
+
+    const partes = interaction.customId.replace('groles_reconfigurar_cargo_', '').split('_');
+    const listaPagina = parseInt(partes.pop());
+    const cargoId = partes.join('_');
+
+    if (cargoBloqueadoParaMembroGRoles(interaction.member, cargoId)) {
+        return interaction.reply({ content: 'Você não tem permissão para gerenciar esse cargo!', flags: [MessageFlags.Ephemeral] });
+    }
+
+    agendarExpiracaoGRoles(interaction.message.id, interaction.channel.id);
+
+    const cargo = interaction.guild.roles.cache.get(cargoId);
+    if (!cargo) {
+        return interaction.update({ components: [montarPainelGRolesPermLista(interaction.guild, listaPagina, draft.buscaCargoEditar, interaction.member)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
+    }
+    if (!cargo.editable) {
+        return interaction.reply({ content: 'Não consigo editar esse cargo (hierarquia).', flags: [MessageFlags.Ephemeral] });
+    }
+
+    const hexAtual = cargo.color ? cargo.color.toString(16).padStart(6, '0').toUpperCase() : null;
+    const predefinida = hexAtual ? CORES_CARGO_GROLES.find(c => c.value === hexAtual) : null;
+
+    draft.modo = 'criar';
+    draft.criarCargo = {
+        editandoId: cargo.id,
+        editandoPagina: listaPagina,
+        nome: cargo.name,
+        corHex: predefinida ? null : hexAtual,
+        corPredefinida: predefinida ? predefinida.value : null,
+        mostrarSeparadamente: !!cargo.hoist,
+        permitirMencoes: !!cargo.mentionable
+    };
+
+    return interaction.update({ components: [montarPainelGRolesCriar(draft)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
+}
+
+// ---- Voltar do Re-configurar para a lista de cargos ----
+if (interaction.isButton() && interaction.customId === 'groles_reconfigurar_voltar') {
+    const draft = gerenciarCargosDB.get(interaction.message.id);
+    if (!draft || draft.autorId !== interaction.user.id) {
+        return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
+    }
+
+    agendarExpiracaoGRoles(interaction.message.id, interaction.channel.id);
+    const paginaVoltar = draft.criarCargo?.editandoPagina ?? 0;
+    draft.criarCargo = { nome: null, corHex: null, corPredefinida: null, mostrarSeparadamente: false, permitirMencoes: false };
+    draft.modo = 'permeditar';
+
+    return interaction.update({ components: [montarPainelGRolesPermLista(interaction.guild, paginaVoltar, draft.buscaCargoEditar, interaction.member)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
+}
+
+// ---- Pesquisar cargo (aba Editar) ----
+if (interaction.isButton() && interaction.customId === 'groles_permlista_pesquisar') {
+    const draft = gerenciarCargosDB.get(interaction.message.id);
+    if (!draft || draft.autorId !== interaction.user.id) {
+        return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
+    }
+    if (!interaction.member.permissions.has('Administrator')) {
+        return interaction.reply({ content: 'Apenas administradores podem editar cargos!', flags: [MessageFlags.Ephemeral] });
+    }
+
+    agendarExpiracaoGRoles(interaction.message.id, interaction.channel.id);
+
+    const modal = new ModalBuilder()
+        .setCustomId(`groles_modal_permlista_${interaction.message.id}`)
+        .setTitle('Pesquisar cargo');
+    const inputBusca = new TextInputBuilder()
+        .setCustomId('termo_busca_cargo')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(false)
+        .setMaxLength(100)
+        .setValue(draft.buscaCargoEditar || '');
+    modal.addLabelComponents(
+        new LabelBuilder()
+            .setLabel('Nome do cargo')
+            .setDescription('Digite o nome (ou parte dele) do cargo que deseja editar. Deixe vazio para limpar.')
+            .setTextInputComponent(inputBusca)
+    );
+    return interaction.showModal(modal);
+}
+
+if (interaction.isModalSubmit() && interaction.customId.startsWith('groles_modal_permlista_')) {
+    const painelId = interaction.customId.replace('groles_modal_permlista_', '');
+    const draft = gerenciarCargosDB.get(painelId);
+    if (!draft || draft.autorId !== interaction.user.id) {
+        return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
+    }
+    if (!interaction.member.permissions.has('Administrator')) {
+        return interaction.reply({ content: 'Apenas administradores podem editar cargos!', flags: [MessageFlags.Ephemeral] });
+    }
+
+    agendarExpiracaoGRoles(painelId, interaction.channel.id);
+    draft.buscaCargoEditar = interaction.fields.getTextInputValue('termo_busca_cargo').trim() || null;
+
+    return interaction.update({ components: [montarPainelGRolesPermLista(interaction.guild, 0, draft.buscaCargoEditar, interaction.member)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
+}
+
+if (interaction.isButton() && interaction.customId === 'groles_permlista_limpar') {
+    const draft = gerenciarCargosDB.get(interaction.message.id);
+    if (!draft || draft.autorId !== interaction.user.id) {
+        return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
+    }
+
+    agendarExpiracaoGRoles(interaction.message.id, interaction.channel.id);
+    draft.buscaCargoEditar = null;
+
+    return interaction.update({ components: [montarPainelGRolesPermLista(interaction.guild, 0, null, interaction.member)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
+}
+
+// ---- Pesquisar cargo (aba Excluir) ----
+if (interaction.isButton() && interaction.customId === 'groles_excluir_pesquisar') {
+    const draft = gerenciarCargosDB.get(interaction.message.id);
+    if (!draft || draft.autorId !== interaction.user.id) {
+        return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
+    }
+    if (!temPermissaoEditarCargosGRoles(interaction.member)) {
+        return interaction.reply({ content: 'Você não tem permissão para excluir cargos!', flags: [MessageFlags.Ephemeral] });
+    }
+
+    agendarExpiracaoGRoles(interaction.message.id, interaction.channel.id);
+
+    const modal = new ModalBuilder()
+        .setCustomId(`groles_modal_excluirbusca_${interaction.message.id}`)
+        .setTitle('Pesquisar cargo');
+    const inputBusca = new TextInputBuilder()
+        .setCustomId('termo_busca_cargo')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(false)
+        .setMaxLength(100)
+        .setValue(draft.buscaCargoExcluir || '');
+    modal.addLabelComponents(
+        new LabelBuilder()
+            .setLabel('Nome do cargo')
+            .setDescription('Digite o nome (ou parte dele) do cargo que deseja excluir. Deixe vazio para limpar.')
+            .setTextInputComponent(inputBusca)
+    );
+    return interaction.showModal(modal);
+}
+
+if (interaction.isModalSubmit() && interaction.customId.startsWith('groles_modal_excluirbusca_')) {
+    const painelId = interaction.customId.replace('groles_modal_excluirbusca_', '');
+    const draft = gerenciarCargosDB.get(painelId);
+    if (!draft || draft.autorId !== interaction.user.id) {
+        return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
+    }
+    if (!temPermissaoEditarCargosGRoles(interaction.member)) {
+        return interaction.reply({ content: 'Você não tem permissão para excluir cargos!', flags: [MessageFlags.Ephemeral] });
+    }
+
+    agendarExpiracaoGRoles(painelId, interaction.channel.id);
+    draft.buscaCargoExcluir = interaction.fields.getTextInputValue('termo_busca_cargo').trim() || null;
+    draft.excluirPagina = 0;
+
+    return interaction.update({ components: [montarPainelGRolesExcluir(interaction.guild, 0, draft.buscaCargoExcluir, interaction.member)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
+}
+
+if (interaction.isButton() && interaction.customId === 'groles_excluir_limpar') {
+    const draft = gerenciarCargosDB.get(interaction.message.id);
+    if (!draft || draft.autorId !== interaction.user.id) {
+        return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
+    }
+
+    agendarExpiracaoGRoles(interaction.message.id, interaction.channel.id);
+    draft.buscaCargoExcluir = null;
+    draft.excluirPagina = 0;
+
+    return interaction.update({ components: [montarPainelGRolesExcluir(interaction.guild, 0, null, interaction.member)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
+}
+
 // ---- Abrir Excluir cargo ----
 if (interaction.isButton() && interaction.customId === 'groles_excluir_abrir') {
     const draft = gerenciarCargosDB.get(interaction.message.id);
@@ -4110,8 +4345,9 @@ if (interaction.isButton() && interaction.customId === 'groles_excluir_abrir') {
     agendarExpiracaoGRoles(interaction.message.id, interaction.channel.id);
     draft.modo = 'excluir';
     draft.excluirPagina = 0;
+    draft.buscaCargoExcluir = null;
 
-    return interaction.update({ components: [montarPainelGRolesExcluir(interaction.guild, 0)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
+    return interaction.update({ components: [montarPainelGRolesExcluir(interaction.guild, 0, draft.buscaCargoExcluir, interaction.member)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
 }
 
 // ---- Paginação da lista de exclusão ----
@@ -4128,7 +4364,7 @@ if (interaction.isButton() && interaction.customId.startsWith('groles_excluir_pa
     const pagina = parseInt(interaction.customId.replace('groles_excluir_pagina_', ''));
     draft.excluirPagina = pagina;
 
-    return interaction.update({ components: [montarPainelGRolesExcluir(interaction.guild, pagina)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
+    return interaction.update({ components: [montarPainelGRolesExcluir(interaction.guild, pagina, draft.buscaCargoExcluir, interaction.member)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
 }
 
 // ---- Clique em Excluir de um cargo específico -> pede confirmação ----
@@ -4145,6 +4381,9 @@ if (interaction.isButton() && interaction.customId.startsWith('groles_excluir_ca
     const partes = interaction.customId.replace('groles_excluir_cargo_', '').split('_');
     const pagina = parseInt(partes.pop());
     const cargoId = partes.join('_');
+    if (cargoBloqueadoParaMembroGRoles(interaction.member, cargoId)) {
+        return interaction.reply({ content: 'Você não tem permissão para gerenciar esse cargo!', flags: [MessageFlags.Ephemeral] });
+    }
 
     const cargo = interaction.guild.roles.cache.get(cargoId);
     if (!cargo) {
@@ -4171,10 +4410,13 @@ if (interaction.isButton() && interaction.customId.startsWith('groles_excluir_co
     const partes = interaction.customId.replace('groles_excluir_confirmar_', '').split('_');
     const pagina = parseInt(partes.pop());
     const cargoId = partes.join('_');
+    if (cargoBloqueadoParaMembroGRoles(interaction.member, cargoId)) {
+        return interaction.reply({ content: 'Você não tem permissão para gerenciar esse cargo!', flags: [MessageFlags.Ephemeral] });
+    }
 
     const cargo = interaction.guild.roles.cache.get(cargoId);
     if (!cargo) {
-        return interaction.update({ components: [montarPainelGRolesExcluir(interaction.guild, pagina)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
+        return interaction.update({ components: [montarPainelGRolesExcluir(interaction.guild, pagina, draft.buscaCargoExcluir, interaction.member)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
     }
     if (!cargo.editable) {
         return interaction.reply({ content: 'Não consigo mais excluir esse cargo (hierarquia).', flags: [MessageFlags.Ephemeral] });
@@ -4188,11 +4430,11 @@ if (interaction.isButton() && interaction.customId.startsWith('groles_excluir_co
         console.error('--- Erro ao excluir cargo pelo painel groles ---', err);
     }
 
-    const totalPaginas = Math.max(1, Math.ceil(obterCargosExcluiveisGRoles(interaction.guild).length / EXCLUIR_CARGOS_POR_PAGINA));
+    const totalPaginas = Math.max(1, Math.ceil(obterCargosExcluiveisGRoles(interaction.guild, draft.buscaCargoExcluir).length / EXCLUIR_CARGOS_POR_PAGINA));
     const paginaCorrigida = Math.max(0, Math.min(pagina, totalPaginas - 1));
     draft.excluirPagina = paginaCorrigida;
 
-    return interaction.editReply({ components: [montarPainelGRolesExcluir(interaction.guild, paginaCorrigida)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
+    return interaction.editReply({ components: [montarPainelGRolesExcluir(interaction.guild, paginaCorrigida, draft.buscaCargoExcluir, interaction.member)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
 }
 
 // ---- Cancelar exclusão do cargo ----
@@ -4205,7 +4447,7 @@ if (interaction.isButton() && interaction.customId.startsWith('groles_excluir_ca
     agendarExpiracaoGRoles(interaction.message.id, interaction.channel.id);
     const pagina = parseInt(interaction.customId.replace('groles_excluir_cancelar_', ''));
 
-    return interaction.update({ components: [montarPainelGRolesExcluir(interaction.guild, pagina)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
+    return interaction.update({ components: [montarPainelGRolesExcluir(interaction.guild, pagina, draft.buscaCargoExcluir, interaction.member)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
 }
 
 // ---- Abrir lista de cargos para editar permissões ----
@@ -4220,8 +4462,9 @@ if (interaction.isButton() && interaction.customId === 'groles_permeditar_abrir'
 
     agendarExpiracaoGRoles(interaction.message.id, interaction.channel.id);
     draft.modo = 'permeditar';
+    draft.buscaCargoEditar = null;
 
-    return interaction.update({ components: [montarPainelGRolesPermLista(interaction.guild, 0)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
+    return interaction.update({ components: [montarPainelGRolesPermLista(interaction.guild, 0, draft.buscaCargoEditar, interaction.member)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
 }
 
 // ---- Paginação da lista de cargos p/ permissões ----
@@ -4237,7 +4480,7 @@ if (interaction.isButton() && interaction.customId.startsWith('groles_permeditar
     agendarExpiracaoGRoles(interaction.message.id, interaction.channel.id);
     const pagina = parseInt(interaction.customId.replace('groles_permeditar_pagina_', ''));
 
-    return interaction.update({ components: [montarPainelGRolesPermLista(interaction.guild, pagina)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
+    return interaction.update({ components: [montarPainelGRolesPermLista(interaction.guild, pagina, draft.buscaCargoEditar, interaction.member)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
 }
 
 // ---- Abrir painel de permissões de um cargo específico ----
@@ -4254,10 +4497,13 @@ if (interaction.isButton() && interaction.customId.startsWith('groles_permeditar
     const partes = interaction.customId.replace('groles_permeditar_cargo_', '').split('_');
     const listaPagina = parseInt(partes.pop());
     const cargoId = partes.join('_');
+    if (cargoBloqueadoParaMembroGRoles(interaction.member, cargoId)) {
+        return interaction.reply({ content: 'Você não tem permissão para gerenciar esse cargo!', flags: [MessageFlags.Ephemeral] });
+    }
 
     const cargo = interaction.guild.roles.cache.get(cargoId);
     if (!cargo) {
-        return interaction.update({ components: [montarPainelGRolesPermLista(interaction.guild, listaPagina)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
+        return interaction.update({ components: [montarPainelGRolesPermLista(interaction.guild, listaPagina, draft.buscaCargoEditar, interaction.member)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
     }
     if (!cargo.editable) {
         return interaction.reply({ content: 'Não consigo editar as permissões desse cargo (hierarquia).', flags: [MessageFlags.Ephemeral] });
@@ -4283,10 +4529,13 @@ if (interaction.isButton() && interaction.customId.startsWith('groles_permeditar
     const listaPagina = parseInt(partes.pop());
     const pagina = parseInt(partes.pop());
     const cargoId = partes.join('_');
+    if (cargoBloqueadoParaMembroGRoles(interaction.member, cargoId)) {
+        return interaction.reply({ content: 'Você não tem permissão para gerenciar esse cargo!', flags: [MessageFlags.Ephemeral] });
+    }
 
     const cargo = interaction.guild.roles.cache.get(cargoId);
     if (!cargo) {
-        return interaction.update({ components: [montarPainelGRolesPermLista(interaction.guild, listaPagina)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
+        return interaction.update({ components: [montarPainelGRolesPermLista(interaction.guild, listaPagina, draft.buscaCargoEditar, interaction.member)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
     }
 
     return interaction.update({ components: [montarPainelGRolesPermissoes(cargo, pagina, listaPagina, draft.buscaPerm)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
@@ -4308,10 +4557,13 @@ if (interaction.isButton() && interaction.customId.startsWith('groles_permtoggle
     const pagina = parseInt(partes.pop());
     const permKey = partes.pop();
     const cargoId = partes.join('_');
+    if (cargoBloqueadoParaMembroGRoles(interaction.member, cargoId)) {
+        return interaction.reply({ content: 'Você não tem permissão para gerenciar esse cargo!', flags: [MessageFlags.Ephemeral] });
+    }
 
     const cargo = interaction.guild.roles.cache.get(cargoId);
     if (!cargo) {
-        return interaction.update({ components: [montarPainelGRolesPermLista(interaction.guild, listaPagina)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
+        return interaction.update({ components: [montarPainelGRolesPermLista(interaction.guild, listaPagina, draft.buscaCargoEditar, interaction.member)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
     }
     if (!cargo.editable) {
         return interaction.reply({ content: 'Não consigo mais editar esse cargo (hierarquia).', flags: [MessageFlags.Ephemeral] });
@@ -4345,7 +4597,7 @@ if (interaction.isButton() && interaction.customId.startsWith('groles_permeditar
     draft.buscaPerm = null; 
     const listaPagina = parseInt(interaction.customId.replace('groles_permeditar_voltar_lista_', ''));
 
-    return interaction.update({ components: [montarPainelGRolesPermLista(interaction.guild, listaPagina)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
+    return interaction.update({ components: [montarPainelGRolesPermLista(interaction.guild, listaPagina, draft.buscaCargoEditar, interaction.member)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
 }
 
 // ---- Abrir modal de busca de permissão ----
@@ -4362,6 +4614,9 @@ if (interaction.isButton() && interaction.customId.startsWith('groles_permbuscar
     const partes = interaction.customId.replace('groles_permbuscar_', '').split('_');
     const listaPagina = partes.pop();
     const cargoId = partes.join('_');
+    if (cargoBloqueadoParaMembroGRoles(interaction.member, cargoId)) {
+        return interaction.reply({ content: 'Você não tem permissão para gerenciar esse cargo!', flags: [MessageFlags.Ephemeral] });
+    }
 
     const modal = new ModalBuilder()
         .setCustomId(`groles_modal_permbuscar_${interaction.message.id}_${cargoId}_${listaPagina}`)
@@ -4388,6 +4643,9 @@ if (interaction.isModalSubmit() && interaction.customId.startsWith('groles_modal
     const partes = interaction.customId.replace('groles_modal_permbuscar_', '').split('_');
     const listaPagina = parseInt(partes.pop());
     const cargoId = partes.pop();
+    if (cargoBloqueadoParaMembroGRoles(interaction.member, cargoId)) {
+        return interaction.reply({ content: 'Você não tem permissão para gerenciar esse cargo!', flags: [MessageFlags.Ephemeral] });
+    }
     const painelId = partes.join('_');
 
     const draft = gerenciarCargosDB.get(painelId);
@@ -4402,7 +4660,7 @@ if (interaction.isModalSubmit() && interaction.customId.startsWith('groles_modal
 
     const cargo = interaction.guild.roles.cache.get(cargoId);
     if (!cargo) {
-        return interaction.update({ components: [montarPainelGRolesPermLista(interaction.guild, listaPagina)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
+        return interaction.update({ components: [montarPainelGRolesPermLista(interaction.guild, listaPagina, draft.buscaCargoEditar, interaction.member)], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
     }
 
     const termo = interaction.fields.getTextInputValue('termo_busca_perm').trim();
