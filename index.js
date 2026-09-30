@@ -363,6 +363,54 @@ app.get('/transcript/media/:id', async (req, res) => {
 // ============ FIM FUNCTIONs/ASYNCs ============
 
 
+// Modal de botão dentro da resposta (adicionar / editar). Em respostas V2 permite escolher
+// o bloco de texto (dividido por [separador]) abaixo do qual o botão vai aparecer.
+function montarModalRBotao(customId, titulo, alvo, existente = null) {
+    const modal = new ModalBuilder().setCustomId(customId).setTitle(titulo);
+
+    const emojiValor = !existente ? '' : (typeof existente.emoji === 'string' ? existente.emoji : (existente.emoji?.id ? `<:e:${existente.emoji.id}>` : ''));
+
+    const inputLabel = new TextInputBuilder().setCustomId('rbotao_label').setStyle(TextInputStyle.Short).setMaxLength(80).setRequired(true);
+    const inputUrl = new TextInputBuilder().setCustomId('rbotao_url').setStyle(TextInputStyle.Short).setRequired(true);
+    const inputEmoji = new TextInputBuilder().setCustomId('rbotao_emoji').setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(false);
+    if (existente) {
+        inputLabel.setValue(existente.label);
+        inputUrl.setValue(existente.url);
+        if (emojiValor) inputEmoji.setValue(emojiValor);
+    }
+
+    const selectPosicao = new StringSelectMenuBuilder().setCustomId('rbotao_posicao').setRequired(true).addOptions(
+        { label: 'Normal (lado a lado)', value: 'normal', default: existente?.posicao !== 'empilhados' },
+        { label: 'Empilhado (um embaixo do outro)', value: 'empilhados', default: existente?.posicao === 'empilhados' }
+    );
+
+    const labels = [
+        new LabelBuilder().setLabel('Label do botão').setTextInputComponent(inputLabel),
+        new LabelBuilder().setLabel('URL do botão').setDescription('Precisa começar com http:// ou https://').setTextInputComponent(inputUrl),
+        new LabelBuilder().setLabel('Emoji (opcional)').setTextInputComponent(inputEmoji),
+        new LabelBuilder().setLabel('Posição na resposta').setStringSelectMenuComponent(selectPosicao)
+    ];
+
+    if ((alvo.respostaTipo || 'texto') === 'v2') {
+        const blocos = parseBlocosTexto(alvo.resposta);
+        const blocoAtual = Number.isInteger(existente?.bloco) && existente.bloco < blocos.length ? existente.bloco : null;
+        const opcoes = [{ label: 'No final da resposta', value: 'fim', default: blocoAtual === null }];
+        blocos.slice(0, 24).forEach((b, i) => opcoes.push({
+            label: `Abaixo do bloco ${i + 1}`,
+            value: String(i),
+            description: b.replace(/\s+/g, ' ').slice(0, 90) || '(bloco vazio)',
+            default: blocoAtual === i
+        }));
+        labels.push(
+            new LabelBuilder().setLabel('Onde colocar').setDescription('Blocos = textos separados por [separador].')
+                .setStringSelectMenuComponent(new StringSelectMenuBuilder().setCustomId('rbotao_bloco').setRequired(true).addOptions(opcoes))
+        );
+    }
+
+    modal.addLabelComponents(...labels);
+    return modal;
+}
+
 // ============ CRIADOR DE MENSAGENS ============
 
 
@@ -8429,32 +8477,34 @@ if (interaction.isButton() && interaction.customId === 'msgcriador_rbotao_adicio
         return interaction.reply({ content: 'Limite de 25 botões por resposta atingido.', flags: [MessageFlags.Ephemeral] });
     }
 
-    const modal = new ModalBuilder()
-        .setCustomId(`msgcriador_modal_rbotao_${interaction.message.id}_${idx}`)
-        .setTitle('Botão na resposta');
-
-    const inputLabel = new TextInputBuilder().setCustomId('rbotao_label').setStyle(TextInputStyle.Short).setMaxLength(80).setRequired(true);
-    const inputUrl = new TextInputBuilder().setCustomId('rbotao_url').setStyle(TextInputStyle.Short).setRequired(true);
-    const inputEmoji = new TextInputBuilder().setCustomId('rbotao_emoji').setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(false);
-    const selectPosicao = new StringSelectMenuBuilder().setCustomId('rbotao_posicao').setRequired(true).addOptions(
-        { label: 'Normal (lado a lado)', value: 'normal', default: true },
-        { label: 'Empilhado (um embaixo do outro)', value: 'empilhados' }
-    );
-
-    modal.addLabelComponents(
-        new LabelBuilder().setLabel('Label do botão').setTextInputComponent(inputLabel),
-        new LabelBuilder().setLabel('URL do botão').setDescription('Precisa começar com http:// ou https://').setTextInputComponent(inputUrl),
-        new LabelBuilder().setLabel('Emoji (opcional)').setTextInputComponent(inputEmoji),
-        new LabelBuilder().setLabel('Posição na resposta').setStringSelectMenuComponent(selectPosicao)
-    );
-    return interaction.showModal(modal);
+    return interaction.showModal(montarModalRBotao(`msgcriador_modal_rbotao_${interaction.message.id}_${idx}`, 'Botão na resposta', alvo));
 }
 
-if (interaction.isModalSubmit() && interaction.customId.startsWith('msgcriador_modal_rbotao_')) {
-    const resto = interaction.customId.replace('msgcriador_modal_rbotao_', '');
-    const separador = resto.lastIndexOf('_');
-    const painelId = resto.slice(0, separador);
-    const idx = parseInt(resto.slice(separador + 1));
+if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_rbotao_editar') {
+    const draft = msgCriadorDB.get(interaction.message.id);
+    if (!draft || draft.autorId !== interaction.user.id) {
+        return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
+    }
+    const idx = draft.respostaBotoesAlvo;
+    const alvo = draft.botoes?.[idx];
+    const j = parseInt(interaction.values[0]);
+    const existente = alvo?.respostaBotoes?.[j];
+    if (!alvo || !existente) {
+        return interaction.reply({ content: 'Esse botão não foi encontrado.', flags: [MessageFlags.Ephemeral] });
+    }
+
+    return interaction.showModal(montarModalRBotao(
+        `msgcriador_modal_rbotaoed_${interaction.message.id}_${idx}_${j}_${Date.now().toString(36)}`,
+        'Editar botão da resposta', alvo, existente
+    ));
+}
+
+if (interaction.isModalSubmit() && (interaction.customId.startsWith('msgcriador_modal_rbotao_') || interaction.customId.startsWith('msgcriador_modal_rbotaoed_'))) {
+    const editando = interaction.customId.startsWith('msgcriador_modal_rbotaoed_');
+    const partes = interaction.customId.replace(editando ? 'msgcriador_modal_rbotaoed_' : 'msgcriador_modal_rbotao_', '').split('_');
+    const painelId = partes[0];
+    const idx = parseInt(partes[1]);
+    const j = editando ? parseInt(partes[2]) : -1;
 
     const draft = msgCriadorDB.get(painelId);
     if (!draft || draft.autorId !== interaction.user.id) {
@@ -8464,11 +8514,20 @@ if (interaction.isModalSubmit() && interaction.customId.startsWith('msgcriador_m
     if (!alvo || alvo.url || !alvo.resposta) {
         return interaction.reply({ content: 'Essa resposta não existe mais.', flags: [MessageFlags.Ephemeral] });
     }
+    if (editando && !alvo.respostaBotoes?.[j]) {
+        return interaction.reply({ content: 'Esse botão não foi encontrado.', flags: [MessageFlags.Ephemeral] });
+    }
 
     const label = interaction.fields.getTextInputValue('rbotao_label').trim();
     const url = interaction.fields.getTextInputValue('rbotao_url').trim();
     const emojiBruto = interaction.fields.getTextInputValue('rbotao_emoji').trim();
     const posicao = interaction.fields.getStringSelectValues('rbotao_posicao')[0];
+
+    let bloco = null;
+    if ((alvo.respostaTipo || 'texto') === 'v2') {
+        const valorBloco = interaction.fields.getStringSelectValues('rbotao_bloco')[0];
+        if (valorBloco !== 'fim' && !isNaN(parseInt(valorBloco))) bloco = parseInt(valorBloco);
+    }
 
     if (!label) {
         return interaction.reply({ content: 'O label do botão não pode ficar vazio.', flags: [MessageFlags.Ephemeral] });
@@ -8483,10 +8542,15 @@ if (interaction.isModalSubmit() && interaction.customId.startsWith('msgcriador_m
         emoji = matchEmoji ? { id: matchEmoji[1] } : emojiBruto;
     }
 
-    const novos = [...(alvo.respostaBotoes || []), {
-        id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
-        label, url, emoji, posicao
-    }];
+    const novos = [...(alvo.respostaBotoes || [])];
+    if (editando) {
+        novos[j] = { ...novos[j], label, url, emoji, posicao, bloco };
+    } else {
+        novos.push({
+            id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+            label, url, emoji, posicao, bloco
+        });
+    }
 
     const check = validarRespostaBotoes(alvo.resposta, alvo.respostaTipo || 'texto', novos);
     if (!check.cabe) {

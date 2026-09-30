@@ -6244,25 +6244,44 @@ function validarLimiteMsgCriador(draft) {
 // Monta a resposta efêmera de um botão (texto ou V2) com botões de link normais e/ou empilhados.
 function montarPayloadRespostaBotao({ texto, tipo, botoes = [] }, prefixoTexto = '') {
     const validos = (botoes || []).filter(b => b && b.url && b.label);
-    const normais = validos.filter(b => b.posicao !== 'empilhados');
-    const empilhados = validos.filter(b => b.posicao === 'empilhados');
 
-    const rows = [
-        ...(normais.length ? montarButtonRows(normais) : []),
-        ...(empilhados.length ? montarButtonRows(empilhados, 'final', true) : [])
-    ];
+    // normais (lado a lado) primeiro, depois os empilhados (um por linha)
+    const linhasDe = (lista) => {
+        const normais = lista.filter(b => b.posicao !== 'empilhados');
+        const empilhados = lista.filter(b => b.posicao === 'empilhados');
+        return [
+            ...(normais.length ? montarButtonRows(normais) : []),
+            ...(empilhados.length ? montarButtonRows(empilhados, 'final', true) : [])
+        ];
+    };
 
     if (tipo === 'v2') {
         const container = new ContainerBuilder();
         const blocos = parseBlocosTexto(texto);
+
+        // cada botão pode ficar logo abaixo de um bloco de texto; sem bloco válido, vai para o final
+        const porBloco = new Map();
+        const noFinal = [];
+        validos.forEach(b => {
+            if (Number.isInteger(b.bloco) && b.bloco >= 0 && b.bloco < blocos.length) {
+                if (!porBloco.has(b.bloco)) porBloco.set(b.bloco, []);
+                porBloco.get(b.bloco).push(b);
+            } else {
+                noFinal.push(b);
+            }
+        });
+
         blocos.forEach((bloco, i) => {
             if (bloco.length > 0) container.addTextDisplayComponents(new TextDisplayBuilder().setContent(bloco));
+            if (porBloco.has(i)) linhasDe(porBloco.get(i)).forEach(r => container.addActionRowComponents(r));
             if (i < blocos.length - 1) container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
         });
-        rows.forEach(r => container.addActionRowComponents(r));
+
+        if (noFinal.length) linhasDe(noFinal).forEach(r => container.addActionRowComponents(r));
         return { components: [container], flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral] };
     }
 
+    const rows = linhasDe(validos);
     const payload = { content: `${prefixoTexto}${texto}`, flags: [MessageFlags.Ephemeral] };
     if (rows.length) payload.components = rows;
     return payload;
@@ -6754,13 +6773,27 @@ if (draft.opcaoAtual === 'botoes') {
                 container.addActionRowComponents(
                     new ActionRowBuilder().addComponents(
                         new StringSelectMenuBuilder()
+                            .setCustomId('msgcriador_rbotao_editar')
+                            .setPlaceholder('Editar / mover um botão da resposta')
+                            .addOptions(
+                                lista.slice(0, 25).map((rb, j) => ({
+                                    label: rb.label.slice(0, 100),
+                                    value: String(j),
+                                    description: `${rb.posicao === 'empilhados' ? 'Empilhado' : 'Normal'} · ${Number.isInteger(rb.bloco) ? `abaixo do bloco ${rb.bloco + 1}` : 'no final'}`
+                                }))
+                            )
+                    )
+                );
+                container.addActionRowComponents(
+                    new ActionRowBuilder().addComponents(
+                        new StringSelectMenuBuilder()
                             .setCustomId('msgcriador_rbotao_remover')
                             .setPlaceholder('Remover um botão da resposta')
                             .addOptions(
                                 lista.slice(0, 25).map((rb, j) => ({
                                     label: rb.label.slice(0, 100),
                                     value: String(j),
-                                    description: rb.posicao === 'empilhados' ? 'Empilhado' : 'Normal'
+                                    description: `${rb.posicao === 'empilhados' ? 'Empilhado' : 'Normal'} · ${Number.isInteger(rb.bloco) ? `abaixo do bloco ${rb.bloco + 1}` : 'no final'}`
                                 }))
                             )
                     )
