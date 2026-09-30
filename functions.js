@@ -3325,16 +3325,14 @@ async function assumirTicket(thread, dados, staffMember) {
 const nomeStaff = staffMember.displayName || staffMember.user.username;
 const agoraUnix = Math.floor(Date.now() / 1000);
 
-const mencaoFora = new TextDisplayBuilder().setContent(`<@${dados.autorId}>`);
-
-const containerAviso = new ContainerBuilder()
-    .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**${nomeStaff}** assumiu este ticket e ira lhe atender`))
-    .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-    .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Horário:** <t:${agoraUnix}:t>`));
+const embedAviso = new EmbedBuilder()
+    .setColor('#000000')
+    .setDescription(`**${nomeStaff}** assumiu este ticket e ira lhe atender\n**assumido em:** <t:${agoraUnix}:t>`);
 
 await thread.send({
-    components: [mencaoFora, containerAviso],
-    flags: [MessageFlags.IsComponentsV2]
+    content: `<@${dados.autorId}>`,
+    embeds: [embedAviso],
+    allowedMentions: { users: [dados.autorId] }
 }).catch(err => console.error('--- Erro ao enviar aviso de ticket assumido ---', err));
 return true;
 }

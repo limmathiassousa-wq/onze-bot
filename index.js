@@ -9545,12 +9545,9 @@ ticketThread = await canalBase.threads.create({
 
     const containerAviso = new ContainerBuilder()
         .addTextDisplayComponents(
-            new TextDisplayBuilder().setContent(`<@${interaction.user.id}>`)
-        )
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-        .addTextDisplayComponents(
             new TextDisplayBuilder().setContent(`Seu atendimento foi iniciado com sucesso!`)
         )
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addActionRowComponents(
             new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
