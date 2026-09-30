@@ -227,7 +227,7 @@ const {
     montarPainelMoedas, montarPainelMsgCriadorBuilder, montarPainelMsgCriadorInicial, montarPainelProgressoBackup,
     montarPainelProtecao, montarPainelRemoverConfirmacao, montarPainelRemoverSelect, montarPainelRoleAllInicial,
     montarPainelSorteioConfig, montarPainelSorteioInicial, montarPainelStatus, montarPainelVerificacaoCargos, montarPayloadFinalMsgCriador, montarPayloadPainelMsgCriador,
-    montarPermissoesTextoGRoles, montarPreviewMsgCriador, msgCriadorTimeouts, muteCargoTimeouts, nomeTipoCanalLog,
+    montarPermissoesTextoGRoles, montarPreviewMsgCriador, validarLimiteMsgCriador, msgCriadorTimeouts, muteCargoTimeouts, nomeTipoCanalLog,
     nukeTracker, antiBotRecentes, obterCargosExcluiveisGRoles, obterCargosGerenciaveisGRoles, obterDadosAfk,
     obterExecutorAuditLog, obterMembrosCache, obterMemoriaContainer, obterPrimeiroCanalCategoria,
     obterTop3CallSorteio, obterUsoCPU, paineisProtecao, parseBlocosTexto,
@@ -4787,6 +4787,11 @@ if (interaction.isModalSubmit() && interaction.customId.startsWith('msgcriador_m
     }
 
     draft.botoes[idx] = { ...botaoAtual, label, url: url || null, emoji, cor, posicao };
+
+    if (!validarLimiteMsgCriador(draft).cabe) {
+        draft.botoes[idx] = botaoAtual;
+        return interaction.reply({ content: 'Não cabe: essa mudança passaria do limite de 40 componentes da mensagem.', flags: [MessageFlags.Ephemeral] });
+    }
     draft.opcaoAtual = 'botoes';
 
     return interaction.update({
@@ -7857,6 +7862,11 @@ if (!draft.botoes) draft.botoes = [];
     const idBotao = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     draft.botoes.push({ id: idBotao, label, url: url || null, emoji, cor, posicao, resposta: null, respostaTipo: null });
 
+    if (!validarLimiteMsgCriador(draft).cabe) {
+        draft.botoes.pop();
+        return interaction.reply({ content: 'Não cabe: o Discord limita a 40 componentes por mensagem (cada botão empilhado usa 2, mais o texto abaixo dele). Remova algum botão antes de adicionar outro.', flags: [MessageFlags.Ephemeral] });
+    }
+
 return interaction.update({
     components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
     flags: [MessageFlags.IsComponentsV2]
@@ -8038,6 +8048,14 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_opc
         if (!canalDestino) {
             return interaction.reply({
                 components: containerTexto('O canal selecionado não foi encontrado. Selecione outro canal.'),
+                flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
+            });
+        }
+
+        const limiteMsg = validarLimiteMsgCriador(draft);
+        if (!limiteMsg.cabe) {
+            return interaction.reply({
+                components: containerTexto(`A mensagem usa ${limiteMsg.total} componentes e o Discord aceita no máximo 40. Remova alguns botões ou legendas.`),
                 flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
             });
         }
@@ -8380,6 +8398,82 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_cor
 }
 
 // ---- Resposta do botão (efêmera ao clicar) ----
+// ---- Legenda (texto abaixo do botão empilhado) ----
+if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_botao_legenda') {
+    const draft = msgCriadorDB.get(interaction.message.id);
+    if (!draft || draft.autorId !== interaction.user.id) {
+        return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
+    }
+
+    const idx = parseInt(interaction.values[0]);
+    const botao = draft.botoes?.[idx];
+    if (!botao || botao.posicao !== 'empilhados') {
+        return interaction.reply({ content: 'Esse botão não foi encontrado ou não está empilhado.', flags: [MessageFlags.Ephemeral] });
+    }
+
+    const modal = new ModalBuilder()
+        .setCustomId(`msgcriador_modal_legenda_${interaction.message.id}_${idx}_${Date.now().toString(36)}`)
+        .setTitle('Texto abaixo do botão');
+
+    const inputLegenda = new TextInputBuilder()
+        .setCustomId('legenda_texto')
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(false)
+        .setMaxLength(300)
+        .setValue(botao.legenda || '');
+
+    const labelLegenda = new LabelBuilder()
+        .setLabel(`Legenda de "${botao.label}"`.slice(0, 45))
+        .setDescription('Aparece logo abaixo do botão. Deixe vazio para remover.')
+        .setTextInputComponent(inputLegenda);
+
+    const selectEstilo = new StringSelectMenuBuilder()
+        .setCustomId('legenda_estilo')
+        .setRequired(true)
+        .addOptions(
+            { label: 'Discreto (pequeno)', value: 'discreto', description: 'Texto menor e apagado, ideal para descrições', default: (botao.legendaEstilo ?? 'discreto') === 'discreto' },
+            { label: 'Normal', value: 'normal', description: 'Texto no tamanho padrão', default: botao.legendaEstilo === 'normal' },
+            { label: 'Citação', value: 'citacao', description: 'Com uma barra lateral, destaca o texto', default: botao.legendaEstilo === 'citacao' }
+        );
+
+    const labelEstilo = new LabelBuilder()
+        .setLabel('Estilo do texto')
+        .setStringSelectMenuComponent(selectEstilo);
+
+    modal.addLabelComponents(labelLegenda, labelEstilo);
+    return interaction.showModal(modal);
+}
+
+if (interaction.isModalSubmit() && interaction.customId.startsWith('msgcriador_modal_legenda_')) {
+    const [painelId, idxStr] = interaction.customId.replace('msgcriador_modal_legenda_', '').split('_');
+    const idx = parseInt(idxStr);
+
+    const draft = msgCriadorDB.get(painelId);
+    if (!draft || draft.autorId !== interaction.user.id) {
+        return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
+    }
+    const botao = draft.botoes?.[idx];
+    if (!botao) {
+        return interaction.reply({ content: 'Esse botão não foi encontrado.', flags: [MessageFlags.Ephemeral] });
+    }
+
+    const antes = { legenda: botao.legenda ?? null, legendaEstilo: botao.legendaEstilo ?? null };
+    const texto = interaction.fields.getTextInputValue('legenda_texto').trim();
+    botao.legenda = texto || null;
+    botao.legendaEstilo = interaction.fields.getStringSelectValues('legenda_estilo')[0];
+
+    if (!validarLimiteMsgCriador(draft).cabe) {
+        botao.legenda = antes.legenda;
+        botao.legendaEstilo = antes.legendaEstilo;
+        return interaction.reply({ content: 'Não cabe: com esse texto a mensagem passaria de 40 componentes. Remova algum botão ou legenda.', flags: [MessageFlags.Ephemeral] });
+    }
+
+    return interaction.update({
+        components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
+        flags: [MessageFlags.IsComponentsV2]
+    });
+}
+
 if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_botao_resposta') {
     const draft = msgCriadorDB.get(interaction.message.id);
     if (!draft || draft.autorId !== interaction.user.id) {

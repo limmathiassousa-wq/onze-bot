@@ -2,7 +2,7 @@
 // =========== IMPORTS ============
 const {
     MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, ContainerBuilder, TextDisplayBuilder,
-    SeparatorBuilder, MediaGalleryBuilder, MediaGalleryItemBuilder, ThumbnailBuilder, SectionBuilder,
+    SeparatorBuilder, SeparatorSpacingSize, MediaGalleryBuilder, MediaGalleryItemBuilder, ThumbnailBuilder, SectionBuilder,
     ChannelType, EmbedBuilder, SlashCommandBuilder, StringSelectMenuBuilder, UserSelectMenuBuilder,
     ChannelSelectMenuBuilder, RoleSelectMenuBuilder, Routes, PermissionFlagsBits, AuditLogEvent, OverwriteType
 } = require('discord.js');
@@ -6101,6 +6101,145 @@ async function enviarEventoMoedas() {
 
 // ============ CRIADOR DE MENSAGENS ============
 
+// ============ CRIADOR DE MENSAGENS: LEGENDA EM BOTÕES EMPILHADOS ============
+const LIMITE_COMPONENTES_V2 = 40;
+
+// Texto exibido logo abaixo do botão empilhado (estilo: discreto | normal | citacao)
+function formatarLegendaBotao(b) {
+    const t = String(b?.legenda || '').trim();
+    if (!t) return null;
+    if (b.legendaEstilo === 'normal') return t;
+    if (b.legendaEstilo === 'citacao') return t.split('\n').map(l => `> ${l}`).join('\n');
+    return t.split('\n').map(l => `-# ${l}`).join('\n');
+}
+
+// Conta os componentes como o Discord conta (containers, rows, botões, textos... aninhados)
+function contarComponentesV2(lista) {
+    const contar = (no) => {
+        if (!no || typeof no !== 'object') return 0;
+        let n = typeof no.type === 'number' ? 1 : 0;
+        if (Array.isArray(no.components)) no.components.forEach(c => { n += contar(c); });
+        if (no.accessory) n += contar(no.accessory);
+        return n;
+    };
+    return lista.reduce((t, c) => t + contar(typeof c?.toJSON === 'function' ? c.toJSON() : c), 0);
+}
+
+function adicionarNoContainerMsgCriador(container, comp) {
+    if (comp instanceof ActionRowBuilder) container.addActionRowComponents(comp);
+    else if (comp instanceof TextDisplayBuilder) container.addTextDisplayComponents(comp);
+    else if (comp instanceof SeparatorBuilder) container.addSeparatorComponents(comp);
+}
+
+// Cada botão empilhado vira um "cartão": botão + legenda logo abaixo.
+// modoEmp: 'completo' (com respiro entre cartões) | 'semSeparador' | 'compacto' (legendas agrupadas)
+function montarComponentesEmpilhados(botoes, modo, modoEmp = 'completo') {
+    const itens = [];
+    const comLegenda = botoes.filter(b => formatarLegendaBotao(b));
+    const agrupar = modoEmp === 'compacto';
+
+    botoes.forEach((b, i) => {
+        montarButtonRows([b], modo, true).forEach(row => itens.push(row));
+
+        const legenda = formatarLegendaBotao(b);
+        if (legenda && !agrupar) itens.push(new TextDisplayBuilder().setContent(legenda));
+
+        if (modoEmp === 'completo' && comLegenda.length && i < botoes.length - 1) {
+            itens.push(new SeparatorBuilder().setDivider(false).setSpacing(SeparatorSpacingSize.Small));
+        }
+    });
+
+    if (agrupar && comLegenda.length) {
+        const linhas = comLegenda.map(b => `-# **${b.label}** — ${String(b.legenda).replace(/\s+/g, ' ').trim().slice(0, 200)}`);
+        itens.push(new TextDisplayBuilder().setContent(linhas.join('\n').slice(0, 3900)));
+    }
+
+    return itens;
+}
+
+// Monta a mensagem V2 inteira (preview e final usam o mesmo código): [container, ...botões fora]
+function construirV2MsgCriador(draft, modo, modoEmp) {
+    const botoes = draft.botoes || [];
+    const container = new ContainerBuilder();
+
+    if (draft.cor && draft.cor !== 'nenhuma') {
+        container.setAccentColor(parseInt(draft.cor, 16));
+    }
+
+    const botoesCima = botoes.filter(b => b.posicao === 'cima');
+    const botoesEntre = botoes.filter(b => b.posicao === 'entre');
+    const botoesFora = botoes.filter(b => b.posicao === 'fora');
+    const botoesEmpilhados = botoes.filter(b => b.posicao === 'empilhados');
+    const botoesAbaixo = botoes.filter(b => !['cima', 'entre', 'fora', 'empilhados'].includes(b.posicao));
+
+    if (botoesCima.length) {
+        montarButtonRows(botoesCima, modo).forEach(row => container.addActionRowComponents(row));
+    }
+
+    const houveTexto = String(draft.textoBruto ?? '').trim().length > 0;
+
+    if (!houveTexto) {
+        if (modo === 'preview') {
+            container.addTextDisplayComponents(new TextDisplayBuilder().setContent('-# Nenhum texto adicionado ainda.'));
+        }
+    } else {
+        const blocos = parseBlocosTexto(draft.textoBruto);
+        blocos.forEach((bloco, i) => {
+            if (bloco.length > 0) {
+                container.addTextDisplayComponents(new TextDisplayBuilder().setContent(bloco));
+            }
+            if (i < blocos.length - 1) {
+                container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+            }
+        });
+    }
+
+    if (botoesEntre.length) {
+        montarButtonRows(botoesEntre, modo).forEach(row => container.addActionRowComponents(row));
+    }
+
+    if (draft.imagemUrl) {
+        container.addMediaGalleryComponents(
+            new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(draft.imagemUrl))
+        );
+    }
+
+    if (botoesAbaixo.length) {
+        montarButtonRows(botoesAbaixo, modo).forEach(row => container.addActionRowComponents(row));
+    }
+
+    if (botoesEmpilhados.length) {
+        montarComponentesEmpilhados(botoesEmpilhados, modo, modoEmp).forEach(c => adicionarNoContainerMsgCriador(container, c));
+    }
+
+    const componentesFinais = [container];
+    if (botoesFora.length) {
+        montarButtonRows(botoesFora, modo).forEach(row => componentesFinais.push(row));
+    }
+    return componentesFinais;
+}
+
+// Escolhe o layout mais completo que cabe nos 40 componentes (custoExtra = o que o Discord
+// também conta na mesma mensagem, como o cabeçalho e o painel na prévia).
+function escolherLayoutV2MsgCriador(draft, modo, custoExtra = 0) {
+    const temLegenda = (draft.botoes || []).some(b => b.posicao === 'empilhados' && formatarLegendaBotao(b));
+    const modos = temLegenda ? ['completo', 'semSeparador', 'compacto'] : ['completo'];
+    let resultado;
+    for (const modoEmp of modos) {
+        const componentes = construirV2MsgCriador(draft, modo, modoEmp);
+        const total = contarComponentesV2(componentes);
+        resultado = { componentes, modoEmp, total, cabe: total + custoExtra <= LIMITE_COMPONENTES_V2 };
+        if (resultado.cabe) break;
+    }
+    return resultado;
+}
+
+function validarLimiteMsgCriador(draft) {
+    if (draft.tipo !== 'v2') return { cabe: true, total: 0 };
+    const { cabe, total } = escolherLayoutV2MsgCriador(draft, 'final');
+    return { cabe, total };
+}
+
 function montarButtonRows(botoes, modo = 'final', empilhado = false) {
     const rows = [];
     const tamanhoGrupo = empilhado ? 1 : 5;
@@ -6202,63 +6341,21 @@ function montarPreviewMsgCriador(draft) {
     const botoes = draft.botoes || [];
 
     if (draft.tipo === 'v2') {
-    const container = new ContainerBuilder();
+        const custoPainel = contarComponentesV2([montarPainelMsgCriadorBuilder(draft)]);
+        const layout = escolherLayoutV2MsgCriador(draft, 'preview', 1 + custoPainel);
+        const layoutFinal = escolherLayoutV2MsgCriador(draft, 'final');
 
-    if (draft.cor && draft.cor !== 'nenhuma') {
-        container.setAccentColor(parseInt(draft.cor, 16));
+        let info = '';
+        if (botoes.length) {
+            info = `\n-# Componentes: ${layoutFinal.total}/${LIMITE_COMPONENTES_V2}`;
+            if (!layoutFinal.cabe) info += ' ⚠️ acima do limite, remova botões';
+            else if (layoutFinal.modoEmp === 'semSeparador') info += ' · sem respiro entre os botões';
+            else if (layoutFinal.modoEmp === 'compacto') info += ' · legendas agrupadas abaixo dos botões';
+            if (layout.modoEmp !== layoutFinal.modoEmp) info += ' · prévia simplificada';
+        }
+
+        return [new TextDisplayBuilder().setContent(' Prévia da mensagem ↓' + info), ...layout.componentes];
     }
-
-    const botoesCima = botoes.filter(b => b.posicao === 'cima');
-    const botoesEntre = botoes.filter(b => b.posicao === 'entre');
-    const botoesFora = botoes.filter(b => b.posicao === 'fora');
-    const botoesEmpilhados = botoes.filter(b => b.posicao === 'empilhados');
-    const botoesAbaixo = botoes.filter(b => !['cima', 'entre', 'fora', 'empilhados'].includes(b.posicao));
-
-    if (botoesCima.length) {
-        montarButtonRows(botoesCima, 'preview').forEach(row => container.addActionRowComponents(row));
-    }
-
-    const houveTexto = String(draft.textoBruto ?? '').trim().length > 0;
-
-    if (!houveTexto) {
-        container.addTextDisplayComponents(new TextDisplayBuilder().setContent('-# Nenhum texto adicionado ainda.'));
-    } else {
-        const blocos = parseBlocosTexto(draft.textoBruto);
-        blocos.forEach((bloco, i) => {
-            if (bloco.length > 0) {
-                container.addTextDisplayComponents(new TextDisplayBuilder().setContent(bloco));
-            }
-            if (i < blocos.length - 1) {
-                container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-            }
-        });
-    }
-
-    if (botoesEntre.length) {
-        montarButtonRows(botoesEntre, 'preview').forEach(row => container.addActionRowComponents(row));
-    }
-
-    if (draft.imagemUrl) {
-        container.addMediaGalleryComponents(
-            new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(draft.imagemUrl))
-        );
-    }
-
-    if (botoesAbaixo.length) {
-        montarButtonRows(botoesAbaixo, 'preview').forEach(row => container.addActionRowComponents(row));
-    }
-
-    if (botoesEmpilhados.length) {
-        montarButtonRows(botoesEmpilhados, 'preview', true).forEach(row => container.addActionRowComponents(row));
-    }
-
-    const componentesFinais = [header, container];
-    if (botoesFora.length) {
-        montarButtonRows(botoesFora, 'preview').forEach(row => componentesFinais.push(row));
-    }
-
-    return componentesFinais;
-}
 
     if (draft.tipo === 'embed') {
         const componentes = [header];
@@ -6530,6 +6627,27 @@ if (draft.opcaoAtual === 'botoes') {
                 )
             );
 
+            const botoesEmpilhadosPainel = draft.botoes
+                .map((b, i) => ({ b, i }))
+                .filter(({ b }) => b.posicao === 'empilhados');
+
+            if (draft.tipo === 'v2' && botoesEmpilhadosPainel.length) {
+                container.addActionRowComponents(
+                    new ActionRowBuilder().addComponents(
+                        new StringSelectMenuBuilder()
+                            .setCustomId('msgcriador_botao_legenda')
+                            .setPlaceholder('Texto abaixo do botão (empilhados)')
+                            .addOptions(
+                                botoesEmpilhadosPainel.slice(0, 25).map(({ b, i }) => ({
+                                    label: b.label.slice(0, 100),
+                                    value: String(i),
+                                    description: b.legenda ? String(b.legenda).replace(/\s+/g, ' ').slice(0, 100) : 'Sem texto abaixo'
+                                }))
+                            )
+                    )
+                );
+            }
+
             const botoesSemUrl = draft.botoes
                 .map((b, i) => ({ b, i }))
                 .filter(({ b }) => !b.url);
@@ -6622,59 +6740,8 @@ async function montarPayloadFinalMsgCriador(draft) {
     const botoes = draft.botoes || [];
 
 if (draft.tipo === 'v2') {
-    const blocos = parseBlocosTexto(draft.textoBruto);
-    const houveTexto = String(draft.textoBruto ?? '').trim().length > 0;
-    const container = new ContainerBuilder();
-
-    if (draft.cor && draft.cor !== 'nenhuma') {
-        container.setAccentColor(parseInt(draft.cor, 16));
-    }
-
-    const botoesCima = botoes.filter(b => b.posicao === 'cima');
-    const botoesEntre = botoes.filter(b => b.posicao === 'entre');
-    const botoesFora = botoes.filter(b => b.posicao === 'fora');
-    const botoesEmpilhados = botoes.filter(b => b.posicao === 'empilhados');
-    const botoesAbaixo = botoes.filter(b => !['cima', 'entre', 'fora', 'empilhados'].includes(b.posicao));
-
-    if (botoesCima.length) {
-        montarButtonRows(botoesCima).forEach(row => container.addActionRowComponents(row));
-    }
-
-    if (houveTexto) {
-        blocos.forEach((bloco, i) => {
-            if (bloco.length > 0) {
-                container.addTextDisplayComponents(new TextDisplayBuilder().setContent(bloco));
-            }
-            if (i < blocos.length - 1) {
-                container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-            }
-        });
-    }
-
-    if (botoesEntre.length) {
-        montarButtonRows(botoesEntre).forEach(row => container.addActionRowComponents(row));
-    }
-
-    if (draft.imagemUrl) {
-        container.addMediaGalleryComponents(
-            new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(draft.imagemUrl))
-        );
-    }
-
-    if (botoesAbaixo.length) {
-        montarButtonRows(botoesAbaixo).forEach(row => container.addActionRowComponents(row));
-    }
-
-    if (botoesEmpilhados.length) {
-        montarButtonRows(botoesEmpilhados, 'final', true).forEach(row => container.addActionRowComponents(row));
-    }
-
-    const componentesFinais = [container];
-    if (botoesFora.length) {
-        montarButtonRows(botoesFora).forEach(row => componentesFinais.push(row));
-    }
-
-    return { components: componentesFinais, flags: [MessageFlags.IsComponentsV2] };
+    const layout = escolherLayoutV2MsgCriador(draft, 'final');
+    return { components: layout.componentes, flags: [MessageFlags.IsComponentsV2] };
 }
 
 if (draft.tipo === 'embed') {
@@ -7331,6 +7398,8 @@ module.exports = {
     montarPayloadPainelMsgCriador,
     montarPermissoesTextoGRoles,
     montarPreviewMsgCriador,
+    validarLimiteMsgCriador,
+    formatarLegendaBotao,
     nomeTipoCanalLog,
     obterCargosExcluiveisGRoles,
     obterCargosGerenciaveisGRoles,
