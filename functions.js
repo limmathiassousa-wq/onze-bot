@@ -6240,6 +6240,45 @@ function validarLimiteMsgCriador(draft) {
     return { cabe, total };
 }
 
+// ============ CRIADOR DE MENSAGENS: BOTÕES DENTRO DAS RESPOSTAS EFÊMERAS ============
+// Monta a resposta efêmera de um botão (texto ou V2) com botões de link normais e/ou empilhados.
+function montarPayloadRespostaBotao({ texto, tipo, botoes = [] }, prefixoTexto = '') {
+    const validos = (botoes || []).filter(b => b && b.url && b.label);
+    const normais = validos.filter(b => b.posicao !== 'empilhados');
+    const empilhados = validos.filter(b => b.posicao === 'empilhados');
+
+    const rows = [
+        ...(normais.length ? montarButtonRows(normais) : []),
+        ...(empilhados.length ? montarButtonRows(empilhados, 'final', true) : [])
+    ];
+
+    if (tipo === 'v2') {
+        const container = new ContainerBuilder();
+        const blocos = parseBlocosTexto(texto);
+        blocos.forEach((bloco, i) => {
+            if (bloco.length > 0) container.addTextDisplayComponents(new TextDisplayBuilder().setContent(bloco));
+            if (i < blocos.length - 1) container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+        });
+        rows.forEach(r => container.addActionRowComponents(r));
+        return { components: [container], flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral] };
+    }
+
+    const payload = { content: `${prefixoTexto}${texto}`, flags: [MessageFlags.Ephemeral] };
+    if (rows.length) payload.components = rows;
+    return payload;
+}
+
+// V2: até 40 componentes na resposta. Texto normal: até 5 linhas de botões.
+function validarRespostaBotoes(texto, tipo, botoes) {
+    const p = montarPayloadRespostaBotao({ texto, tipo, botoes });
+    if (tipo === 'v2') {
+        const total = contarComponentesV2(p.components);
+        return { cabe: total <= LIMITE_COMPONENTES_V2, total, limite: LIMITE_COMPONENTES_V2, unidade: 'componentes' };
+    }
+    const total = p.components?.length || 0;
+    return { cabe: total <= 5, total, limite: 5, unidade: 'linhas de botões' };
+}
+
 function montarButtonRows(botoes, modo = 'final', empilhado = false) {
     const rows = [];
     const tamanhoGrupo = empilhado ? 1 : 5;
@@ -6534,6 +6573,10 @@ function montarPainelMsgCriadorBuilder(draft) {
             `**Canal de destino:** ${draft.canalId ? `<#${draft.canalId}>` : '\`nenhum selecionado\`'}\n**Tipo:** \`${draft.tipo === 'v2' ? 'Components V2' : draft.tipo === 'embed' ? 'Embed' : 'Texto normal'}\``
         ))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+if (draft.opcaoAtual === 'botoes_resposta' && !(draft.botoes || []).some(b => !b.url && b.resposta)) {
+    draft.opcaoAtual = null;
+}
+
 const opcoesMsgCriador = [];
 
 if (draft.tipo === 'embed') {
@@ -6554,6 +6597,12 @@ opcoesMsgCriador.push(
 if (draft.botoes && draft.botoes.length > 0) {
     opcoesMsgCriador.push(
         { label: 'Editar botões', value: 'editar_botoes', description: 'Editar um botão já adicionado', default: draft.opcaoAtual === 'editar_botoes' }
+    );
+}
+
+if (draft.botoes && draft.botoes.some(b => !b.url && b.resposta)) {
+    opcoesMsgCriador.push(
+        { label: 'Botões das respostas', value: 'botoes_resposta', description: 'Adicionar botões dentro da resposta de um botão', default: draft.opcaoAtual === 'botoes_resposta' }
     );
 }
 
@@ -6671,6 +6720,55 @@ if (draft.opcaoAtual === 'botoes') {
         }
     }
     
+    if (draft.opcaoAtual === 'botoes_resposta') {
+        const candidatos = (draft.botoes || []).map((b, i) => ({ b, i })).filter(({ b }) => !b.url && b.resposta);
+        const alvo = candidatos.find(({ i }) => i === draft.respostaBotoesAlvo);
+
+        container.addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new StringSelectMenuBuilder()
+                    .setCustomId('msgcriador_rbotao_alvo')
+                    .setPlaceholder('Escolha a resposta que receberá botões')
+                    .addOptions(
+                        candidatos.slice(0, 25).map(({ b, i }) => ({
+                            label: b.label.slice(0, 100),
+                            value: String(i),
+                            description: `${(b.respostaBotoes || []).length} botão(ões) na resposta`,
+                            default: alvo?.i === i
+                        }))
+                    )
+            )
+        );
+
+        if (alvo) {
+            const lista = alvo.b.respostaBotoes || [];
+            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
+                `-# Resposta de "${alvo.b.label}": ${lista.length} botão(ões) de link, abaixo do texto.`
+            ));
+            container.addActionRowComponents(
+                new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId('msgcriador_rbotao_adicionar').setLabel('Adicionar botão').setStyle(ButtonStyle.Secondary)
+                )
+            );
+            if (lista.length) {
+                container.addActionRowComponents(
+                    new ActionRowBuilder().addComponents(
+                        new StringSelectMenuBuilder()
+                            .setCustomId('msgcriador_rbotao_remover')
+                            .setPlaceholder('Remover um botão da resposta')
+                            .addOptions(
+                                lista.slice(0, 25).map((rb, j) => ({
+                                    label: rb.label.slice(0, 100),
+                                    value: String(j),
+                                    description: rb.posicao === 'empilhados' ? 'Empilhado' : 'Normal'
+                                }))
+                            )
+                    )
+                );
+            }
+        }
+    }
+
     if (draft.opcaoAtual === 'editar_botoes' && draft.botoes && draft.botoes.length > 0) {
     container.addActionRowComponents(
         new ActionRowBuilder().addComponents(
@@ -7398,6 +7496,8 @@ module.exports = {
     montarPayloadPainelMsgCriador,
     montarPermissoesTextoGRoles,
     montarPreviewMsgCriador,
+    montarPayloadRespostaBotao,
+    validarRespostaBotoes,
     validarLimiteMsgCriador,
     formatarLegendaBotao,
     nomeTipoCanalLog,

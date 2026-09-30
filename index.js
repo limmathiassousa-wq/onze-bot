@@ -227,7 +227,7 @@ const {
     montarPainelMoedas, montarPainelMsgCriadorBuilder, montarPainelMsgCriadorInicial, montarPainelProgressoBackup,
     montarPainelProtecao, montarPainelRemoverConfirmacao, montarPainelRemoverSelect, montarPainelRoleAllInicial,
     montarPainelSorteioConfig, montarPainelSorteioInicial, montarPainelStatus, montarPainelVerificacaoCargos, montarPayloadFinalMsgCriador, montarPayloadPainelMsgCriador,
-    montarPermissoesTextoGRoles, montarPreviewMsgCriador, validarLimiteMsgCriador, msgCriadorTimeouts, muteCargoTimeouts, nomeTipoCanalLog,
+    montarPermissoesTextoGRoles, montarPreviewMsgCriador, validarLimiteMsgCriador, montarPayloadRespostaBotao, validarRespostaBotoes, msgCriadorTimeouts, muteCargoTimeouts, nomeTipoCanalLog,
     nukeTracker, antiBotRecentes, obterCargosExcluiveisGRoles, obterCargosGerenciaveisGRoles, obterDadosAfk,
     obterExecutorAuditLog, obterMembrosCache, obterMemoriaContainer, obterPrimeiroCanalCategoria,
     obterTop3CallSorteio, obterUsoCPU, paineisProtecao, parseBlocosTexto,
@@ -7882,6 +7882,7 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_bot
 
     const idx = parseInt(interaction.values[0]);
     if (!isNaN(idx) && draft.botoes?.[idx]) draft.botoes.splice(idx, 1);
+    draft.respostaBotoesAlvo = null;
 
 return interaction.update({
     components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
@@ -8101,7 +8102,8 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_opc
                     if (botao.resposta && !botao.url && botao.id) {
                         await respostasBotoesMsg.definir(`${msgAlvo.id}_${botao.id}`, {
                             texto: botao.resposta,
-                            tipo: botao.respostaTipo || 'texto'
+                            tipo: botao.respostaTipo || 'texto',
+                            botoes: botao.respostaBotoes || []
                         });
                     }
                 }
@@ -8152,7 +8154,8 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_opc
                 if (botao.resposta && !botao.url && botao.id) {
                     await respostasBotoesMsg.definir(`${msgEnviada.id}_${botao.id}`, {
                         texto: botao.resposta,
-                        tipo: botao.respostaTipo || 'texto'
+                        tipo: botao.respostaTipo || 'texto',
+                        botoes: botao.respostaBotoes || []
                     });
                 }
             }
@@ -8398,6 +8401,121 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_cor
 }
 
 // ---- Resposta do botão (efêmera ao clicar) ----
+// ---- Botões dentro das respostas efêmeras ----
+if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_rbotao_alvo') {
+    const draft = msgCriadorDB.get(interaction.message.id);
+    if (!draft || draft.autorId !== interaction.user.id) {
+        return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
+    }
+
+    draft.respostaBotoesAlvo = parseInt(interaction.values[0]);
+    return interaction.update({
+        components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
+        flags: [MessageFlags.IsComponentsV2]
+    });
+}
+
+if (interaction.isButton() && interaction.customId === 'msgcriador_rbotao_adicionar') {
+    const draft = msgCriadorDB.get(interaction.message.id);
+    if (!draft || draft.autorId !== interaction.user.id) {
+        return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
+    }
+    const idx = draft.respostaBotoesAlvo;
+    const alvo = draft.botoes?.[idx];
+    if (!alvo || alvo.url || !alvo.resposta) {
+        return interaction.reply({ content: 'Escolha primeiro a resposta que receberá o botão.', flags: [MessageFlags.Ephemeral] });
+    }
+    if ((alvo.respostaBotoes?.length || 0) >= 25) {
+        return interaction.reply({ content: 'Limite de 25 botões por resposta atingido.', flags: [MessageFlags.Ephemeral] });
+    }
+
+    const modal = new ModalBuilder()
+        .setCustomId(`msgcriador_modal_rbotao_${interaction.message.id}_${idx}`)
+        .setTitle('Botão na resposta');
+
+    const inputLabel = new TextInputBuilder().setCustomId('rbotao_label').setStyle(TextInputStyle.Short).setMaxLength(80).setRequired(true);
+    const inputUrl = new TextInputBuilder().setCustomId('rbotao_url').setStyle(TextInputStyle.Short).setRequired(true);
+    const inputEmoji = new TextInputBuilder().setCustomId('rbotao_emoji').setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(false);
+    const selectPosicao = new StringSelectMenuBuilder().setCustomId('rbotao_posicao').setRequired(true).addOptions(
+        { label: 'Normal (lado a lado)', value: 'normal', default: true },
+        { label: 'Empilhado (um embaixo do outro)', value: 'empilhados' }
+    );
+
+    modal.addLabelComponents(
+        new LabelBuilder().setLabel('Label do botão').setTextInputComponent(inputLabel),
+        new LabelBuilder().setLabel('URL do botão').setDescription('Precisa começar com http:// ou https://').setTextInputComponent(inputUrl),
+        new LabelBuilder().setLabel('Emoji (opcional)').setTextInputComponent(inputEmoji),
+        new LabelBuilder().setLabel('Posição na resposta').setStringSelectMenuComponent(selectPosicao)
+    );
+    return interaction.showModal(modal);
+}
+
+if (interaction.isModalSubmit() && interaction.customId.startsWith('msgcriador_modal_rbotao_')) {
+    const resto = interaction.customId.replace('msgcriador_modal_rbotao_', '');
+    const separador = resto.lastIndexOf('_');
+    const painelId = resto.slice(0, separador);
+    const idx = parseInt(resto.slice(separador + 1));
+
+    const draft = msgCriadorDB.get(painelId);
+    if (!draft || draft.autorId !== interaction.user.id) {
+        return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
+    }
+    const alvo = draft.botoes?.[idx];
+    if (!alvo || alvo.url || !alvo.resposta) {
+        return interaction.reply({ content: 'Essa resposta não existe mais.', flags: [MessageFlags.Ephemeral] });
+    }
+
+    const label = interaction.fields.getTextInputValue('rbotao_label').trim();
+    const url = interaction.fields.getTextInputValue('rbotao_url').trim();
+    const emojiBruto = interaction.fields.getTextInputValue('rbotao_emoji').trim();
+    const posicao = interaction.fields.getStringSelectValues('rbotao_posicao')[0];
+
+    if (!label) {
+        return interaction.reply({ content: 'O label do botão não pode ficar vazio.', flags: [MessageFlags.Ephemeral] });
+    }
+    if (!/^https?:\/\//i.test(url)) {
+        return interaction.reply({ content: 'A URL do botão precisa começar com http:// ou https://', flags: [MessageFlags.Ephemeral] });
+    }
+
+    let emoji = null;
+    if (emojiBruto) {
+        const matchEmoji = emojiBruto.match(/<a?:\w{2,32}:(\d+)>/);
+        emoji = matchEmoji ? { id: matchEmoji[1] } : emojiBruto;
+    }
+
+    const novos = [...(alvo.respostaBotoes || []), {
+        id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+        label, url, emoji, posicao
+    }];
+
+    const check = validarRespostaBotoes(alvo.resposta, alvo.respostaTipo || 'texto', novos);
+    if (!check.cabe) {
+        return interaction.reply({ content: `Não cabe: a resposta passaria a usar ${check.total} ${check.unidade} (máximo ${check.limite}). Remova algum botão ou use o formato Components V2.`, flags: [MessageFlags.Ephemeral] });
+    }
+
+    alvo.respostaBotoes = novos;
+    return interaction.update({
+        components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
+        flags: [MessageFlags.IsComponentsV2]
+    });
+}
+
+if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_rbotao_remover') {
+    const draft = msgCriadorDB.get(interaction.message.id);
+    if (!draft || draft.autorId !== interaction.user.id) {
+        return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
+    }
+
+    const alvo = draft.botoes?.[draft.respostaBotoesAlvo];
+    const j = parseInt(interaction.values[0]);
+    if (alvo?.respostaBotoes?.[j]) alvo.respostaBotoes.splice(j, 1);
+
+    return interaction.update({
+        components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
+        flags: [MessageFlags.IsComponentsV2]
+    });
+}
+
 // ---- Legenda (texto abaixo do botão empilhado) ----
 if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_botao_legenda') {
     const draft = msgCriadorDB.get(interaction.message.id);
@@ -8535,8 +8653,19 @@ if (interaction.isModalSubmit() && interaction.customId.startsWith('msgcriador_m
     const texto = interaction.fields.getTextInputValue('resposta_texto').trim();
     const tipo = interaction.fields.getStringSelectValues('resposta_tipo')[0];
 
+    if (texto && draft.botoes[idx].respostaBotoes?.length) {
+        const check = validarRespostaBotoes(texto, tipo, draft.botoes[idx].respostaBotoes);
+        if (!check.cabe) {
+            return interaction.reply({ content: `Não cabe: com esse formato/texto a resposta usaria ${check.total} ${check.unidade} (máximo ${check.limite}). Remova botões da resposta ou mude o formato.`, flags: [MessageFlags.Ephemeral] });
+        }
+    }
+
     draft.botoes[idx].resposta = texto || null;
     draft.botoes[idx].respostaTipo = tipo;
+    if (!texto) {
+        draft.botoes[idx].respostaBotoes = [];
+        if (draft.respostaBotoesAlvo === idx) draft.respostaBotoesAlvo = null;
+    }
 
     return interaction.update({
     components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
@@ -8577,24 +8706,10 @@ if ( interaction.isButton() && interaction.customId.startsWith('msgcriador_previ
         });
     }
 
-    if (botao.respostaTipo === 'v2') {
-    const container = new ContainerBuilder();
-    const blocos = parseBlocosTexto(botao.resposta);
-    blocos.forEach((bloco, i) => {
-        if (bloco.length > 0) container.addTextDisplayComponents(new TextDisplayBuilder().setContent(bloco));
-        if (i < blocos.length - 1) container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-    });
-
-    return interaction.reply({
-        components: [container],
-        flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
-    });
-}
-
-return interaction.reply({
-    content: `**Prévia da mensagem ↓**\n\n${botao.resposta}`,
-    flags: [MessageFlags.Ephemeral]
-});
+    return interaction.reply(montarPayloadRespostaBotao(
+        { texto: botao.resposta, tipo: botao.respostaTipo, botoes: botao.respostaBotoes },
+        '**Prévia da mensagem ↓**\n\n'
+    ));
 }
 
 // ---- Clique no botão já enviado: responde com a mensagem configurada ----
@@ -8606,21 +8721,9 @@ if (interaction.isButton() && interaction.customId.startsWith('msgcriador_btn_')
         return interaction.reply({ content: 'Esse botão não possui uma resposta configurada.', flags: [MessageFlags.Ephemeral] });
     }
 
-    if (registro.tipo === 'v2') {
-    const container = new ContainerBuilder();
-    const blocos = parseBlocosTexto(registro.texto);
-    blocos.forEach((bloco, i) => {
-        if (bloco.length > 0) container.addTextDisplayComponents(new TextDisplayBuilder().setContent(bloco));
-        if (i < blocos.length - 1) container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-    });
-
-    return interaction.reply({
-        components: [container],
-        flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
-    });
-}
-
-return interaction.reply({ content: registro.texto, flags: [MessageFlags.Ephemeral] });
+    return interaction.reply(montarPayloadRespostaBotao(
+        { texto: registro.texto, tipo: registro.tipo, botoes: registro.botoes }
+    ));
 }
     
     
