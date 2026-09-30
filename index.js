@@ -230,7 +230,7 @@ const {
     montarPermissoesTextoGRoles, montarPreviewMsgCriador, validarLimiteMsgCriador, montarPayloadRespostaBotao, validarRespostaBotoes, msgCriadorTimeouts, muteCargoTimeouts, nomeTipoCanalLog,
     nukeTracker, antiBotRecentes, obterCargosExcluiveisGRoles, obterCargosGerenciaveisGRoles, obterDadosAfk,
     obterExecutorAuditLog, obterMembrosCache, obterMemoriaContainer, obterPrimeiroCanalCategoria,
-    obterTop3CallSorteio, obterUsoCPU, paineisProtecao, parseBlocosTexto,
+    obterTop3CallSorteio, obterUsoCPU, paineisProtecao, parseBlocosTexto, parseTrechosTexto, resumirTrecho,
     parseDuracaoTexto, parseQuantidadeTexto, participantesElegiveis, protecaoConfig,
     proximoNumeroTicket, punirExecutorNuke, quebrarLinhasComEmoji, reconectarVoiceStates,
     registrarAcaoNuke, registrarPainelProtecao, removerAfk, removerMuteCargo, removerTellonymPendenteUsuario, removerVoiceState,
@@ -392,19 +392,35 @@ function montarModalRBotao(customId, titulo, alvo, existente = null) {
     ];
 
     if ((alvo.respostaTipo || 'texto') === 'v2') {
-        const blocos = parseBlocosTexto(alvo.resposta);
-        const blocoAtual = Number.isInteger(existente?.bloco) && existente.bloco < blocos.length ? existente.bloco : null;
-        const opcoes = [{ label: 'No final da resposta', value: 'fim', default: blocoAtual === null }];
-        blocos.slice(0, 24).forEach((b, i) => opcoes.push({
-            label: `Abaixo do bloco ${i + 1}`,
-            value: String(i),
-            description: b.replace(/\s+/g, ' ').slice(0, 90) || '(bloco vazio)',
-            default: blocoAtual === i
-        }));
-        labels.push(
-            new LabelBuilder().setLabel('Onde colocar').setDescription('Blocos = textos separados por [separador].')
-                .setStringSelectMenuComponent(new StringSelectMenuBuilder().setCustomId('rbotao_bloco').setRequired(true).addOptions(opcoes))
-        );
+        const trechos = parseTrechosTexto(alvo.resposta);
+        const trechoAtual = Number.isInteger(existente?.trecho) && existente.trecho < trechos.length ? existente.trecho
+            : (Number.isInteger(existente?.bloco)
+                ? (trechos.filter(t => t.bloco === existente.bloco).pop()?.idx ?? null)
+                : null);
+        if (trechos.length <= 24) {
+            // cabe no seletor (limite do Discord: 25 opções, sendo 1 a de "final")
+            const opcoes = [{ label: 'No final da resposta', value: 'fim', default: trechoAtual === null }];
+            trechos.forEach((t, i) => opcoes.push({
+                label: `Abaixo do trecho ${i + 1}`,
+                value: String(i),
+                description: resumirTrecho(t.texto, 100),
+                default: trechoAtual === i
+            }));
+            labels.push(
+                new LabelBuilder().setLabel('Onde colocar').setDescription('Cada linha do texto é uma opção. Não precisa de [separador].')
+                    .setStringSelectMenuComponent(new StringSelectMenuBuilder().setCustomId('rbotao_bloco').setRequired(true).addOptions(opcoes))
+            );
+        } else {
+            // muitos trechos: o seletor não comporta, então o número é digitado
+            const inputBloco = new TextInputBuilder().setCustomId('rbotao_bloco_num').setStyle(TextInputStyle.Short)
+                .setMaxLength(3).setRequired(false).setPlaceholder(`1 a ${trechos.length} (vazio = no final)`);
+            if (trechoAtual !== null) inputBloco.setValue(String(trechoAtual + 1));
+            labels.push(
+                new LabelBuilder().setLabel(`Abaixo de qual trecho? (1-${trechos.length})`)
+                    .setDescription('Cada linha do texto é uma opção. Vazio = no final.')
+                    .setTextInputComponent(inputBloco)
+            );
+        }
     }
 
     modal.addLabelComponents(...labels);
@@ -8523,10 +8539,22 @@ if (interaction.isModalSubmit() && (interaction.customId.startsWith('msgcriador_
     const emojiBruto = interaction.fields.getTextInputValue('rbotao_emoji').trim();
     const posicao = interaction.fields.getStringSelectValues('rbotao_posicao')[0];
 
-    let bloco = null;
+    let trecho = null;
     if ((alvo.respostaTipo || 'texto') === 'v2') {
-        const valorBloco = interaction.fields.getStringSelectValues('rbotao_bloco')[0];
-        if (valorBloco !== 'fim' && !isNaN(parseInt(valorBloco))) bloco = parseInt(valorBloco);
+        const totalTrechos = parseTrechosTexto(alvo.resposta).length;
+        if (totalTrechos <= 24) {
+            const valor = interaction.fields.getStringSelectValues('rbotao_bloco')[0];
+            if (valor !== 'fim' && !isNaN(parseInt(valor))) trecho = parseInt(valor);
+        } else {
+            const numBruto = interaction.fields.getTextInputValue('rbotao_bloco_num').trim();
+            if (numBruto) {
+                const n = parseInt(numBruto);
+                if (isNaN(n) || n < 1 || n > totalTrechos) {
+                    return interaction.reply({ content: `Número de trecho inválido. Use de 1 a ${totalTrechos} ou deixe vazio para o final.`, flags: [MessageFlags.Ephemeral] });
+                }
+                trecho = n - 1;
+            }
+        }
     }
 
     if (!label) {
@@ -8544,11 +8572,11 @@ if (interaction.isModalSubmit() && (interaction.customId.startsWith('msgcriador_
 
     const novos = [...(alvo.respostaBotoes || [])];
     if (editando) {
-        novos[j] = { ...novos[j], label, url, emoji, posicao, bloco };
+        novos[j] = { ...novos[j], label, url, emoji, posicao, trecho, bloco: null };
     } else {
         novos.push({
             id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
-            label, url, emoji, posicao, bloco
+            label, url, emoji, posicao, trecho
         });
     }
 

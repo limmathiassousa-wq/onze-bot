@@ -6258,22 +6258,39 @@ function montarPayloadRespostaBotao({ texto, tipo, botoes = [] }, prefixoTexto =
     if (tipo === 'v2') {
         const container = new ContainerBuilder();
         const blocos = parseBlocosTexto(texto);
+        const trechos = parseTrechosTexto(texto);
 
-        // cada botão pode ficar logo abaixo de um bloco de texto; sem bloco válido, vai para o final
-        const porBloco = new Map();
+        // cada botão pode ficar logo abaixo de um trecho (parágrafo); sem trecho válido, vai para o final.
+        // Botões antigos (só com "bloco") ficam no fim daquele bloco.
+        const porTrecho = new Map();
         const noFinal = [];
         validos.forEach(b => {
-            if (Number.isInteger(b.bloco) && b.bloco >= 0 && b.bloco < blocos.length) {
-                if (!porBloco.has(b.bloco)) porBloco.set(b.bloco, []);
-                porBloco.get(b.bloco).push(b);
-            } else {
-                noFinal.push(b);
+            let alvoIdx = null;
+            if (Number.isInteger(b.trecho) && b.trecho >= 0 && b.trecho < trechos.length) {
+                alvoIdx = b.trecho;
+            } else if (Number.isInteger(b.bloco) && b.bloco >= 0 && b.bloco < blocos.length) {
+                const doBloco = trechos.filter(t => t.bloco === b.bloco);
+                if (doBloco.length) alvoIdx = doBloco[doBloco.length - 1].idx;
             }
+            if (alvoIdx === null) { noFinal.push(b); return; }
+            if (!porTrecho.has(alvoIdx)) porTrecho.set(alvoIdx, []);
+            porTrecho.get(alvoIdx).push(b);
         });
 
-        blocos.forEach((bloco, i) => {
-            if (bloco.length > 0) container.addTextDisplayComponents(new TextDisplayBuilder().setContent(bloco));
-            if (porBloco.has(i)) linhasDe(porBloco.get(i)).forEach(r => container.addActionRowComponents(r));
+        // o texto só é dividido onde há botão; o resto continua junto, com o espaçamento original
+        blocos.forEach((_, i) => {
+            const doBloco = trechos.filter(t => t.bloco === i);
+            let grupo = [];
+            doBloco.forEach((t, k) => {
+                grupo.push(t);
+                const temBotao = porTrecho.has(t.idx);
+                if (temBotao || k === doBloco.length - 1) {
+                    const conteudo = grupo.map((g, n) => g.texto + (n < grupo.length - 1 ? g.sep : '')).join('');
+                    if (conteudo.trim().length > 0) container.addTextDisplayComponents(new TextDisplayBuilder().setContent(conteudo));
+                    grupo = [];
+                    if (temBotao) linhasDe(porTrecho.get(t.idx)).forEach(r => container.addActionRowComponents(r));
+                }
+            });
             if (i < blocos.length - 1) container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
         });
 
@@ -6346,6 +6363,42 @@ function parseBlocosTexto(textoBruto) {
     return String(textoBruto ?? '')
         .split(/\[\s*separador\s*\]/i)
         .map(b => b.trim());
+}
+
+// Trechos = cada linha de texto (não precisa de [separador] nem de linha em branco).
+// Cada trecho tem índice global; "sep" guarda o espaçamento original até o próximo trecho
+// do mesmo bloco, para o texto continuar idêntico quando não é dividido.
+function parseTrechosTexto(textoBruto) {
+    const trechos = [];
+    parseBlocosTexto(textoBruto).forEach((bloco, b) => {
+        if (!bloco) {
+            trechos.push({ idx: trechos.length, bloco: b, texto: '', sep: '' });
+            return;
+        }
+        const partes = bloco.split(/(\n\s*)/);
+        for (let k = 0; k < partes.length; k += 2) {
+            trechos.push({ idx: trechos.length, bloco: b, texto: partes[k], sep: partes[k + 1] ?? '' });
+        }
+    });
+    return trechos;
+}
+
+// Resumo curto e legível de um trecho (sem markdown/emoji custom) para os seletores.
+function resumirTrecho(texto, max = 100) {
+    const r = String(texto ?? '')
+        .replace(/<a?:\w{2,32}:\d+>/g, '')
+        .replace(/^\s*(#{1,3}|-#|>)\s+/gm, '')
+        .replace(/[*_~`]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    return (r || '(trecho vazio)').slice(0, max);
+}
+
+// Descrição de onde o botão da resposta está (usa trecho; botões antigos usam bloco)
+function descreverLocalRBotao(rb) {
+    if (Number.isInteger(rb.trecho)) return `abaixo do trecho ${rb.trecho + 1}`;
+    if (Number.isInteger(rb.bloco)) return `abaixo do bloco ${rb.bloco + 1}`;
+    return 'no final';
 }
 
 function montarPainelMsgCriadorInicial(draft) {
@@ -6779,7 +6832,7 @@ if (draft.opcaoAtual === 'botoes') {
                                 lista.slice(0, 25).map((rb, j) => ({
                                     label: rb.label.slice(0, 100),
                                     value: String(j),
-                                    description: `${rb.posicao === 'empilhados' ? 'Empilhado' : 'Normal'} · ${Number.isInteger(rb.bloco) ? `abaixo do bloco ${rb.bloco + 1}` : 'no final'}`
+                                    description: `${rb.posicao === 'empilhados' ? 'Empilhado' : 'Normal'} · ${descreverLocalRBotao(rb)}`
                                 }))
                             )
                     )
@@ -6793,7 +6846,7 @@ if (draft.opcaoAtual === 'botoes') {
                                 lista.slice(0, 25).map((rb, j) => ({
                                     label: rb.label.slice(0, 100),
                                     value: String(j),
-                                    description: `${rb.posicao === 'empilhados' ? 'Empilhado' : 'Normal'} · ${Number.isInteger(rb.bloco) ? `abaixo do bloco ${rb.bloco + 1}` : 'no final'}`
+                                    description: `${rb.posicao === 'empilhados' ? 'Empilhado' : 'Normal'} · ${descreverLocalRBotao(rb)}`
                                 }))
                             )
                     )
@@ -7545,6 +7598,8 @@ module.exports = {
     obterUsoCPU,
     obterInfoCPU,
     parseBlocosTexto,
+    parseTrechosTexto,
+    resumirTrecho,
     parseDuracaoTexto,
     parseQuantidadeTexto,
     participantesElegiveis,
