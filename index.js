@@ -2037,7 +2037,45 @@ if (message.content.toLowerCase() === `${PREFIXO}msg`) {
     return;
 }
 
+if (message.content.toLowerCase() === `${PREFIXO}req`) {
+    const temPermissaoAtendente = message.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
+    if (!temPermissaoAtendente) {
+        return message.reply('Você não tem permissão para utilizar este comando!')
+            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
+    }
+
+    const containerReq = new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            '### <:angel:1542586836130730064> Requisitos mínimos:'
+        ))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            [
+                '`01` **Mínimo 100 membros**',
+                '`02` **Não permitimos conteúdo +18, NSFW ou qualquer material de teor sexual/explícito**',
+                '`03` **Servidor ativo e organizado**',
+                '`04` **Não possuir conteúdos ilegais ou que violem as Diretrizes do Discord**',
+                '`05` **Realizar a parceria de forma mútua e manter a divulgação ativa**'
+            ].join('\n')
+        ))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            '-# **obs:**\n-# Permaneça no servidor após a formalização da parceria. O descumprimento desta regra poderá resultar na revogação da parceria.'
+        ));
+
+    return message.channel.send({
+        components: [containerReq],
+        flags: [MessageFlags.IsComponentsV2]
+    });
+}
+
 if (message.content.toLowerCase() === `${PREFIXO}áreas` || message.content.toLowerCase() === `${PREFIXO}areas`) {
+    const temPermissaoAtendente = message.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
+    if (!temPermissaoAtendente) {
+        return message.reply('Você não tem permissão para utilizar este comando!')
+            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
+    }
+
     const areas = [
         ['Sup', 'Atende tickets e ajuda os membros da comunidade'],
         ['Mod', 'Modera o servidor de forma controlada com permissão para banir, mutar e expulsar'],

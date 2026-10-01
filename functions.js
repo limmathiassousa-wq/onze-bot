@@ -444,7 +444,8 @@ const HELP_PREFIXO_DESCRICOES = {
     msg: 'Cria e envia uma mensagem personalizada em um canal',
     cl: 'Apaga mensagens do autor do comando',
     limpar: 'Apaga mensagens do canal',
-    areas: 'Mostra as áreas disponíveis da equipe'
+    areas: 'Mostra as áreas disponíveis da equipe',
+    req: 'Mostra os requisitos mínimos para parceria'
 };
 
 // Só pra preencher o "Ajuda › Categoria › comando". Comando fora daqui cai em "Geral".
