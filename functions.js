@@ -4746,7 +4746,7 @@ const TIPOS_AUDIT_EDICAO_CANAL = [
     AuditLogEvent.ChannelUpdate, AuditLogEvent.ChannelOverwriteCreate,
     AuditLogEvent.ChannelOverwriteUpdate, AuditLogEvent.ChannelOverwriteDelete
 ];
-const ESPERAS_AUDIT_CANAL_MS = [0, 300, 700, 1200, 2000];   // o audit log às vezes demora pra registrar (edição de permissão pode demorar mais de 1s)
+const ESPERAS_AUDIT_CANAL_MS = [0, 300, 700, 1200, 2000, 3000];   // o audit log às vezes demora pra registrar (edição de permissão pode demorar mais de 1s)
 const JANELA_MARCA_PROPRIA_MS = 6000;
 
 const snapshotsCanais = new Map();              // guildId -> Map(canalId -> estado confiável do canal)
@@ -4968,11 +4968,13 @@ function buscarAuditRapidoCanais(guild, marco) {
     return promessa;
 }
 
-async function identificarExecutorCanal(guild, canalId, tipos) {
+async function identificarExecutorCanal(guild, canalId, tipos, paiId = null) {
     const chegada = Date.now();
+    let ultimasEntradas = [];
     for (const espera of ESPERAS_AUDIT_CANAL_MS) {
         if (espera) await esperar(espera);
         const entradas = await buscarAuditRapidoCanais(guild, Date.now());
+        ultimasEntradas = entradas;
 
         // Cada entrada do audit log vale pra um evento só; entre as livres, pega a mais próxima do momento em que o evento chegou
         let escolhida = null;
@@ -4986,12 +4988,44 @@ async function identificarExecutorCanal(guild, canalId, tipos) {
                 escolhida = e;
             }
         }
+        let consumir = true;
+        if (!escolhida && paiId) {
+            // Editar a categoria (ex.: sincronizar permissões) altera os canais filhos sem gerar entrada própria
+            // no audit log: o executor aparece só na entrada da categoria. Essa entrada vale pra vários filhos.
+            for (const e of entradas) {
+                if (e.targetId !== paiId || !tipos.includes(e.action)) continue;
+                if (e.createdTimestamp < chegada - 8000 || e.createdTimestamp > chegada + 5000) continue;
+                const distancia = Math.abs(chegada - e.createdTimestamp);
+                if (distancia < menorDistancia) {
+                    menorDistancia = distancia;
+                    escolhida = e;
+                    consumir = false;
+                }
+            }
+        }
+        if (!escolhida) {
+            // Um mesmo salvamento de permissão pode disparar mais de um evento de canal pra uma única entrada do audit log:
+            // se a entrada do canal foi usada há pouco, o executor é o mesmo.
+            for (const e of entradas) {
+                if (e.targetId !== canalId || !tipos.includes(e.action)) continue;
+                const usadaEm = entradasAuditConsumidas.get(e.id);
+                if (!usadaEm || Date.now() - usadaEm > 4000) continue;
+                if (e.createdTimestamp < chegada - 8000 || e.createdTimestamp > chegada + 5000) continue;
+                escolhida = e;
+                consumir = false;
+                break;
+            }
+        }
         if (!escolhida?.executorId) continue;
 
-        entradasAuditConsumidas.set(escolhida.id, Date.now());
+        if (consumir) entradasAuditConsumidas.set(escolhida.id, Date.now());
         const user = escolhida.executor ?? await client.users.fetch(escolhida.executorId).catch(() => null);
         return { id: escolhida.executorId, bot: !!user?.bot, user };
     }
+    // diagnóstico: mostra o que o audit log tinha pra esse canal quando não deu pra identificar quem mexeu
+    const doCanal = ultimasEntradas.filter(e => e.targetId === canalId).slice(0, 5)
+        .map(e => `ação ${e.action} por ${e.executorId} há ${Math.round((Date.now() - e.createdTimestamp) / 1000)}s${entradasAuditConsumidas.has(e.id) ? ' (já usada)' : ''}`);
+    console.warn(`[Anti Nuke] Executor não identificado no canal ${canalId}. Entradas no audit log: ${ultimasEntradas.length} | do canal: ${doCanal.length ? doCanal.join('; ') : 'nenhuma'}`);
     return null;
 }
 
@@ -5037,7 +5071,7 @@ function registrarRelatorioAntiNukeCanais(guild, tipo, texto, executor) {
             enviarRelatorioAntiNukeCanais(guild, r).catch(() => null);
         }, 2500);
     }
-    r[tipo].push(texto);
+    if (!r[tipo].includes(texto)) r[tipo].push(texto);
     if (executor) r.executores.set(executor.id, executor);
 }
 
@@ -5285,7 +5319,7 @@ async function antiNukeCanalEditado(antigo, novo) {
         return;
     }
 
-    const executor = await identificarExecutorCanal(guild, novo.id, TIPOS_AUDIT_EDICAO_CANAL);
+    const executor = await identificarExecutorCanal(guild, novo.id, TIPOS_AUDIT_EDICAO_CANAL, novo.parentId ?? snap.parentId ?? null);
     if ((await executorPermitidoCanais(guild, executor)) || (!executor && antiNukeCanaisPausas > 0)) {
         obterMapaSnapshotsCanais(guild.id).set(novo.id, atual);
         return;
