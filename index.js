@@ -39,6 +39,12 @@ const { logar, enviarLogModeracao, logarBanimento, logarMembro, logarCargo, loga
 
 const { Message: MessageClass } = require('discord.js');
 const mensagensApagadasPeloBot = new Set();
+// Mensagens apagadas pelo o!limpar: não geram log de mensagem apagada
+const mensagensSemLog = new Set();
+function marcarSemLog(id) {
+    mensagensSemLog.add(id);
+    setTimeout(() => mensagensSemLog.delete(id), 60000);
+}
 const _messageDeleteOriginal = MessageClass.prototype.delete;
 MessageClass.prototype.delete = function (...args) {
     mensagensApagadasPeloBot.add(this.id);
@@ -222,7 +228,7 @@ const {
     montarLinhasComEmoji, montarOverwritesRestauracao, montarPainelAntiNuke, montarPainelBackup, montarPainelBackupSelecionado, montarPainelEfemeroProtecao, montarPainelGRoles,
     montarPainelGRolesCriar, montarPainelGRolesEditar, montarPainelGRolesExcluir, montarPainelGRolesExcluirConfirmar,
     montarPainelGRolesPermLista, montarPainelGRolesPermissoes, montarPainelHelp, montarPainelInfoHierarquia,
-    montarPainelInstaInfo, montarPainelListaCargo, montarPainelLock,
+    montarPainelInstaInfo, hashComentarioInsta, montarPainelListaCargo, montarPainelLock,
     montarPainelConfirmacaoAddCargo, montarPainelConfirmacaoRemCargo,
     montarPainelMoedas, montarPainelMsgCriadorBuilder, montarPainelMsgCriadorInicial, montarPainelProgressoBackup,
     montarPainelProtecao, montarPainelRemoverConfirmacao, montarPainelRemoverSelect, montarPainelRoleAllInicial,
@@ -1802,6 +1808,13 @@ client.on('messageDelete', async (message) => {
     try {
         if (!message.guild || !message.channel) return;
 
+        if (mensagensSemLog.has(message.id)) {
+            mensagensSemLog.delete(message.id);
+            mensagensApagadasPeloBot.delete(message.id);
+            await supabase.from('mensagens_cache').delete().eq('mensagem_id', message.id);
+            return;
+        }
+
         const foiOBotQueApagou = mensagensApagadasPeloBot.has(message.id);
         if (foiOBotQueApagou) mensagensApagadasPeloBot.delete(message.id);
 
@@ -3226,6 +3239,7 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}limpar`)) {
                 .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
         }
 
+        marcarSemLog(message.id);
         await message.delete().catch(() => null);
 
         const inicioUnix = Math.floor(Date.now() / 1000);
@@ -3261,8 +3275,9 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}limpar`)) {
             const alvo = buscadas?.find(m => m.id !== msgProgresso.id);
             if (!alvo || alvo.id === msgProgresso.id) break;
 
+            marcarSemLog(alvo.id);
             const apagou = await alvo.delete().then(() => true).catch(() => false);
-            if (!apagou) break;
+            if (!apagou) { mensagensSemLog.delete(alvo.id); break; }
 
             deletadas++;
 
@@ -3281,6 +3296,7 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}limpar`)) {
             flags: [MessageFlags.IsComponentsV2]
         }).catch(() => null);
 
+        marcarSemLog(msgProgresso.id);
         return setTimeout(() => msgProgresso.delete().catch(() => null), 5000);
     }
     
@@ -9363,7 +9379,7 @@ if (interaction.customId === 'insta_info') {
         if (!postData) return interaction.editReply({ content: 'Post não encontrado.' });
 
         return interaction.editReply({
-            components: [montarPainelInstaInfo(postData, 'curtidas')],
+            components: [montarPainelInstaInfo(postData, 'curtidas', interaction.user.id)],
             flags: [MessageFlags.IsComponentsV2]
         });
     }
@@ -9383,7 +9399,7 @@ if (interaction.customId === 'insta_info') {
     }
 
     return interaction.update({
-        components: [montarPainelInstaInfo(postData, aba)],
+        components: [montarPainelInstaInfo(postData, aba, interaction.user.id)],
         flags: [MessageFlags.IsComponentsV2]
     });
 }
@@ -9446,6 +9462,55 @@ if (interaction.customId === 'insta_info') {
     return interaction.editReply({ content: 'Comentário adicionado!' });
 }
     
+    // Remover a própria curtida / comentário pelo seletor do painel de informações do post
+    if (interaction.isStringSelectMenu() && (interaction.customId.startsWith('insta_rem_curtida_') || interaction.customId.startsWith('insta_rem_coment_'))) {
+        const ehCurtida = interaction.customId.startsWith('insta_rem_curtida_');
+        const postId = interaction.customId.replace(ehCurtida ? 'insta_rem_curtida_' : 'insta_rem_coment_', '');
+
+        await interaction.deferUpdate();
+
+        const postData = await InstaPost.findOne({ messageId: postId });
+        if (!postData) {
+            return interaction.editReply({ components: containerTexto('Post não encontrado.'), flags: [MessageFlags.IsComponentsV2] });
+        }
+
+        if (ehCurtida) {
+            const idx = postData.curtidas.indexOf(interaction.user.id);
+            if (idx >= 0) {
+                postData.curtidas.splice(idx, 1);
+                postData.markModified('curtidas');
+                await postData.save();
+            }
+        } else {
+            const [idxTxt, hash] = interaction.values[0].split(':');
+            const idx = parseInt(idxTxt);
+            let alvoIdx = -1;
+            const c = postData.comentarios[idx];
+            if (c && c.id === interaction.user.id && hashComentarioInsta(c.texto) === hash) {
+                alvoIdx = idx;
+            } else {
+                // a lista mudou desde que o painel abriu: procura o mesmo comentário do usuário pelo conteúdo
+                alvoIdx = postData.comentarios.findIndex(x => x.id === interaction.user.id && hashComentarioInsta(x.texto) === hash);
+            }
+            if (alvoIdx >= 0) {
+                postData.comentarios.splice(alvoIdx, 1);
+                postData.markModified('comentarios');
+                await postData.save();
+            }
+        }
+
+        try {
+            await editarWebhook(interaction.channel, postId);
+        } catch (err) {
+            console.error('--- Erro ao atualizar post após remoção (Insta) ---', err);
+        }
+
+        return interaction.editReply({
+            components: [montarPainelInstaInfo(postData, ehCurtida ? 'curtidas' : 'comentarios', interaction.user.id)],
+            flags: [MessageFlags.IsComponentsV2]
+        });
+    }
+
      // ============ SISTEMA DE TICKETS============
     if (interaction.isButton() && interaction.customId === 'ticket_iniciar') {
     
