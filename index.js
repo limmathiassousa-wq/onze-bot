@@ -9805,6 +9805,7 @@ let transcriptId = null;
             const avatarLogTicket = autorUserLog?.displayAvatarURL({ extension: 'png', size: 256 }) ?? IMG_DISCORD_LOGO;
 
             const container = new ContainerBuilder()
+                .setAccentColor(0xFFFFFF)
                 .addSectionComponents(
                     new SectionBuilder()
                         .addTextDisplayComponents(new TextDisplayBuilder().setContent('### TICKET FINALIZADO'))
@@ -9828,7 +9829,7 @@ let transcriptId = null;
             await canalLogs.send({
                 components: [container],
                 flags: [MessageFlags.IsComponentsV2],
-                allowedMentions: { parse: ['users'] }
+                allowedMentions: { parse: [] }
             }).catch(err => {
                 console.error('--- Erro ao enviar log de ticket ---', err);
             });
