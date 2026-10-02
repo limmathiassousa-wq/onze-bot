@@ -7206,11 +7206,20 @@ function montarPainelHelp(categoria = 'slash', pagina = 0) {
     return container;
 }
 
-function montarPainelInstaInfo(postData, aba = 'curtidas') {
+// Identificador curto do texto de um comentário, pra conferir que o comentário removido é o mesmo que estava na lista
+function hashComentarioInsta(texto) {
+    let h = 0;
+    const t = String(texto ?? '');
+    for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) >>> 0;
+    return h.toString(36);
+}
+
+// userId = quem abriu o painel: só ele vê o seletor pra remover a própria curtida/comentário
+function montarPainelInstaInfo(postData, aba = 'curtidas', userId = null) {
     const listaCurtidas = postData.curtidas.map(id => `<@${id}>`).join('\n') || 'Nenhuma curtida ainda.';
     const listaComentarios = postData.comentarios.map(c => `<@${c.id}>: ${c.texto}`).join('\n') || 'Nenhum comentário ainda.';
 
-    return new ContainerBuilder()
+    const container = new ContainerBuilder()
         .addTextDisplayComponents(new TextDisplayBuilder().setContent('## Informações do post'))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
@@ -7233,6 +7242,42 @@ function montarPainelInstaInfo(postData, aba = 'curtidas') {
                     .setDisabled(aba === 'comentarios')
             )
         );
+
+    // seletor de remoção: fica por último e só existe se o usuário tiver curtida/comentário neste post
+    if (userId) {
+        if (aba === 'curtidas' && postData.curtidas.includes(userId)) {
+            container.addActionRowComponents(
+                new ActionRowBuilder().addComponents(
+                    new StringSelectMenuBuilder()
+                        .setCustomId(`insta_rem_curtida_${postData.messageId}`)
+                        .setPlaceholder('Remover minha curtida')
+                        .addOptions({ label: 'Remover minha curtida', value: 'curtida' })
+                )
+            );
+        }
+        if (aba === 'comentarios') {
+            const opcoes = [];
+            postData.comentarios.forEach((c, i) => {
+                if (c.id !== userId || opcoes.length >= 25) return;
+                opcoes.push({
+                    label: (String(c.texto).replace(/\s+/g, ' ').trim().slice(0, 100)) || '(sem texto)',
+                    value: `${i}:${hashComentarioInsta(c.texto)}`
+                });
+            });
+            if (opcoes.length) {
+                container.addActionRowComponents(
+                    new ActionRowBuilder().addComponents(
+                        new StringSelectMenuBuilder()
+                            .setCustomId(`insta_rem_coment_${postData.messageId}`)
+                            .setPlaceholder('Remover um comentário meu')
+                            .addOptions(opcoes)
+                    )
+                );
+            }
+        }
+    }
+
+    return container;
 }
 
 function montarBotoesInsta(postData) {
@@ -7597,6 +7642,7 @@ module.exports = {
     montarPainelHelp,
     montarPainelInfoHierarquia,
     montarPainelInstaInfo,
+    hashComentarioInsta,
     montarPainelListaCargo, montarPainelConfirmacaoAddCargo, montarPainelConfirmacaoRemCargo,
     montarPainelLock,
     montarPainelMoedas,
