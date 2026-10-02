@@ -41,6 +41,19 @@ const { Message: MessageClass } = require('discord.js');
 const mensagensApagadasPeloBot = new Set();
 // Mensagens apagadas pelo o!limpar: não geram log de mensagem apagada
 const mensagensSemLog = new Set();
+// Aceita emoji customizado (<:nome:id> / <a:nome:id>) escrito no label do botão: o Discord não renderiza isso dentro do
+// texto do label: se o label for SÓ o emoji, ele vira o emoji do botão; se tiver texto junto, o emoji do label é
+// descartado e o emoji do botão vem só do campo "Emoji (opcional)".
+function separarEmojiDoLabel(labelBruto, emojiCampo) {
+    const reEmoji = /<a?:\w{2,32}:\d+>/g;
+    const texto = String(labelBruto ?? '');
+    const achados = texto.match(reEmoji) || [];
+    const label = texto.replace(reEmoji, ' ').replace(/\s+/g, ' ').trim();
+    const campo = String(emojiCampo ?? '').trim();
+    // só emoji no label -> vira o emoji do botão; texto + emoji no label -> o emoji do label é descartado (use o campo Emoji)
+    return { label, emojiBruto: campo || (label ? '' : (achados[0] || '')) };
+}
+
 function marcarSemLog(id) {
     mensagensSemLog.add(id);
     setTimeout(() => mensagensSemLog.delete(id), 60000);
@@ -380,7 +393,7 @@ function montarModalRBotao(customId, titulo, alvo, existente = null) {
     const inputUrl = new TextInputBuilder().setCustomId('rbotao_url').setStyle(TextInputStyle.Short).setRequired(true);
     const inputEmoji = new TextInputBuilder().setCustomId('rbotao_emoji').setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(false);
     if (existente) {
-        inputLabel.setValue(existente.label);
+        inputLabel.setValue(existente.label || emojiValor || ' ');
         inputUrl.setValue(existente.url);
         if (emojiValor) inputEmoji.setValue(emojiValor);
     }
@@ -4841,7 +4854,7 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_bot
         .setCustomId(`msgcriador_modal_editar_botao_${interaction.message.id}_${idx}`)
         .setTitle('Editar botão');
 
-    const inputLabel = new TextInputBuilder().setCustomId('botao_label').setStyle(TextInputStyle.Short).setMaxLength(80).setRequired(true).setValue(botao.label);
+    const inputLabel = new TextInputBuilder().setCustomId('botao_label').setStyle(TextInputStyle.Short).setMaxLength(80).setRequired(true).setValue(botao.label || (typeof botao.emoji === 'string' ? botao.emoji : (botao.emoji?.id ? `<:e:${botao.emoji.id}>` : '')) || ' ');
     const labelLabel = new LabelBuilder().setLabel('Label do botão').setTextInputComponent(inputLabel);
 
     const inputUrl = new TextInputBuilder().setCustomId('botao_url').setStyle(TextInputStyle.Short).setRequired(false).setValue(botao.url || '');
@@ -4885,14 +4898,13 @@ if (interaction.isModalSubmit() && interaction.customId.startsWith('msgcriador_m
         return interaction.reply({ content: 'Esse botão não foi encontrado.', flags: [MessageFlags.Ephemeral] });
     }
 
-    const label = interaction.fields.getTextInputValue('botao_label').trim();
+    const { label, emojiBruto } = separarEmojiDoLabel(interaction.fields.getTextInputValue('botao_label'), interaction.fields.getTextInputValue('botao_emoji'));
     const url = interaction.fields.getTextInputValue('botao_url').trim();
-    const emojiBruto = interaction.fields.getTextInputValue('botao_emoji').trim();
     const cor = interaction.fields.getStringSelectValues('botao_cor')[0];
     const posicao = draft.tipo === 'v2' ? interaction.fields.getStringSelectValues('botao_posicao')[0] : botaoAtual.posicao;
 
-    if (!label) {
-        return interaction.reply({ content: 'O label do botão não pode ficar vazio.', flags: [MessageFlags.Ephemeral] });
+    if (!label && !emojiBruto) {
+        return interaction.reply({ content: 'O botão precisa de um texto ou de um emoji.', flags: [MessageFlags.Ephemeral] });
     }
     if (url && !/^https?:\/\//i.test(url)) {
         return interaction.reply({ content: 'A URL do botão precisa começar com http:// ou https://', flags: [MessageFlags.Ephemeral] });
@@ -4900,8 +4912,8 @@ if (interaction.isModalSubmit() && interaction.customId.startsWith('msgcriador_m
 
     let emoji = null;
     if (emojiBruto) {
-        const matchEmoji = emojiBruto.match(/<a?:\w{2,32}:(\d+)>/);
-        emoji = matchEmoji ? { id: matchEmoji[1] } : emojiBruto;
+        const matchEmoji = emojiBruto.match(/<(a?):\w{2,32}:(\d+)>/);
+        emoji = matchEmoji ? { id: matchEmoji[2], animated: matchEmoji[1] === 'a' } : emojiBruto;
     }
 
     draft.botoes[idx] = { ...botaoAtual, label, url: url || null, emoji, cor, posicao };
@@ -7957,14 +7969,13 @@ if (interaction.isModalSubmit() && interaction.customId.startsWith('msgcriador_m
         return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
     }
 
-    const label = interaction.fields.getTextInputValue('botao_label').trim();
+    const { label, emojiBruto } = separarEmojiDoLabel(interaction.fields.getTextInputValue('botao_label'), interaction.fields.getTextInputValue('botao_emoji'));
     const url = interaction.fields.getTextInputValue('botao_url').trim();
-    const emojiBruto = interaction.fields.getTextInputValue('botao_emoji').trim();
     const cor = interaction.fields.getStringSelectValues('botao_cor')[0];
     const posicao = draft.tipo === 'v2' ? interaction.fields.getStringSelectValues('botao_posicao')[0] : null;
 
-    if (!label) {
-        return interaction.reply({ content: 'O label do botão não pode ficar vazio.', flags: [MessageFlags.Ephemeral] });
+    if (!label && !emojiBruto) {
+        return interaction.reply({ content: 'O botão precisa de um texto ou de um emoji.', flags: [MessageFlags.Ephemeral] });
     }
     if (url && !/^https?:\/\//i.test(url)) {
         return interaction.reply({ content: 'A URL do botão precisa começar com http:// ou https://', flags: [MessageFlags.Ephemeral] });
@@ -7972,8 +7983,8 @@ if (interaction.isModalSubmit() && interaction.customId.startsWith('msgcriador_m
 
     let emoji = null;
     if (emojiBruto) {
-        const matchEmoji = emojiBruto.match(/<a?:\w{2,32}:(\d+)>/);
-        emoji = matchEmoji ? { id: matchEmoji[1] } : emojiBruto;
+        const matchEmoji = emojiBruto.match(/<(a?):\w{2,32}:(\d+)>/);
+        emoji = matchEmoji ? { id: matchEmoji[2], animated: matchEmoji[1] === 'a' } : emojiBruto;
     }
 
 if (!draft.botoes) draft.botoes = [];
@@ -8588,9 +8599,8 @@ if (interaction.isModalSubmit() && (interaction.customId.startsWith('msgcriador_
         return interaction.reply({ content: 'Esse botão não foi encontrado.', flags: [MessageFlags.Ephemeral] });
     }
 
-    const label = interaction.fields.getTextInputValue('rbotao_label').trim();
+    const { label, emojiBruto } = separarEmojiDoLabel(interaction.fields.getTextInputValue('rbotao_label'), interaction.fields.getTextInputValue('rbotao_emoji'));
     const url = interaction.fields.getTextInputValue('rbotao_url').trim();
-    const emojiBruto = interaction.fields.getTextInputValue('rbotao_emoji').trim();
     const posicao = interaction.fields.getStringSelectValues('rbotao_posicao')[0];
 
     let trecho = null;
@@ -8611,8 +8621,8 @@ if (interaction.isModalSubmit() && (interaction.customId.startsWith('msgcriador_
         }
     }
 
-    if (!label) {
-        return interaction.reply({ content: 'O label do botão não pode ficar vazio.', flags: [MessageFlags.Ephemeral] });
+    if (!label && !emojiBruto) {
+        return interaction.reply({ content: 'O botão precisa de um texto ou de um emoji.', flags: [MessageFlags.Ephemeral] });
     }
     if (!/^https?:\/\//i.test(url)) {
         return interaction.reply({ content: 'A URL do botão precisa começar com http:// ou https://', flags: [MessageFlags.Ephemeral] });
@@ -8620,8 +8630,8 @@ if (interaction.isModalSubmit() && (interaction.customId.startsWith('msgcriador_
 
     let emoji = null;
     if (emojiBruto) {
-        const matchEmoji = emojiBruto.match(/<a?:\w{2,32}:(\d+)>/);
-        emoji = matchEmoji ? { id: matchEmoji[1] } : emojiBruto;
+        const matchEmoji = emojiBruto.match(/<(a?):\w{2,32}:(\d+)>/);
+        emoji = matchEmoji ? { id: matchEmoji[2], animated: matchEmoji[1] === 'a' } : emojiBruto;
     }
 
     const novos = [...(alvo.respostaBotoes || [])];

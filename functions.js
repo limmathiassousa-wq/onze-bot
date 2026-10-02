@@ -6183,7 +6183,7 @@ function montarComponentesEmpilhados(botoes, modo, modoEmp = 'completo') {
     });
 
     if (agrupar && comLegenda.length) {
-        const linhas = comLegenda.map(b => `-# **${b.label}** — ${String(b.legenda).replace(/\s+/g, ' ').trim().slice(0, 200)}`);
+        const linhas = comLegenda.map(b => `-# **${rotuloBotao(b)}** — ${String(b.legenda).replace(/\s+/g, ' ').trim().slice(0, 200)}`);
         itens.push(new TextDisplayBuilder().setContent(linhas.join('\n').slice(0, 3900)));
     }
 
@@ -6273,10 +6273,28 @@ function validarLimiteMsgCriador(draft) {
     return { cabe, total };
 }
 
+// Botões do criador podem ter só emoji (label vazio): estes helpers dão um rótulo/emoji pra listas e seletores
+function emojiOpcao(b) {
+    const e = b?.emoji;
+    if (e && typeof e === 'object' && e.id) return { emoji: { id: e.id, animated: !!e.animated } };
+    if (typeof e === 'string' && e.trim()) return { emoji: { name: e.trim() } };
+    return {};
+}
+function rotuloSelect(b) {
+    return String(b?.label || '').replace(/\s+/g, ' ').trim().slice(0, 100) || 'Botão só com emoji';
+}
+function rotuloBotao(b) {
+    if (b?.label) return b.label;
+    const e = b?.emoji;
+    if (e && typeof e === 'object' && e.id) return `<${e.animated ? 'a' : ''}:e:${e.id}>`;
+    if (typeof e === 'string' && e.trim()) return e.trim();
+    return 'Botão';
+}
+
 // ============ CRIADOR DE MENSAGENS: BOTÕES DENTRO DAS RESPOSTAS EFÊMERAS ============
 // Monta a resposta efêmera de um botão (texto ou V2) com botões de link normais e/ou empilhados.
 function montarPayloadRespostaBotao({ texto, tipo, botoes = [] }, prefixoTexto = '') {
-    const validos = (botoes || []).filter(b => b && b.url && b.label);
+    const validos = (botoes || []).filter(b => b && b.url && (b.label || b.emoji));
 
     // normais (lado a lado) primeiro, depois os empilhados (um por linha)
     const linhasDe = (lista) => {
@@ -6357,7 +6375,8 @@ function montarButtonRows(botoes, modo = 'final', empilhado = false) {
 
         const row = new ActionRowBuilder().addComponents(
             grupo.map((b) => {
-                const btn = new ButtonBuilder().setLabel(b.label);
+                const btn = new ButtonBuilder();
+                if (b.label) btn.setLabel(b.label);
 
                 if (b.emoji) btn.setEmoji(b.emoji);
 
@@ -6610,7 +6629,7 @@ function montarControlesEmbedPlano(draft) {
                     .setCustomId('msgcriador_botao_remover')
                     .setPlaceholder('Remover um botão')
                     .addOptions(draft.botoes.slice(0, 25).map((b, i) => ({
-                        label: b.label.slice(0, 100),
+                        label: rotuloSelect(b), ...emojiOpcao(b),
                         value: String(i),
                         description: b.url ? 'Link' : (POSICOES_BOTAO.find(p => p.value === b.posicao)?.label ?? 'Ação')
                     })))
@@ -6623,7 +6642,7 @@ function montarControlesEmbedPlano(draft) {
                         .setCustomId('msgcriador_botao_resposta')
                         .setPlaceholder('Definir resposta ao clicar (efêmera)')
                         .addOptions(botoesSemUrl.slice(0, 25).map(({ b, i }) => ({
-                            label: b.label.slice(0, 100),
+                            label: rotuloSelect(b), ...emojiOpcao(b),
                             value: String(i),
                             description: b.resposta ? 'Resposta já definida' : 'Sem resposta definida'
                         })))
@@ -6773,7 +6792,7 @@ if (draft.opcaoAtual === 'botoes') {
                         .setPlaceholder('Remover um botão')
                         .addOptions(
                             draft.botoes.slice(0, 25).map((b, i) => ({
-                                label: b.label.slice(0, 100),
+                                label: rotuloSelect(b), ...emojiOpcao(b),
                                 value: String(i),
                                 description: b.url ? 'Link' : (POSICOES_BOTAO.find(p => p.value === b.posicao)?.label ?? 'Ação')
                             }))
@@ -6793,7 +6812,7 @@ if (draft.opcaoAtual === 'botoes') {
                             .setPlaceholder('Texto abaixo do botão (empilhados)')
                             .addOptions(
                                 botoesEmpilhadosPainel.slice(0, 25).map(({ b, i }) => ({
-                                    label: b.label.slice(0, 100),
+                                    label: rotuloSelect(b), ...emojiOpcao(b),
                                     value: String(i),
                                     description: b.legenda ? String(b.legenda).replace(/\s+/g, ' ').slice(0, 100) : 'Sem texto abaixo'
                                 }))
@@ -6814,7 +6833,7 @@ if (draft.opcaoAtual === 'botoes') {
                             .setPlaceholder('Definir resposta ao clicar (efêmera)')
                             .addOptions(
                                 botoesSemUrl.slice(0, 25).map(({ b, i }) => ({
-                                    label: b.label.slice(0, 100),
+                                    label: rotuloSelect(b), ...emojiOpcao(b),
                                     value: String(i),
                                     description: b.resposta ? 'Resposta já definida' : 'Sem resposta definida'
                                 }))
@@ -6836,7 +6855,7 @@ if (draft.opcaoAtual === 'botoes') {
                     .setPlaceholder('Escolha a resposta que receberá botões')
                     .addOptions(
                         candidatos.slice(0, 25).map(({ b, i }) => ({
-                            label: b.label.slice(0, 100),
+                            label: rotuloSelect(b), ...emojiOpcao(b),
                             value: String(i),
                             description: `${(b.respostaBotoes || []).length} botão(ões) na resposta`,
                             default: alvo?.i === i
@@ -6848,7 +6867,7 @@ if (draft.opcaoAtual === 'botoes') {
         if (alvo) {
             const lista = alvo.b.respostaBotoes || [];
             container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
-                `-# Resposta de "${alvo.b.label}": ${lista.length} botão(ões) de link, abaixo do texto.`
+                `-# Resposta de "${rotuloBotao(alvo.b)}": ${lista.length} botão(ões) de link, abaixo do texto.`
             ));
             container.addActionRowComponents(
                 new ActionRowBuilder().addComponents(
@@ -6863,7 +6882,7 @@ if (draft.opcaoAtual === 'botoes') {
                             .setPlaceholder('Editar / mover um botão da resposta')
                             .addOptions(
                                 lista.slice(0, 25).map((rb, j) => ({
-                                    label: rb.label.slice(0, 100),
+                                    label: rotuloSelect(rb), ...emojiOpcao(rb),
                                     value: String(j),
                                     description: `${rb.posicao === 'empilhados' ? 'Empilhado' : 'Normal'} · ${descreverLocalRBotao(rb)}`
                                 }))
@@ -6877,7 +6896,7 @@ if (draft.opcaoAtual === 'botoes') {
                             .setPlaceholder('Remover um botão da resposta')
                             .addOptions(
                                 lista.slice(0, 25).map((rb, j) => ({
-                                    label: rb.label.slice(0, 100),
+                                    label: rotuloSelect(rb), ...emojiOpcao(rb),
                                     value: String(j),
                                     description: `${rb.posicao === 'empilhados' ? 'Empilhado' : 'Normal'} · ${descreverLocalRBotao(rb)}`
                                 }))
@@ -6896,7 +6915,7 @@ if (draft.opcaoAtual === 'botoes') {
                 .setPlaceholder('Selecione um botão para editar')
                 .addOptions(
                     draft.botoes.slice(0, 25).map((b, i) => ({
-                        label: b.label.slice(0, 100),
+                        label: rotuloSelect(b), ...emojiOpcao(b),
                         value: String(i),
                         description: b.url ? 'Link' : (POSICOES_BOTAO.find(p => p.value === b.posicao)?.label ?? 'Ação')
                     }))
