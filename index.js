@@ -2120,15 +2120,19 @@ if (message.content.toLowerCase() === `${PREFIXO}req`) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
             '-# **obs:**\n-# Permaneça no servidor após a formalização da parceria. O descumprimento desta regra poderá resultar na revogação da parceria.'
-        ));
+        ))
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId('req_copiar_link')
+                    .setLabel('Copiar link do servidor')
+                    .setEmoji({ id: '1553793608732254300' })
+                    .setStyle(ButtonStyle.Secondary)
+            )
+        );
 
     return message.channel.send({
-        components: [
-            containerReq,
-            new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('req_copiar_link').setLabel('Copiar link do servidor').setStyle(ButtonStyle.Secondary)
-            )
-        ],
+        components: [containerReq],
         flags: [MessageFlags.IsComponentsV2]
     });
 }
@@ -9577,7 +9581,7 @@ if (interaction.customId === 'insta_info') {
             '@everyone\n' +
             link;
 
-        return interaction.editReply({ content: textoDivulgacao, allowedMentions: { parse: ['everyone'] } });
+        return interaction.editReply({ content: textoDivulgacao, allowedMentions: { parse: [] } });
     }
 
      // ============ SISTEMA DE TICKETS============
