@@ -54,6 +54,39 @@ function separarEmojiDoLabel(labelBruto, emojiCampo) {
     return { label, emojiBruto: campo || (label ? '' : (achados[0] || '')) };
 }
 
+// Link permanente do servidor (botão do o!req). O convite NÃO é criado no canal onde o botão foi usado (tickets/threads):
+// usa vanity, um convite permanente que já exista ou cria num canal onde o bot tenha a permissão "Criar convite".
+const CANAL_CONVITE_SERVIDOR = null; // opcional: ID de um canal fixo para criar o convite (ex.: regras)
+let linkServidorCache = null;
+async function obterLinkPermanenteServidor(guild) {
+    if (guild.vanityURLCode) return `https://discord.gg/${guild.vanityURLCode}`;
+    if (linkServidorCache) return linkServidorCache;
+
+    const convites = await guild.invites.fetch().catch(() => null);
+    const permanentes = convites?.filter(c => c.maxAge === 0 && c.maxUses === 0 && !c.temporary);
+    const existente = permanentes?.find(c => c.inviter?.id === client.user.id) ?? permanentes?.first();
+    if (existente) return (linkServidorCache = existente.url);
+
+    const me = guild.members.me;
+    const podeConvidar = c => c && c.createInvite && !c.isThread?.() && c.permissionsFor(me)?.has(PermissionFlagsBits.CreateInstantInvite);
+    const candidatos = [
+        CANAL_CONVITE_SERVIDOR ? guild.channels.cache.get(CANAL_CONVITE_SERVIDOR) : null,
+        guild.rulesChannel, guild.systemChannel, guild.publicUpdatesChannel,
+        ...guild.channels.cache.filter(c => c.type === ChannelType.GuildText).values()
+    ];
+    const canal = candidatos.find(podeConvidar);
+    if (!canal) return null;
+
+    const convite = await canal.createInvite({
+        maxAge: 0, maxUses: 0, unique: false,
+        reason: 'Link permanente para divulgação (o!req)'
+    }).catch(err => {
+        console.error('--- Erro ao criar convite permanente (o!req) ---', err);
+        return null;
+    });
+    return convite ? (linkServidorCache = convite.url) : null;
+}
+
 function marcarSemLog(id) {
     mensagensSemLog.add(id);
     setTimeout(() => mensagensSemLog.delete(id), 60000);
@@ -2090,7 +2123,12 @@ if (message.content.toLowerCase() === `${PREFIXO}req`) {
         ));
 
     return message.channel.send({
-        components: [containerReq],
+        components: [
+            containerReq,
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('req_copiar_link').setLabel('Copiar link do servidor').setStyle(ButtonStyle.Secondary)
+            )
+        ],
         flags: [MessageFlags.IsComponentsV2]
     });
 }
@@ -9519,6 +9557,27 @@ if (interaction.customId === 'insta_info') {
             components: [montarPainelInstaInfo(postData, ehCurtida ? 'curtidas' : 'comentarios', interaction.user.id)],
             flags: [MessageFlags.IsComponentsV2]
         });
+    }
+
+    // o!req -> botão "Copiar link do servidor": qualquer pessoa pode usar; manda o texto de divulgação com o link permanente
+    if (interaction.isButton() && interaction.customId === 'req_copiar_link') {
+        await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
+
+        const link = await obterLinkPermanenteServidor(interaction.guild);
+        if (!link) {
+            return interaction.editReply({ content: 'Não consegui gerar o link do servidor. Verifique se tenho a permissão **Criar convite** em algum canal de texto.' });
+        }
+
+        const textoDivulgacao =
+            '# Onze\n' +
+            '-# **The best community**\n' +
+            '\n' +
+            '- Venha participar da nossa comunidade, resenhar com a galera, e fazer parte da vibe\n' +
+            '-# **Ta esperando oque ?**\n' +
+            '@everyone\n' +
+            link;
+
+        return interaction.editReply({ content: textoDivulgacao, allowedMentions: { parse: ['everyone'] } });
     }
 
      // ============ SISTEMA DE TICKETS============
