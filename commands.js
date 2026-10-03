@@ -10,24 +10,17 @@ const redis = require('./redis');
 const { supabase } = require('./supabase');
 const {
     CARGOS_ATENDENTE, CARGO_PD_PERMISSAO, CARGO_PRIMEIRA_DAMA, LIMITE_PRIMEIRAS_DAMAS,
-    USUARIOS_BLOQUEADOS_EDICAO, COOLDOWN_DAILY_MS, MOEDAS_DAILY, CARGO_MUTADO,
+    USUARIOS_BLOQUEADOS_EDICAO, CARGO_MUTADO,
     CARGO_BLOQUEADO_MODERACAO, CANAL_LOGS_KICKS
 } = require('./constants');
-const { ConviteStats } = require('./models');
+const {
+ ConviteStats
+} = require('./models');
 const { botCallDB, botCallPaineis, confirmacaoModeracaoDB, msgCriadorDB, sorteioDraftDB, muteDraftDB} = require('./state');
 const {
-    esperar, containerTexto, comRetry, xpNecessario,
-    montarPainelConfirmacaoModeracao,
-    getSaldo, somarSaldo, getXP, setXP, getMensagens, setMensagens,
-    getMinutosCall
+    esperar, containerTexto, comRetry,
+    montarPainelConfirmacaoModeracao
 } = require('./helpers');
-
-function formatarMinutosCall(minutos) {
-    const total = Math.floor(minutos || 0);
-    const h = Math.floor(total / 60);
-    const m = total % 60;
-    return `${String(h).padStart(2, '0')}h${String(m).padStart(2, '0')}m`;
-}
 
 const { logar, enviarSucessoModeracao, COR_EMBED } = require('./logger');
 
@@ -462,75 +455,6 @@ registrar(
             components: [montarCardConvite(alvo, stats)],
             flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
         });
-    }
-);
-
-registrar(
-    new SlashCommandBuilder().setName('carteira').setDescription('Mostra sua carteira de moedas ou a de outro usuário')
-        .addUserOption(o => o.setName('usuario').setDescription('veja a carteira de outros usuários').setRequired(false)),
-    async (interaction) => {
-        const alvo = interaction.options.getUser('usuario') || interaction.user;
-        if (alvo.bot) return interaction.reply({ content: 'Bots não possuem carteira!', flags: [MessageFlags.Ephemeral] });
-
-        const saldo = await getSaldo(alvo.id);
-        const mensagens = await getMensagens(alvo.id);
-        const minutosCall = await getMinutosCall(alvo.id);
-        const ehPropriaCarteira = alvo.id === interaction.user.id;
-        const avatarUrl = alvo.displayAvatarURL({ extension: 'png', size: 256 });
-
-        const container = new ContainerBuilder()
-            .setAccentColor(0xFFFFFF)
-            .addSectionComponents(
-                new SectionBuilder()
-                    .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## Carteira de - ${alvo.username}`))
-                    .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
-            )
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Saldo:** \`${saldo}\``))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Tempo call:** \`${formatarMinutosCall(minutosCall)}\``))
-            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Mensagens:** \`${mensagens}\``));
-
-        const botoes = [
-            new ButtonBuilder().setCustomId(`carteira_atualizar_${interaction.user.id}_${alvo.id}`).setEmoji('1548555551514951801').setStyle(ButtonStyle.Secondary)
-        ];
-        if (ehPropriaCarteira) {
-            botoes.push(new ButtonBuilder().setCustomId(`daily_${interaction.user.id}`).setLabel('Daily').setStyle(ButtonStyle.Success));
-        }
-        container.addActionRowComponents(new ActionRowBuilder().addComponents(botoes));
-
-        return interaction.reply({ components: [container], flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral] });
-    }
-);
-
-registrar(
-    new SlashCommandBuilder().setName('pix').setDescription('Transfere moedas para outro usuário')
-        .addUserOption(o => o.setName('usuario').setDescription('Usuário que vai receber as moedas').setRequired(true))
-        .addIntegerOption(o => o.setName('quantidade').setDescription('Quantidade de moedas a transferir').setRequired(true).setMinValue(1)),
-    async (interaction) => {
-        const alvo = interaction.options.getUser('usuario');
-        const quantidade = interaction.options.getInteger('quantidade');
-
-        if (alvo.id === interaction.user.id) return interaction.reply({ content: 'Você não pode transferir moedas para si mesmo!', flags: [MessageFlags.Ephemeral] });
-        if (alvo.bot) return interaction.reply({ content: 'Você não pode transferir moedas para bots!', flags: [MessageFlags.Ephemeral] });
-
-        const saldoAtual = await getSaldo(interaction.user.id);
-        if (saldoAtual < quantidade) {
-            return interaction.reply({ content: `Saldo insuficiente! Você tem apenas **${saldoAtual}** moedas.`, flags: [MessageFlags.Ephemeral] });
-        }
-
-        await somarSaldo(interaction.user.id, -quantidade);
-        await somarSaldo(alvo.id, quantidade);
-
-        const container = new ContainerBuilder()
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **PIX enviado!**'))
-            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**De:** ${interaction.user}`))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Para:** ${alvo}`))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Quantidade:** \`${quantidade}\` moedas`))
-            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Sua carteira atual:** \`${saldoAtual - quantidade}\``));
-
-        return interaction.reply({ components: [container], flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral] });
     }
 );
 

@@ -1,46 +1,10 @@
 const mongoose = require('mongoose');
 
-const carteiraSchema = new mongoose.Schema({
-    userId: { type: String, required: true, unique: true },
-    saldo: { type: Number, default: 0 }
-});
-const Carteira = mongoose.model('Carteira', carteiraSchema);
-
-const xpSchema = new mongoose.Schema({
-    userId: { type: String, required: true, unique: true },
-    xp: { type: Number, default: 0 },
-    nivel: { type: Number, default: 1 }
-});
-const XP = mongoose.model('XP', xpSchema);
-
-const mensagensSchema = new mongoose.Schema({
-    userId: { type: String, required: true, unique: true },
-    quantidade: { type: Number, default: 0 }
-});
-const Mensagens = mongoose.model('Mensagens', mensagensSchema);
-
-const tempoCallSchema = new mongoose.Schema({
-    userId: { type: String, required: true, unique: true },
-    minutos: { type: Number, default: 0 }
-});
-const TempoCall = mongoose.model('TempoCall', tempoCallSchema);
-
-
-const cargoLojaSchema = new mongoose.Schema({
-    userId: { type: String, required: true },
-    cargoId: { type: String, required: true },
-    guildId: { type: String, required: true },
-    expiraEm: { type: Number, required: true }
-});
-cargoLojaSchema.index({ userId: 1, cargoId: 1, guildId: 1 }, { unique: true });
-const CargoLoja = mongoose.model('CargoLoja', cargoLojaSchema);
-
 const voiceStateSchema = new mongoose.Schema({
     guildId: { type: String, required: true, unique: true },
     channelId: { type: String, required: true }
 });
 const VoiceState = mongoose.model('VoiceState', voiceStateSchema);
-
 
 const contadorTicketSchema = new mongoose.Schema({
     _id: { type: String, default: 'contador_ticket' },
@@ -256,11 +220,6 @@ const ConversaAna = mongoose.model('ConversaAna', conversaAnaSchema);
 
 module.exports = {
     ServerBackup,
-    Carteira,
-    XP,
-    Mensagens,
-    TempoCall,
-    CargoLoja,
     VoiceState,
     ContadorTicket,
     TicketData,

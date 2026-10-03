@@ -22,15 +22,15 @@ const path = require("path");
 const os = require('os');
 const crypto = require('crypto');
 
-const { comandos, montarPainelBotCall, registrarPainelBotCall, montarPainelPD, montarSelectAdicionarPD, montarSelectRemoverPD, atualizarPainelPD, obterPrimeirasDamas, montarPainelMuteInicial, montarPainelMuteTimeout, montarPainelMuteCargo,
-    montarPainelAcaoModeracao, agendarExpiracaoPainel, temPermissaoMute, estaEmTimeout, listarMutados, montarPainelMuteInfo, montarSelectMutarMuteInfo, montarSelectRemoverMuteInfo, atualizarPainelMuteInfo } = require('./commands');
+const {
+ comandos, montarPainelBotCall, registrarPainelBotCall, montarPainelPD, montarSelectAdicionarPD, montarSelectRemoverPD, atualizarPainelPD, obterPrimeirasDamas, montarPainelMuteInicial, montarPainelMuteTimeout, montarPainelMuteCargo,
+    montarPainelAcaoModeracao, agendarExpiracaoPainel, temPermissaoMute, estaEmTimeout, listarMutados, montarPainelMuteInfo, montarSelectMutarMuteInfo, montarSelectRemoverMuteInfo, atualizarPainelMuteInfo
+} = require('./commands');
 const { botCallDB, botCallPaineis, confirmacaoModeracaoDB, msgCriadorDB, sorteioDraftDB, muteDraftDB } = require('./state');
 
 const {
-    esperar, containerTexto, comRetry, xpNecessario,
+    esperar, containerTexto, comRetry,
     montarPainelConfirmacaoModeracao,
-    getSaldo, somarSaldo, getXP, setXP, getMensagens, setMensagens,
-    getMinutosCall, setMinutosCall,
     urlValida, avisoSucessoModeracao
 } = require('./helpers');
 
@@ -197,8 +197,8 @@ const redis = require('./redis');
 const { supabase } = require('./supabase');
 
 const {
-    ServerBackup, Carteira, XP, Mensagens,
-    CargoLoja, VoiceState, ContadorTicket, TicketData,
+    ServerBackup,
+    VoiceState, ContadorTicket, TicketData,
     ConviteStats,
     ConviteMembro, Sorteio, TellonymPost, InstaPost,
     Afk, TellonymPendente,
@@ -207,22 +207,20 @@ const {
 } = require('./models');
 
 
-const { 
+const {
     EMOJI_ATIVADO, EMOJI_DESATIVADO,
     CANAL_TELLONYM_MOD, CANAL_TELLONYM, CANAL_TICKETS,
-    CANAL_LOGS_MOD, CANAL_LOGS_TICKETS, CATEGORIA_MOEDAS_BOASVINDAS, CANAL_LOGS_AUTOMOD,
+    CANAL_LOGS_MOD, CANAL_LOGS_TICKETS, CATEGORIA_BOASVINDAS, CANAL_LOGS_AUTOMOD,
     CANAIS_INSTA, CANAL_GERADOR_ID,
     REACOES_ANEXO, INTERVALO_TICK_CALL_SORTEIO_MS, CORES_MSG_CRIADOR,
     CORES_BOTAO, POSICOES_BOTAO,
     CARGOS_ATENDENTE, CARGO_AUTOMATICO, CARGO_LIMPAR,
-    CARGO_BOOSTER, USUARIOS_BLOQUEADOS_EDICAO, DURACAO_CARGO_LOJA_DIAS,
-    INTERVALO_CHECAGEM_CARGOS_LOJA_MS, IDADE_MINIMA_CONVITE_DIAS,
-    CARGO_PD_PERMISSAO, CARGO_PRIMEIRA_DAMA, LIMITE_PRIMEIRAS_DAMAS, CARGOS_LOJA,
-    EMOJI_CROW, EMOJI_CURTIR, EMOJI_COMENTAR, EMOJI_INFO,
+    CARGO_BOOSTER, USUARIOS_BLOQUEADOS_EDICAO,
+    IDADE_MINIMA_CONVITE_DIAS,
+    CARGO_PD_PERMISSAO, CARGO_PRIMEIRA_DAMA, LIMITE_PRIMEIRAS_DAMAS,
+    EMOJI_CURTIR, EMOJI_COMENTAR, EMOJI_INFO,
     EMOJI_LIXEIRA, EMOJI_INSTA_PERFIL, EMOJI_ATUALIZAR_PREVIEW, EMOJI_VOLTAR_PAINEL,
-    IMG_MOEDAS, IMG_DISCORD_LOGO,
-    XP_MIN_POR_MENSAGEM, XP_MAX_POR_MENSAGEM, MOEDAS_POR_NIVEL, TAXA_MOEDA_XP_EXTRA,
-    MOEDAS_DAILY, COOLDOWN_DAILY_MS,
+    IMG_DISCORD_LOGO,
     DOMINIOS_IMAGEM_CONFIAVEIS, BLACKLIST_DOMINIOS,
     DOMINIOS_CONVITE, EXTENSOES_IMAGEM,
     CACHE_MEMBROS_MS,
@@ -249,25 +247,24 @@ const {
     agendarFimMuteCargo, aguardarEBuscarAuditLog, aplicarMuteCargo, assumirTicket,
     atualizarPainelBotCallAuto, atualizarProgressoCallSorteio, atualizarProgressoInviteSorteio, atualizarProgressoMensagensSorteio,
     atualizarStatusCallsSorteio, atualizarTodosPaineisProtecao, auditLogCache, baixarTikTok,
-    breakText, bufferMensagens, bufferizarMensagem, buscarAuditLogsComCache,
+    breakText, buscarAuditLogsComCache,
     calculateHeight, canaisLockDB, canalDeLogParaTipo, carregarBotCallPaineis,
-    carregarConfigMoedas, carregarProtecao, carregarTellonymPendentes, carregarTickets,
+    carregarProtecao, carregarTellonymPendentes, carregarTickets,
     classificarAnexoTranscript, coletarComandosPrefixoHelp, coletarComandosSlashHelp, construirEmbedPreview,
-    contemConviteDoServidor, contemEveryoneOuHere, darXP, definirStatusCanal,
+    contemConviteDoServidor, contemEveryoneOuHere, definirStatusCanal,
     delCallTempPorCanal, destravarTodosCanais, drawAvatar, editarWebhook,
-    ehAdminGRoles, cargoBloqueadoParaMembroGRoles, encerrarSorteio, enviarAlertaProtecao, enviarEventoMoedas,
-    enviarWebhook, enviarWebhookComArquivo, escapeHTML, eventoMoedas, extrairDadosComponente,
+    ehAdminGRoles, cargoBloqueadoParaMembroGRoles, encerrarSorteio, enviarAlertaProtecao,
+    enviarWebhook, enviarWebhookComArquivo, escapeHTML, extrairDadosComponente,
     extrairLinksDoTexto, extrairPrimeiraMediaUrl, fazerBackupServidor, filtrarCargosGRoles,
-    filtrarPermsGRoles, finalizarSessaoVoiceSorteio, flushBufferMensagens, flushSessoesVoiceSorteio,
+    filtrarPermsGRoles, finalizarSessaoVoiceSorteio, flushSessoesVoiceSorteio,
     formatarBytes, formatarConteudoComMencoes, formatarDataBR, formatarDuracaoMs,
     formatarHorarioRelativo, formatarMarkdownDiscord, formatarTempoCurto,
     formatarTempoRelativo, formatarTimestampDiscord, formatarTop3Texto, gerarBarraProgresso, gerarCardTellonym, gerarListasHelp, gerarTranscriptHTML,
     gerenciarCargosDB, getAfk, getCallTemp, getDonoCallTemp,
-    getEventoMoedasAtivo, grolesTimeouts, helpPermissaoSlash, helpPrimeiraFrase,
+    grolesTimeouts, helpPermissaoSlash, helpPrimeiraFrase,
     helpSemAcento, helpUsoOpcoes, hospedarMidiaTranscript, incrementarConviteStats,
-    finalizarSessaoFarmCall, flushSessoesFarmCall, inicializarSessoesFarmCall, iniciarSessaoFarmCall,
     inicializarSessoesVoiceSorteio, iniciarSessaoVoiceSorteio, invitesCache, limitarCache,
-    limiteNukeAcao, limiteNukeAcaoExtra, limparEstadoEventoMoedas, limparInvitesCacheDesatualizado,
+    limiteNukeAcao, limiteNukeAcaoExtra, limparInvitesCacheDesatualizado,
     limparNukeTrackerAntigo, linkPermitido, listarMembros, loadAvatar,
     localizarMensagemPainelTicket, monitorarDesconexaoBotCall, cancelarReconexaoBotCall, iniciarWatchdogBotCall, botCallIntencao, montarAvisoAfk, montarBotoesInsta,
     montarButtonRows, montarCardComentarioTellonym, montarControlesEmbedPlano, montarEmbedSorteioCanal,
@@ -276,7 +273,7 @@ const {
     montarPainelGRolesPermLista, montarPainelGRolesPermissoes, montarPainelHelp, montarPainelInfoHierarquia,
     montarPainelInstaInfo, hashComentarioInsta, montarPainelListaCargo, montarPainelLock,
     montarPainelConfirmacaoAddCargo, montarPainelConfirmacaoRemCargo,
-    montarPainelMoedas, montarPainelMsgCriadorBuilder, montarPainelMsgCriadorInicial, montarPainelProgressoBackup,
+    montarPainelMsgCriadorBuilder, montarPainelMsgCriadorInicial, montarPainelProgressoBackup,
     montarPainelProtecao, montarPainelRemoverConfirmacao, montarPainelRemoverSelect, montarPainelRoleAllInicial,
     montarPainelSorteioConfig, montarPainelSorteioInicial, montarPainelStatus, montarPainelVerificacaoCargos, montarPayloadFinalMsgCriador, montarPayloadPainelMsgCriador,
     montarPermissoesTextoGRoles, montarPreviewMsgCriador, validarLimiteMsgCriador, montarPayloadRespostaBotao, validarRespostaBotoes, msgCriadorTimeouts, muteCargoTimeouts, nomeTipoCanalLog,
@@ -286,14 +283,14 @@ const {
     parseDuracaoTexto, parseQuantidadeTexto, participantesElegiveis, protecaoConfig,
     proximoNumeroTicket, punirExecutorNuke, quebrarLinhasComEmoji, reconectarVoiceStates,
     registrarAcaoNuke, registrarPainelProtecao, removerAfk, removerMuteCargo, removerTellonymPendenteUsuario, removerVoiceState,
-    renderComponenteV2, renderComponentesV2, restaurarBackupServidor, roundedRect, salvarConfigMoedas, salvarEstadoEventoMoedas, salvarProtecao,
+    renderComponenteV2, renderComponentesV2, restaurarBackupServidor, roundedRect, salvarProtecao,
     salvarTellonymPendenteUsuario, salvarVoiceState, setAfk,
-    setCallTemp, setClient, setEventoMoedasAtivo, somarMensagens,
+    setCallTemp, setClient,
     sortearGanhadorSorteio, sorteioTimeouts, sorteioVoiceSessions, spamPunicaoEmAndamento,
     staffBanTracker, staffPunicaoCargos, statusCanalAplicado, tellonymPendentesDB,
     temPermissaoEditarCargosGRoles, ticketDB, tokenizarLinhaComEmoji, tokenizarPalavraComEmoji,
     travarTodosCanais, verificarAntiLink, verificarBanEmMassaStaff, verificarCallTemp,
-    verificarCargosLojaExpirados, verificarEventoMoedasAntigo, verificarSpamMensagem, verificarUrlNaBio,
+    verificarSpamMensagem, verificarUrlNaBio,
     alternarAntiNukeCanais, antiNukeCanalCriado, antiNukeCanalDeletado, antiNukeCanalEditado,
     definirBypassAntiNukeCanais, inicializarAntiNukeCanais, marcarAcaoPropriaCanal,
     marcarCanalTemporarioAntiNuke, montarPainelAntiNukeCanais, pausarAntiNukeCanais, retomarAntiNukeCanais
@@ -305,8 +302,6 @@ const {
 const nukeEmAndamento = new Set();
 const callTempDeleteTimeouts = new Map();
 
-const CALL_MOEDAS_POR_MINUTO = 25;
-const CALL_MINUTOS_MINIMO_CONVERSAO = 10; // 10 minutos
 const respostasBotoesMsg = new MapaPersistente('respostas_botoes_msg');
 const processosBackup = new Map();
 
@@ -650,14 +645,6 @@ if (protecaoConfig.antiRaid.nukeAtivo) {
         console.error('--- Erro ao processar saída para stats de convite ---', err);
     }
 
-    try {
-        await Carteira.deleteOne({ userId: userData.id });
-        await Mensagens.deleteOne({ userId: userData.id });
-        await XP.deleteOne({ userId: userData.id });
-        console.log(`[Saída] Moedas, mensagens e XP de ${userData.id} foram apagados (saiu do servidor).`);
-    } catch (err) {
-        console.error('--- Erro ao apagar dados de usuário que saiu ---', err);
-    }
 });
 
 client.on('guildBanAdd', async (ban) => {
@@ -1024,8 +1011,6 @@ inicializarSessoesVoiceSorteio();
 inicializarSessoesVoiceSorteio();
 setInterval(flushSessoesVoiceSorteio, INTERVALO_TICK_CALL_SORTEIO_MS);
 
-inicializarSessoesFarmCall();
-setInterval(flushSessoesFarmCall, INTERVALO_TICK_CALL_SORTEIO_MS);
     
     // Garante que o Mongo esteja de fato conectado ANTES de qualquer leitura de dados,
     // já que botcall e voice states dependem 100% do banco agora.
@@ -1046,16 +1031,10 @@ setInterval(flushSessoesFarmCall, INTERVALO_TICK_CALL_SORTEIO_MS);
         }
     }
     
-    await carregarConfigMoedas();
-    await verificarEventoMoedasAntigo();
-    setInterval(enviarEventoMoedas, 7 * 60 * 1000);
 
-    verificarCargosLojaExpirados();
-    setInterval(verificarCargosLojaExpirados, INTERVALO_CHECAGEM_CARGOS_LOJA_MS);
     
     setInterval(limparInvitesCacheDesatualizado, INTERVALO_LIMPEZA_INVITES_MS);
    
-setInterval(flushBufferMensagens, 30 * 1000);
     setInterval(limparNukeTrackerAntigo, 5 * 60 * 1000);
 
 });
@@ -1454,16 +1433,16 @@ if (protecaoConfig.antiFake.ativo) {
     }
     await member.roles.add(CARGO_AUTOMATICO).catch(err => console.error('--- Erro ao setar cargo automático ---', err));
 
-    const canal = await obterPrimeiroCanalCategoria(CATEGORIA_MOEDAS_BOASVINDAS);
-    const canalMoedas = member.guild.channels.cache.get('1542321889404264480');
+    const canal = await obterPrimeiroCanalCategoria(CATEGORIA_BOASVINDAS);
+    const canalRegras = member.guild.channels.cache.get('1542321889404264480');
     const canalTickets = member.guild.channels.cache.get('1542321889404264482');
 
     await Promise.all([
         canal
             ? canal.send(` **Seja bem-vindo(a) a Onze** <@${member.id}>\n <:pontored:1548558637507678268> Veja todas as regras em <#1542321889404264480>`).catch(() => null)
             : Promise.resolve(),
-        canalMoedas
-            ? canalMoedas.send(`<@${member.id}>`).then(m => m.delete().catch(() => null)).catch(() => null)
+        canalRegras
+            ? canalRegras.send(`<@${member.id}>`).then(m => m.delete().catch(() => null)).catch(() => null)
             : Promise.resolve(),
         canalTickets
             ? canalTickets.send(`<@${member.id}>`).then(m => m.delete().catch(() => null)).catch(() => null)
@@ -1576,10 +1555,8 @@ if (membroVoice && !membroVoice.user.bot) {
 
     if (!estavaEmCallValida && estaEmCallValida) {
         iniciarSessaoVoiceSorteio(guild.id, membroVoice.id);
-        iniciarSessaoFarmCall(guild.id, membroVoice.id);
     } else if (estavaEmCallValida && !estaEmCallValida) {
         await finalizarSessaoVoiceSorteio(guild.id, membroVoice.id).catch(() => null);
-        await finalizarSessaoFarmCall(guild.id, membroVoice.id).catch(() => null);
     }
 }
 
@@ -2192,83 +2169,6 @@ if (message.content.toLowerCase() === `${PREFIXO}áreas` || message.content.toLo
     return;
 }
     
-if (message.content.toLowerCase().startsWith(`${PREFIXO}moedaseditar`)) {
-    if (message.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) {
-        return message.reply('Você não tem permissão para utilizar este comando!')
-            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
-    }
-    const temPermissao = message.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
-    if (!temPermissao) {
-        return message.reply('Você não tem permissão para utilizar este comando!')
-            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
-    }
-
-    if (USUARIOS_BLOQUEADOS_EDICAO.includes(message.author.id)) {
-        return message.reply('Você não tem permissão para usar este comando!')
-            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
-    }
-
-    const args = message.content.trim().split(/\s+/);
-    const funcao = args[1]?.toLowerCase();
-    const alvo = message.mentions.users.first();
-    const quantidade = parseInt(args[3]);
-
-    if (!['adicionar', 'remover'].includes(funcao) || !alvo || isNaN(quantidade) || quantidade <= 0) {
-        return message.channel.send(`Uso correto: \`${PREFIXO}moedaseditar <adicionar|remover> <@usuário> <quantidade>\``)
-            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
-    }
-
-    if (alvo.bot) {
-        return message.reply('Bots não possuem saldo!')
-            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
-    }
-
-    const saldoAtual = await getSaldo(alvo.id);
-
-    if (funcao === 'adicionar') {
-        const novoSaldo = await somarSaldo(alvo.id, quantidade);
-
-        await enviarLogModeracao({
-            guild: message.guild,
-            tipo: 'MOEDAS ADICIONADAS',
-            alvo: `${alvo} (${alvo.tag})`,
-            alvoUser: alvo,
-            autor: message.author,
-            motivo: null,
-            extra: `**Quantidade:** \`${quantidade}\` moedas\n**Novo saldo:** \`${novoSaldo}\``
-        });
-
-        return enviarEmbedDetalhada(message.channel, {
-            titulo: 'Moedas Adicionadas', alvoUser: alvo, autor: message.author,
-            campos: [
-                linhaCampo('Quantidade adicionada', `${quantidade} moedas`, true),
-                linhaCampo('Saldo atual', novoSaldo, true)
-            ]
-        });
-    }
-
-    if (funcao === 'remover') {
-        const novoSaldo = await somarSaldo(alvo.id, -Math.min(quantidade, saldoAtual));
-
-        await enviarLogModeracao({
-            guild: message.guild,
-            tipo: 'MOEDAS REMOVIDAS',
-            alvo: `${alvo} (${alvo.tag})`,
-            alvoUser: alvo,
-            autor: message.author,
-            motivo: null,
-            extra: `**Quantidade:** \`${quantidade}\` moedas\n**Novo saldo:** \`${novoSaldo}\``
-        });
-
-        return enviarEmbedDetalhada(message.channel, {
-            titulo: 'Moedas Removidas', alvoUser: alvo, autor: message.author,
-            campos: [
-                linhaCampo('Quantidade removida', `${quantidade} moedas`, true),
-                linhaCampo('Saldo atual', novoSaldo, true)
-            ]
-        });
-    }
-}
     
     
 if (message.content.toLowerCase() === `${PREFIXO}painelurl`) {
@@ -2733,162 +2633,7 @@ if (message.content.toLowerCase() === `${PREFIXO}painelps`) {
     return;
 }
     
-if (message.content.toLowerCase().startsWith(`${PREFIXO}xpeditar`)) {
-    if (message.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) {
-        return message.reply('Você não tem permissão para utilizar este comando!')
-            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
-    }
-    const temPermissao = message.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
-    if (!temPermissao) {
-        return message.reply('Você não tem permissão para utilizar este comando!')
-            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
-    }
-
-    if (USUARIOS_BLOQUEADOS_EDICAO.includes(message.author.id)) {
-        return message.reply('Você não tem permissão para usar este comando!')
-            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
-    }
-
-    const args = message.content.trim().split(/\s+/);
-    const funcao = args[1]?.toLowerCase();
-    const alvo = message.mentions.users.first();
-    const quantidade = parseInt(args[3]);
-
-    if (!['adicionar', 'remover'].includes(funcao) || !alvo || isNaN(quantidade) || quantidade <= 0) {
-        return message.channel.send(`Uso correto: \`${PREFIXO}xped <adicionar|remover> <@usuário> <quantidade>\``)
-            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
-    }
-
-    const dados = await getXP(alvo.id);
-
-    if (funcao === 'adicionar') {
-        dados.xp += quantidade;
-
-        while (dados.xp >= xpNecessario(dados.nivel)) {
-            const necessario = xpNecessario(dados.nivel);
-            const xpExcedente = dados.xp - necessario;
-
-            dados.xp = xpExcedente;
-            dados.nivel += 1;
-
-            const bonusMoedas = Math.floor(xpExcedente * TAXA_MOEDA_XP_EXTRA);
-            const moedasGanhas = MOEDAS_POR_NIVEL + bonusMoedas;
-            await somarSaldo(alvo.id, moedasGanhas);
-
-        await message.channel.send({
-            content: `Ei ${alvo}, você subiu para o nível **${dados.nivel}**!`,
-            allowedMentions: { users: [alvo.id] }
-        }).catch(() => null);
-    }
-
-    await setXP(alvo.id, dados.xp, dados.nivel);
-        
-await enviarLogModeracao({
-    guild: message.guild,
-    tipo: 'XP ADICIONADO',
-    alvo: `${alvo} (${alvo.tag})`,
-    alvoUser: alvo,
-    autor: message.author,
-    motivo: null,
-    extra: `**Quantidade:** \`${quantidade}\` XP\n**Nível atual:** \`${dados.nivel}\` | **XP atual:** \`${dados.xp}\``
-});
-
-        return enviarEmbedDetalhada(message.channel, {
-            titulo: 'XP Adicionado', alvoUser: alvo, autor: message.author,
-            campos: [
-                linhaCampo('Quantidade adicionada', `${quantidade} XP`, true),
-                linhaCampo('XP atual', dados.xp, true),
-                linhaCampo('Nível atual', dados.nivel, true)
-            ]
-        });
-    }
-
-    if (funcao === 'remover') {
-        let restante = quantidade;
-
-        while (restante > 0) {
-            if (restante <= dados.xp) {
-                dados.xp -= restante;
-                restante = 0;
-            } else if (dados.nivel <= 1) {
-                // já está no nível mínimo, não dá pra descer mais
-                restante -= dados.xp;
-                dados.xp = 0;
-                break;
-            } else {
-                restante -= dados.xp;
-                dados.nivel -= 1;
-                dados.xp = xpNecessario(dados.nivel); // enche a barra do nível anterior
-            }
-        }
-
-        await setXP(alvo.id, dados.xp, dados.nivel);
-        
-await enviarLogModeracao({
-    guild: message.guild,
-    tipo: 'XP REMOVIDO',
-    alvo: `${alvo} (${alvo.tag})`,
-    alvoUser: alvo,
-    autor: message.author,
-    motivo: null,
-    extra: `**Quantidade:** \`${quantidade}\` XP\n**Nível atual:** \`${dados.nivel}\` | **XP atual:** \`${dados.xp}\``
-});
-
-        return enviarEmbedDetalhada(message.channel, {
-            titulo: 'XP Removido', alvoUser: alvo, autor: message.author,
-            campos: [
-                linhaCampo('Quantidade removida', `${quantidade} XP`, true),
-                linhaCampo('XP atual', dados.xp, true),
-                linhaCampo('Nível atual', dados.nivel, true)
-            ]
-        });
-    }
-}
-
-if (message.content.toLowerCase() === `${PREFIXO}moedastp`) {
-    const temPermissao = message.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
-    if (!temPermissao) {
-        return message.reply('Você não tem permissão para utilizar este comando!')
-            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
-    }
-
-    return message.channel.send({
-        components: [montarPainelMoedas()],
-        flags: [MessageFlags.IsComponentsV2]
-    });
-}
     
-if (message.content.toLowerCase() === `${PREFIXO}loja`) {
-    if (message.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) {
-        return message.reply('Você não tem permissão para utilizar este comando!')
-            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
-    }
-    const temPermissao = message.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
-    if (!temPermissao) {
-        return message.reply('Você não tem permissão para utilizar este comando!')
-            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
-    }
-
-    const container = new ContainerBuilder()
-        .addMediaGalleryComponents(
-            new MediaGalleryBuilder().addItems(
-                new MediaGalleryItemBuilder().setURL('https://i.supaimg.com/001f5659-bb07-44c4-a79d-4338b59c3c1a/6b621b9b-fdf2-4f4e-a913-6ca022e839bc.png')
-            )
-        )
-        .addActionRowComponents(
-            new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('resgate_converter').setLabel('Converter').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId('resgate_carteira').setLabel('Minha carteira').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId('resgate_cargos').setLabel('Comprar').setStyle(ButtonStyle.Secondary)
-            )
-        );
-
-    return message.channel.send({
-        components: [container],
-        flags: [MessageFlags.IsComponentsV2]
-    });
-}
-
 if (message.content.toLowerCase() === `${PREFIXO}tellonym`) {
     if (message.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) {
         return message.reply('Você não tem permissão para utilizar este comando!')
@@ -2980,8 +2725,6 @@ if (message.content.toLowerCase() === `${PREFIXO}nuke`) {
     }
 }
 
-    bufferizarMensagem(message.author.id);
-    darXP(message);
     
     
     atualizarProgressoMensagensSorteio(message.guild.id, message.author.id).catch(() => null);
@@ -3049,42 +2792,6 @@ const motivoAfkBruto = await getAfk(message.author.id);
         }).catch(() => null);
     }
     
-    if (message.channel.parentId === CATEGORIA_MOEDAS_BOASVINDAS && message.content.trim().toLowerCase() === 'sacar') {
-    const canalMoedasAtual = await obterPrimeiroCanalCategoria(CATEGORIA_MOEDAS_BOASVINDAS);
-    if (!canalMoedasAtual || message.channel.id !== canalMoedasAtual.id) return;
-        if (!eventoMoedas.mensagem) return;
-        if (eventoMoedas.sorteado) return;
-
-        if (!eventoMoedas.participantes) eventoMoedas.participantes = [];
-
-        const jaParticipou = eventoMoedas.participantes.some(m => m.author.id === message.author.id);
-        if (jaParticipou) return;
-
-        eventoMoedas.participantes.push(message);
-        await message.react('💸').catch(() => null);
-
-        if (eventoMoedas.ganho) return;
-
-        eventoMoedas.ganho = true;
-
-        setTimeout(async () => {
-            if (!eventoMoedas.participantes.length) return;
-
-            eventoMoedas.sorteado = true;
-
-            const vencedor = eventoMoedas.participantes[
-                Math.floor(Math.random() * eventoMoedas.participantes.length)
-            ];
-
-            await somarSaldo(vencedor.author.id, 200);
-
-            await vencedor.channel.send(
-                `${vencedor.author} **200 moedas** foram setadas na sua carteira!`
-            ).catch(() => null);
-        }, 7000);
-
-        return;
-    }
     
     if (CANAIS_INSTA.includes(message.channel.id)) {
         if (message.attachments.size > 0) {
@@ -6489,29 +6196,6 @@ function montarProgresso(finalizado = false) {
     }
 }
 	
-	if (interaction.isButton() && interaction.customId === 'moedas_toggle') {
-    const temPermissao = interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
-    if (!temPermissao) {
-        return interaction.reply({ content: 'Você não tem permissão para utilizar este comando!', flags: [MessageFlags.Ephemeral] });
-    }
-
-    setEventoMoedasAtivo(!getEventoMoedasAtivo());
-await salvarConfigMoedas();
-
-    if (!getEventoMoedasAtivo() && eventoMoedas.ativo && eventoMoedas.mensagem) {
-        if (eventoMoedas.timeoutId) clearTimeout(eventoMoedas.timeoutId);
-        await eventoMoedas.mensagem.delete().catch(() => null);
-        eventoMoedas.ativo = false;
-        eventoMoedas.mensagem = null;
-        eventoMoedas.timeoutId = null;
-        limparEstadoEventoMoedas();
-    }
-
-    return interaction.update({
-        components: [montarPainelMoedas()],
-        flags: [MessageFlags.IsComponentsV2]
-    });
-}
 	
 if (interaction.isButton() && interaction.customId === 'botcall_conectar') {
     const temPermissao = interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
@@ -8925,364 +8609,7 @@ if (interaction.isButton() && interaction.customId.startsWith('msgcriador_btn_')
 }
     
     
-if (interaction.isButton() && interaction.customId === 'resgate_converter') {
-    await flushBufferMensagens();
-    const mensagens = await getMensagens(interaction.user.id);
-
-    const container = new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **Converter mensagens em moedas**'))
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            `Você possui \`${mensagens}\` mensagens disponíveis para conversão (1 mensagem = 1 moeda).\n\nEscolha como deseja converter:`
-        ))
-        .addActionRowComponents(
-            new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('resgate_converter_tudo').setLabel('Converter tudo').setStyle(ButtonStyle.Success),
-                new ButtonBuilder().setCustomId('resgate_converter_quantidade').setLabel('Informe a quantidade').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId('resgate_ir_call').setLabel('Converter Call').setStyle(ButtonStyle.Secondary)
-            )
-        );
-
-    return interaction.reply({
-        components: [container],
-        flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
-    });
-}
-
-if (interaction.isButton() && interaction.customId === 'resgate_converter_tudo') {
-    await flushBufferMensagens();
-    const mensagens = await getMensagens(interaction.user.id);
-
-    if (mensagens < 50) {
-        return interaction.reply({
-            components: containerTexto('Você não possui mensagens suficientes para converter! O mínimo é **50 mensagens**.'),
-            flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
-        });
-    }
-
-    await setMensagens(interaction.user.id, 0);
-    const novoSaldo = await somarSaldo(interaction.user.id, mensagens);
-
-    return interaction.reply({
-        components: containerTexto(`Conversão realizada! Você trocou **${mensagens} mensagens** por **${mensagens} moedas**. Saldo atual: **${novoSaldo}**`),
-        flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
-    });
-}
-
-if (interaction.isButton() && interaction.customId === 'resgate_converter_quantidade') {
-    const modal = new ModalBuilder()
-        .setCustomId('modal_resgate_converter_quantidade')
-        .setTitle('Converter mensagens');
-
-    const inputQuantidade = new TextInputBuilder()
-        .setCustomId('quantidade')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true)
-        .setMaxLength(10);
-
-    const labelQuantidade = new LabelBuilder()
-        .setLabel('Quantidade de mensagens')
-        .setDescription('Digite quantas mensagens deseja converter (mínimo 50).')
-        .setTextInputComponent(inputQuantidade);
-
-    modal.addLabelComponents(labelQuantidade);
-    return interaction.showModal(modal);
-}
-
-if (interaction.isModalSubmit() && interaction.customId === 'modal_resgate_converter_quantidade') {
-    const valorTexto = interaction.fields.getTextInputValue('quantidade').trim();
-    const quantidade = parseInt(valorTexto);
-
-    if (isNaN(quantidade) || quantidade <= 0) {
-        return interaction.reply({
-            components: containerTexto('Digite um número válido!'),
-            flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
-        });
-    }
-
-    if (quantidade < 50) {
-        return interaction.reply({
-            components: containerTexto('Quantidade muito baixa! O mínimo para converter é **50 mensagens**.'),
-            flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
-        });
-    }
-
-    await flushBufferMensagens();
-    const mensagens = await getMensagens(interaction.user.id);
-
-    if (quantidade > mensagens) {
-        return interaction.reply({
-            components: containerTexto(`Você não possui mensagens suficientes! Você tem apenas \`${mensagens}\` mensagens disponíveis.`),
-            flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
-        });
-    }
-
-    const mensagensRestantes = mensagens - quantidade;
-    await setMensagens(interaction.user.id, mensagensRestantes);
-    const novoSaldo = await somarSaldo(interaction.user.id, quantidade);
-
-    return interaction.reply({
-        components: containerTexto(`Conversão realizada! Você trocou **${quantidade} mensagens** por **${quantidade} moedas**. Saldo atual: **${novoSaldo}**`),
-        flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
-    });
-}
-
-if (interaction.isButton() && interaction.customId === 'resgate_ir_call') {
-    await interaction.deferUpdate();
-    await flushSessoesFarmCall();
-    const minutos = await getMinutosCall(interaction.user.id);
-    const horas = Math.floor(minutos / 60);
-    const minutosResto = Math.floor(minutos % 60);
-
-    const container = new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **Converter tempo em call em moedas**'))
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            `Você possui \`${horas}h${minutosResto}m\` acumulados de call (mínimo de **${CALL_MINUTOS_MINIMO_CONVERSAO} minutos** para converter).\n\nTaxa: **${CALL_MOEDAS_POR_MINUTO} moedas por minuto**.\n\nEscolha como deseja converter:`
-        ))
-        .addActionRowComponents(
-            new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('resgate_call_converter_tudo').setLabel('Converter tudo').setStyle(ButtonStyle.Success),
-                new ButtonBuilder().setCustomId('resgate_call_converter_quantidade').setLabel('Informe a quantidade').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId('resgate_voltar_mensagens').setLabel('Voltar').setStyle(ButtonStyle.Secondary)
-            )
-        );
-
-    return interaction.editReply({
-        components: [container],
-        flags: [MessageFlags.IsComponentsV2]
-    });
-}
-
-if (interaction.isButton() && interaction.customId === 'resgate_voltar_mensagens') {
-    await interaction.deferUpdate();
-    await flushBufferMensagens();
-    const mensagens = await getMensagens(interaction.user.id);
-
-    const container = new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **Converter mensagens em moedas**'))
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            `Você possui \`${mensagens}\` mensagens disponíveis para conversão (1 mensagem = 1 moeda).\n\nEscolha como deseja converter:`
-        ))
-        .addActionRowComponents(
-            new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('resgate_converter_tudo').setLabel('Converter tudo').setStyle(ButtonStyle.Success),
-                new ButtonBuilder().setCustomId('resgate_converter_quantidade').setLabel('Informe a quantidade').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId('resgate_ir_call').setLabel('Converter Call').setStyle(ButtonStyle.Secondary)
-            )
-        );
-
-    return interaction.editReply({
-        components: [container],
-        flags: [MessageFlags.IsComponentsV2]
-    });
-}
-
-if (interaction.isButton() && interaction.customId === 'resgate_call_converter_tudo') {
-    await flushSessoesFarmCall();
-    const minutos = await getMinutosCall(interaction.user.id);
-
-    if (minutos < CALL_MINUTOS_MINIMO_CONVERSAO) {
-        return interaction.reply({
-            components: containerTexto(`Você ainda não possui o mínimo de **${CALL_MINUTOS_MINIMO_CONVERSAO} minutos** acumulados em call para converter.`),
-            flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
-        });
-    }
-
-    const minutosConvertidos = Math.floor(minutos);
-    const moedasGanhas = minutosConvertidos * CALL_MOEDAS_POR_MINUTO;
-
-    await setMinutosCall(interaction.user.id, minutos - minutosConvertidos);
-    const novoSaldo = await somarSaldo(interaction.user.id, moedasGanhas);
-
-    const h = Math.floor(minutosConvertidos / 60);
-    const m = minutosConvertidos % 60;
-
-    return interaction.reply({
-        components: containerTexto(`Conversão realizada! Você trocou **${h}h${m}m** de call por **${moedasGanhas} moedas**. Saldo atual: **${novoSaldo}**`),
-        flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
-    });
-}
-
-if (interaction.isButton() && interaction.customId === 'resgate_call_converter_quantidade') {
-    const modal = new ModalBuilder()
-        .setCustomId('modal_resgate_call_converter_quantidade')
-        .setTitle('Converter call em moedas');
-
-    const inputQuantidade = new TextInputBuilder()
-        .setCustomId('quantidade')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true)
-        .setMaxLength(10);
-
-    const labelQuantidade = new LabelBuilder()
-        .setLabel('Quantidade de minutos')
-        .setDescription(`Digite quantos minutos de call deseja converter (mínimo ${CALL_MINUTOS_MINIMO_CONVERSAO}).`)
-        .setTextInputComponent(inputQuantidade);
-
-    modal.addLabelComponents(labelQuantidade);
-    return interaction.showModal(modal);
-}
-
-if (interaction.isModalSubmit() && interaction.customId === 'modal_resgate_call_converter_quantidade') {
-    const valorTexto = interaction.fields.getTextInputValue('quantidade').trim().replace(',', '.');
-    const minutosDesejados = Math.floor(parseFloat(valorTexto));
-
-    if (isNaN(minutosDesejados) || minutosDesejados <= 0) {
-        return interaction.reply({
-            components: containerTexto('Digite um número válido!'),
-            flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
-        });
-    }
-
-    if (minutosDesejados < CALL_MINUTOS_MINIMO_CONVERSAO) {
-        return interaction.reply({
-            components: containerTexto(`Quantidade muito baixa! O mínimo para converter é **${CALL_MINUTOS_MINIMO_CONVERSAO} minutos**.`),
-            flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
-        });
-    }
-
-    await flushSessoesFarmCall();
-    const minutos = await getMinutosCall(interaction.user.id);
-
-    if (minutosDesejados > minutos) {
-        const hd = Math.floor(minutos / 60);
-        const md = Math.floor(minutos % 60);
-        return interaction.reply({
-            components: containerTexto(`Você não possui tempo suficiente em call! Você tem apenas \`${hd}h${md}m\` disponíveis.`),
-            flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
-        });
-    }
-
-    const minutosRestantes = minutos - minutosDesejados;
-    const moedasGanhas = minutosDesejados * CALL_MOEDAS_POR_MINUTO;
-
-    await setMinutosCall(interaction.user.id, minutosRestantes);
-    const novoSaldo = await somarSaldo(interaction.user.id, moedasGanhas);
-
-    return interaction.reply({
-        components: containerTexto(`Conversão realizada! Você trocou **${minutosDesejados} minutos** de call por **${moedasGanhas} moedas**. Saldo atual: **${novoSaldo}**`),
-        flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
-    });
-}
-
-
-    if (interaction.isButton() && interaction.customId === 'resgate_carteira') {
-    await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
-    const saldo = await getSaldo(interaction.user.id);
-    const mensagens = await getMensagens(interaction.user.id);
-    const minutosCall = await getMinutosCall(interaction.user.id);
-    const avatarUrl = interaction.user.displayAvatarURL({ extension: 'png', size: 256 });
-
-    const container = new ContainerBuilder()
-        .setAccentColor(0xFFFFFF)
-        .addSectionComponents(
-            new SectionBuilder()
-                .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## Carteira de - ${interaction.user.username}`))
-                .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
-        )
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Saldo:** \`${saldo}\``))
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Tempo call:** \`${formatarTempoCurto(minutosCall * 60000)}\``))
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Mensagens:** \`${mensagens}\``));
-
-    return interaction.editReply({
-        components: [container],
-        flags: [MessageFlags.IsComponentsV2]
-    });
-}
     
-    if (interaction.isButton() && interaction.customId === 'resgate_cargos') {
-    const container = new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **Loja de cargos**'))
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent('Utilize suas moedas para comprar um cargo abaixo.'))
-        .addActionRowComponents(
-            new ActionRowBuilder().addComponents(
-                new StringSelectMenuBuilder()
-                    .setCustomId('loja_cargos_select')
-                    .setPlaceholder('Selecione o cargo que deseja comprar')
-                    .addOptions(
-                            CARGOS_LOJA.map(c => ({
-                                       label: c.nome,
-                                       description: `${c.preco} moedas${c.duracaoDias ? ` • dura ${c.duracaoDias} dias` : ''}`,
-                                       value: c.id,
-                                       emoji: c.emoji
-                             }))
-                     )
-            )
-        );
-
-    return interaction.reply({
-        components: [container],
-        flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
-    });
-}
-
-if (interaction.isStringSelectMenu() && interaction.customId === 'loja_cargos_select') {
-    const cargoId = interaction.values[0];
-    const cargoInfo = CARGOS_LOJA.find(c => c.id === cargoId);
-
-    if (!cargoInfo) {
-        return interaction.reply({ content: 'Cargo não encontrado na loja.', flags: [MessageFlags.Ephemeral] });
-    }
-
-    const membro = interaction.member;
-
-    if (membro.roles.cache.has(cargoId)) {
-        return interaction.reply({
-            content: `Você já possui o cargo **${cargoInfo.nome}**!`,
-            flags: [MessageFlags.Ephemeral]
-        });
-    }
-
-    const saldoAtual = await getSaldo(interaction.user.id);
-
-    if (saldoAtual < cargoInfo.preco) {
-        return interaction.reply({
-            content: `Saldo insuficiente! O cargo **${cargoInfo.nome}** custa **${cargoInfo.preco} moedas**, e você tem **${saldoAtual}**.`,
-            flags: [MessageFlags.Ephemeral]
-        });
-    }
-
-    try {
-        await membro.roles.add(cargoId);
-    } catch (err) {
-        console.error('--- Erro ao adicionar cargo comprado ---', err);
-        return interaction.reply({
-            content: 'Ocorreu um erro ao adicionar o cargo. avise algum adm ver  as permissões do bot.',
-            flags: [MessageFlags.Ephemeral]
-        });
-    }
-
-    const novoSaldo = await somarSaldo(interaction.user.id, -cargoInfo.preco);
-
-    const diasExpiracao = cargoInfo.duracaoDias || DURACAO_CARGO_LOJA_DIAS;
-const expiraEm = Date.now() + (diasExpiracao * 24 * 60 * 60 * 1000);
-
-await CargoLoja.findOneAndUpdate(
-    { userId: interaction.user.id, cargoId, guildId: interaction.guild.id },
-    { expiraEm },
-    { upsert: true }
-).catch(err => console.error('--- Erro ao salvar expiração do cargo da loja ---', err));
-
-    const container = new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **CARGO COMPRADO**'))
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Cargo:** ${cargoInfo.nome}`))
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Valor pago:** \`${cargoInfo.preco}\` moedas`))
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Saldo restante:** \`${novoSaldo}\``));
-
-    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-    .addTextDisplayComponents(new TextDisplayBuilder().setContent(` Esse cargo será removido automaticamente em **${diasExpiracao} dias**.`));
-
-    return interaction.reply({
-        components: [container],
-        flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
-    });
-}
     
     
 if (interaction.isChatInputCommand() && interaction.commandName === 'help') {
@@ -9292,105 +8619,6 @@ if (interaction.isChatInputCommand() && interaction.commandName === 'help') {
         });
     }
     
-    if (interaction.isButton() && interaction.customId.startsWith('daily_')) {
-    const donoId = interaction.customId.replace('daily_', '');
-
-    if (interaction.user.id !== donoId) {
-        return interaction.reply({
-            content: 'Você não possui autoridade sobre esse comando!',
-            flags: [MessageFlags.Ephemeral]
-        });
-    }
-
-    const chave = `daily:${donoId}`;
-    const ttlRestante = await redis.ttl(chave);
-
-    if (ttlRestante > 0) {
-        const horas = Math.floor(ttlRestante / 3600);
-        const minutos = Math.floor((ttlRestante % 3600) / 60);
-        return interaction.reply({
-            content: `Você já resgatou seu **Daily** de hoje! Volte em **${horas}h ${minutos}m**.`,
-            flags: [MessageFlags.Ephemeral]
-        });
-    }
-
-    await redis.set(chave, Date.now(), 'EX', Math.floor(COOLDOWN_DAILY_MS / 1000));
-
-    const novoSaldo = await somarSaldo(donoId, MOEDAS_DAILY);
-
-    return interaction.reply({
-        content: `Daily resgatado! Total: ${MOEDAS_DAILY} moedas! Saldo atual: **${novoSaldo}**`,
-        flags: [MessageFlags.Ephemeral]
-    });
-}
-
-if (interaction.isButton() && interaction.customId.startsWith('carteira_atualizar_')) {
-    try {
-        const partes = interaction.customId.replace('carteira_atualizar_', '').split('_');
-        const autorId = partes[0];
-        const alvoId = partes[1];
-
-        if (interaction.user.id !== autorId) {
-            return interaction.reply({
-                content: 'Você não possui autoridade sobre esse comando!',
-                flags: [MessageFlags.Ephemeral]
-            });
-        }
-
-        const alvo = await interaction.client.users.fetch(alvoId, { force: true }).catch(() => null);
-
-        if (!alvo) {
-            return interaction.reply({ content: 'Não foi possível encontrar esse usuário.', flags: [MessageFlags.Ephemeral] });
-        }
-
-        const saldo = await getSaldo(alvo.id);
-        const mensagens = await getMensagens(alvo.id);
-        const minutosCall = await getMinutosCall(alvo.id);
-        const ehPropriaCarteira = alvo.id === interaction.user.id;
-        const avatarUrl = alvo.displayAvatarURL({ extension: 'png', size: 256 });
-
-        const container = new ContainerBuilder()
-            .setAccentColor(0xFFFFFF)
-            .addSectionComponents(
-                new SectionBuilder()
-                    .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## Carteira de - ${alvo.username}`))
-                    .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
-            )
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Saldo:** \`${saldo}\``))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Tempo call:** \`${formatarTempoCurto(minutosCall * 60000)}\``))
-            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Mensagens:** \`${mensagens}\``));
-
-        const botoes = [
-    new ButtonBuilder()
-        .setCustomId(`carteira_atualizar_${interaction.user.id}_${alvo.id}`)
-        .setEmoji('1548555551514951801')
-        .setStyle(ButtonStyle.Secondary)
-];
-
-        if (ehPropriaCarteira) {
-    botoes.push(
-        new ButtonBuilder()
-            .setCustomId(`daily_${autorId}`)
-            .setLabel('Daily')
-            .setStyle(ButtonStyle.Success)
-    );
-}
-
-        container.addActionRowComponents(new ActionRowBuilder().addComponents(botoes));
-
-        return await interaction.update({
-            components: [container],
-            flags: [MessageFlags.IsComponentsV2]
-        });
-    } catch (err) {
-        console.error('--- Erro no botão carteira_atualizar ---', err);
-        if (!interaction.replied && !interaction.deferred) {
-            return interaction.reply({ content: 'Ocorreu um erro ao atualizar a carteira.', flags: [MessageFlags.Ephemeral] }).catch(() => null);
-        }
-    }
-}
-
 if (interaction.isButton() && interaction.customId.startsWith('insta_')) {
 
     if (interaction.customId === 'insta_curtir') {

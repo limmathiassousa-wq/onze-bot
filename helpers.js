@@ -88,14 +88,6 @@ async function comRetry(fn, tentativas = 3, delayBase = 1000) {
 
 
 
-function xpNecessario(nivel) {
-
-    return Math.floor(650 * Math.pow(nivel, 1.8));
-
-}
-
-
-
 function montarPainelConfirmacaoModeracao(tipo, alvoMencao, alvoTag, motivo) {
 
     const titulos = {
@@ -164,118 +156,8 @@ async function avisoSucessoModeracao(channel, texto) {
 
 
 
-async function getSaldo(userId) {
-
-    const { Carteira } = require('./models');
-
-    const doc = await Carteira.findOne({ userId });
-
-    return doc ? doc.saldo : 0;
-
-}
-
-
-
-async function somarSaldo(userId, valor) {
-
-    const { Carteira } = require('./models');
-
-    const doc = await Carteira.findOneAndUpdate({ userId }, { $inc: { saldo: valor } }, { upsert: true, new: true });
-
-    return doc.saldo;
-
-}
-
-
-
-async function getXP(userId) {
-
-    const { XP } = require('./models');
-
-    const doc = await XP.findOne({ userId });
-
-    return doc ? { xp: doc.xp, nivel: doc.nivel } : { xp: 0, nivel: 1 };
-
-}
-
-
-
-async function setXP(userId, xp, nivel) {
-
-    const { XP } = require('./models');
-
-    await XP.findOneAndUpdate({ userId }, { xp, nivel }, { upsert: true });
-
-}
-
-
-
-async function getMensagens(userId) {
-
-    const { Mensagens } = require('./models');
-
-    const doc = await Mensagens.findOne({ userId });
-
-    return doc ? doc.quantidade : 0;
-
-}
-
-
-
-async function setMensagens(userId, valor) {
-
-    const { Mensagens } = require('./models');
-
-    await Mensagens.findOneAndUpdate({ userId }, { quantidade: valor }, { upsert: true });
-
-}
-
-
-
-async function getMinutosCall(userId) {
-
-    const { TempoCall } = require('./models');
-
-    const doc = await TempoCall.findOne({ userId });
-
-    return doc ? doc.minutos : 0;
-
-}
-
-
-
-async function setMinutosCall(userId, valor) {
-
-    const { TempoCall } = require('./models');
-
-    await TempoCall.findOneAndUpdate({ userId }, { minutos: valor }, { upsert: true });
-
-}
-
-
-
-async function somarMinutosCall(userId, valor) {
-
-    const { TempoCall } = require('./models');
-
-    const doc = await TempoCall.findOneAndUpdate({ userId }, { $inc: { minutos: valor } }, { upsert: true, new: true });
-
-    return doc.minutos;
-
-}
-
-
-
 module.exports = {
-
-    esperar, containerTexto, comRetry, xpNecessario,
-
+    esperar, containerTexto, comRetry,
     montarPainelConfirmacaoModeracao,
-
-    getSaldo, somarSaldo, getXP, setXP, getMensagens, setMensagens,
-
-    getMinutosCall, setMinutosCall, somarMinutosCall,
-
     urlValida, avisoSucessoModeracao
-
 };

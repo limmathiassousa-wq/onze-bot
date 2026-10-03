@@ -14,23 +14,27 @@ const { execSync, execFileSync, execFile } = require('child_process');
 const path = require("path");
 const os = require('os');
 const crypto = require('crypto');
-const { comandos, montarPainelBotCall } = require('./commands');
+const {
+ comandos, montarPainelBotCall
+} = require('./commands');
 const { botCallDB, botCallPaineis, msgCriadorDB } = require('./state');
-const { esperar, containerTexto, comRetry, xpNecessario, somarSaldo, getXP, setXP, urlValida, somarMinutosCall } = require('./helpers');
+const {
+ esperar, containerTexto, comRetry, urlValida
+} = require('./helpers');
 const { logarAntiLink, logarAntiSpam, logarPunicaoCargosStaff, logarAntiNukeCanais, obterDataHora } = require('./logger');
 const redis = require('./redis');
 const { supabase } = require('./supabase');
 const {
-    ServerBackup, Mensagens, CargoLoja, VoiceState,
+    ServerBackup, VoiceState,
     ContadorTicket, TicketData, ConviteStats, Sorteio, InstaPost,
     TellonymPendente, MapaPersistenteEntry, MuteCargo,
     TranscriptMedia
 } = require('./models');
 const {
-    EMOJI_ATIVADO, EMOJI_DESATIVADO, CANAL_LOGS_MOD, CATEGORIA_MOEDAS_BOASVINDAS, CORES_MSG_CRIADOR,
-    POSICOES_BOTAO, CARGOS_ATENDENTE, CARGO_BOOSTER, EMOJI_CROW, EMOJI_CURTIR, EMOJI_COMENTAR, EMOJI_INFO,
-    EMOJI_LIXEIRA, EMOJI_INSTA_PERFIL, EMOJI_ATUALIZAR_PREVIEW, EMOJI_VOLTAR_PAINEL, IMG_MOEDAS,
-    IMG_DISCORD_LOGO, XP_MIN_POR_MENSAGEM, XP_MAX_POR_MENSAGEM, MOEDAS_POR_NIVEL, TAXA_MOEDA_XP_EXTRA,
+    EMOJI_ATIVADO, EMOJI_DESATIVADO, CANAL_LOGS_MOD, CORES_MSG_CRIADOR,
+    POSICOES_BOTAO, CARGOS_ATENDENTE, CARGO_BOOSTER, EMOJI_CURTIR, EMOJI_COMENTAR, EMOJI_INFO,
+    EMOJI_LIXEIRA, EMOJI_INSTA_PERFIL, EMOJI_ATUALIZAR_PREVIEW, EMOJI_VOLTAR_PAINEL,
+    IMG_DISCORD_LOGO,
     DOMINIOS_MUSICA_PERMITIDOS, DOMINIOS_IMAGEM_CONFIAVEIS, BLACKLIST_DOMINIOS, DOMINIOS_CONVITE,
     EXTENSOES_IMAGEM, CACHE_MEMBROS_MS, CATEGORIA_STATUS_SORTEIO, CARGO_MUTADO, CARGO_RESTRITO_UNICO
 } = require('./constants');
@@ -47,12 +51,10 @@ const PREFIXO = 'o!';
 
 const PUBLIC_BASE_URL = process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3000}`;
 
-const eventoMoedas = { ativo: false, mensagem: null, ganho: false, timeoutId: null };
 
 // ============ LET ============
 let cacheMembros = null;
 let cacheMembrosTimestamp = 0;
-let eventoMoedasAtivo = true;
 
 class MapaPersistente extends Map {
     constructor(namespace) {
@@ -129,7 +131,6 @@ const tellonymPendentesDB = new Map();
 const ticketDB = new Map();
 const gerenciarCargosDB = new PainelGRolesDB();
 const sorteioVoiceSessions = new Map();
-const farmCallSessions = new Map();
 
 const sorteioTimeouts = new Map();
 const invitesCache = new Map();
@@ -330,7 +331,6 @@ const EXT_IMAGEM = ['.png', '.jpg', '.jpeg', '.gif', '.webp'];
 
 const LIMITE_MEDIA_TRANSCRIPT = 20 * 1024 * 1024; // 20MB
 
-const bufferMensagens = new Map();
 
 const protecaoConfig = {
     antiRaid: {
@@ -421,11 +421,7 @@ const HELP_PREFIXO_DESCRICOES = {
     tickets: 'Painel de atendimento',
     painelcall: 'Painel de calls temporárias',
     tellonym: 'Painel tellonym',
-    loja: 'Painel da loja de cargos e convertor',
     botcall: 'Envia o painel de controle da call do bot',
-    moedastp: 'Painel de controle do evento de moedas',
-    xpeditar: 'Edita XP de um usuário',
-    moedaseditar: 'Edita moedas de um usuário',
     addcargo: 'Adiciona um cargo a um usuário',
     remcargo: 'Remove um cargo de um usuário',
     groles: 'Gerencia os cargos de um usuário (adicionar/remover pelo painel)',
@@ -451,8 +447,7 @@ const HELP_PREFIXO_DESCRICOES = {
 // Só pra preencher o "Ajuda › Categoria › comando". Comando fora daqui cai em "Geral".
 const HELP_CATEGORIAS = {
     'Moderação': ['ban', 'unban', 'kick', 'mute', 'unmute', 'muteinfo', 'limpar', 'nuke', 'painelps', 'cl'],
-    'Administração': ['addemoji', 'regras', 'tickets', 'xpeditar', 'addcargo', 'remcargo', 'groles', 'roleall', 'painelurl'],
-    'Economia': ['carteira', 'pix', 'loja', 'moedastp', 'moedaseditar'],
+    'Administração': ['addemoji', 'regras', 'tickets', 'addcargo', 'remcargo', 'groles', 'roleall', 'painelurl'],
     'Diversão': ['pd', 'tellonym', 'tiktok'],
     'Utilidades': ['sorteio', 'convite', 'afk', 'botcall', 'avatar', 'painelcall', 'info', 'msg'],
     'Ajuda': ['help']
@@ -479,8 +474,6 @@ const INFO_COMANDOS = {
     '/addemoji': { descricao: 'Adiciona um emoji de outro servidor ao seu, colando o emoji ou apenas o ID numérico dele.', comoUsar: '/addemoji emoji:<emoji ou ID> nome:[opcional]', exemplo: '/addemoji emoji:<:exemplo:123456789012345678>', permissao: 'Administrador ou Equipe' },
     '/pd': { descricao: 'Abre o painel pra escolher e gerenciar suas Primeiras Damas no servidor, com limite configurado.', comoUsar: '/pd', exemplo: '/pd', permissao: 'Cargo específico' },
     '/sorteio': { descricao: 'Abre o painel de criação e gerenciamento de sorteios, permitindo configurar prêmio, duração, requisitos e canal de destino.', comoUsar: '/sorteio', exemplo: '/sorteio', permissao: 'Equipe' },
-    '/carteira': { descricao: 'Mostra o saldo de moedas e a contagem de mensagens de você ou de outro usuário.', comoUsar: '/carteira usuario:[opcional]', exemplo: '/carteira usuario:@Fulano', permissao: 'Nenhuma' },
-    '/pix': { descricao: 'Transfere uma quantidade de moedas do seu saldo diretamente para outro usuário.', comoUsar: '/pix usuario:@usuário quantidade:<número>', exemplo: '/pix usuario:@Fulano quantidade:100', permissao: 'Nenhuma' },
     '/convite': { descricao: 'Mostra quantos convites válidos, reais, fake e bônus um usuário possui no servidor.', comoUsar: '/convite usuario:[opcional]', exemplo: '/convite usuario:@Fulano', permissao: 'Nenhuma' },
     '/afk': { descricao: 'Marca você como ausente com um motivo opcional. O status é removido automaticamente assim que você enviar outra mensagem.', comoUsar: '/afk motivo:[opcional]', exemplo: '/afk motivo:Estudando', permissao: 'Nenhuma' },
     '/botcall': { descricao: 'Envia o painel de controle da call fixa do bot, permitindo conectar, trocar ou desconectar de um canal de voz.', comoUsar: '/botcall', exemplo: '/botcall', permissao: 'Equipe' },
@@ -501,11 +494,7 @@ const INFO_COMANDOS = {
     [`${PREFIXO}tickets`]: { descricao: 'Envia o painel de abertura de atendimento (tickets) no canal atual.', comoUsar: `${PREFIXO}tickets`, exemplo: `${PREFIXO}tickets`, permissao: 'Equipe' },
     [`${PREFIXO}painelcall`]: { descricao: 'Envia o painel de gerenciamento das calls temporárias (privar, expulsar, banir, renomear etc).', comoUsar: `${PREFIXO}painelcall`, exemplo: `${PREFIXO}painelcall`, permissao: 'Equipe' },
     [`${PREFIXO}tellonym`]: { descricao: 'Envia o painel de envio de Tellonym (mensagens anônimas ou públicas).', comoUsar: `${PREFIXO}tellonym`, exemplo: `${PREFIXO}tellonym`, permissao: 'Equipe' },
-    [`${PREFIXO}loja`]: { descricao: 'Envia o painel da loja de cargos, com opções de ver carteira e converter mensagens em moedas.', comoUsar: `${PREFIXO}loja`, exemplo: `${PREFIXO}loja`, permissao: 'Equipe' },
     [`${PREFIXO}botcall`]: { descricao: 'Envia o painel de controle da call fixa do bot no canal atual.', comoUsar: `${PREFIXO}botcall`, exemplo: `${PREFIXO}botcall`, permissao: 'Equipe' },
-    [`${PREFIXO}moedastp`]: { descricao: 'Envia o painel que liga ou desliga o evento automático de moedas no canal configurado.', comoUsar: `${PREFIXO}moedastp`, exemplo: `${PREFIXO}moedastp`, permissao: 'Equipe' },
-    [`${PREFIXO}xpeditar`]: { descricao: 'Adiciona ou remove uma quantidade de XP de um usuário, recalculando nível automaticamente.', comoUsar: `${PREFIXO}xpeditar <adicionar|remover> @usuário <quantidade>`, exemplo: `${PREFIXO}xpeditar adicionar @Fulano 500`, permissao: 'Equipe' },
-    [`${PREFIXO}moedaseditar`]: { descricao: 'Adiciona ou remove uma quantidade de moedas do saldo de um usuário específico.', comoUsar: `${PREFIXO}moedaseditar <adicionar|remover> @usuário <quantidade>`, exemplo: `${PREFIXO}moedaseditar adicionar @Fulano 500`, permissao: 'Equipe' },
     [`${PREFIXO}addcargo`]: { descricao: 'Adiciona um cargo específico a um usuário do servidor.', comoUsar: `${PREFIXO}addcargo @cargo @usuário`, exemplo: `${PREFIXO}addcargo @Membro @Fulano`, permissao: 'Administrador ou Equipe' },
     [`${PREFIXO}remcargo`]: { descricao: 'Remove um cargo específico de um usuário do servidor.', comoUsar: `${PREFIXO}remcargo @cargo @usuário`, exemplo: `${PREFIXO}remcargo @Membro @Fulano`, permissao: 'Administrador ou Equipe' },
     [`${PREFIXO}groles`]: { descricao: 'Abre um painel para adicionar ou remover cargos de um usuário (ou de você mesmo), com busca, filtros e opção de criar/excluir cargos do servidor.', comoUsar: `${PREFIXO}groles [@usuário]`, exemplo: `${PREFIXO}groles @Fulano`, permissao: 'Cargo de atendente (Administrador/Equipe para criar ou excluir cargos)' },
@@ -535,32 +524,6 @@ const CANAL_LOGS_CANAIS_VOZ = '1548380755804029090';
 const REGEX_EVERYONE_HERE = /@(everyone|here)/i;
 
 // ============ FUNÇÕES ============
-
-async function salvarConfigMoedas() {
-    try {
-        const { error } = await supabase
-            .from('config_moedas')
-            .upsert({ id: 'config_moedas', ativo: eventoMoedasAtivo });
-        if (error) throw error;
-    } catch (err) {
-        console.error('--- Erro ao salvar config do evento de moedas ---', err);
-    }
-}
-
-async function carregarConfigMoedas() {
-    try {
-        const { data: doc, error } = await supabase
-            .from('config_moedas')
-            .select('*')
-            .eq('id', 'config_moedas')
-            .maybeSingle();
-        if (error) throw error;
-        if (doc && typeof doc.ativo === 'boolean') eventoMoedasAtivo = doc.ativo;
-        console.log(`[Moedas] Evento automático carregado: ${eventoMoedasAtivo ? 'ativo' : 'desativado'}.`);
-    } catch (err) {
-        console.error('--- Erro ao carregar config do evento de moedas ---', err);
-    }
-}
 
 function roundedRect(ctx, x, y, width, height, radius) {
 
@@ -3179,52 +3142,6 @@ async function atualizarStatusCallsSorteio() {
     }
 }
 
-// ============ FARM CALL (tempo em call convertível em moedas) ============
-function inicializarSessoesFarmCall() {
-    for (const guild of client.guilds.cache.values()) {
-        for (const canal of guild.channels.cache.values()) {
-            if (canal.type !== ChannelType.GuildVoice && canal.type !== ChannelType.GuildStageVoice) continue;
-            if (guild.afkChannelId && canal.id === guild.afkChannelId) continue;
-
-            for (const membro of canal.members.values()) {
-                if (membro.user.bot) continue;
-                iniciarSessaoFarmCall(guild.id, membro.id);
-            }
-        }
-    }
-}
-
-function iniciarSessaoFarmCall(guildId, userId) {
-    const chave = `${guildId}_${userId}`;
-    if (!farmCallSessions.has(chave)) {
-        farmCallSessions.set(chave, { entradaEm: Date.now() });
-    }
-}
-
-async function finalizarSessaoFarmCall(guildId, userId) {
-    const chave = `${guildId}_${userId}`;
-    const sessao = farmCallSessions.get(chave);
-    if (!sessao) return;
-
-    farmCallSessions.delete(chave);
-    const decorrido = Date.now() - sessao.entradaEm;
-    if (decorrido > 0) {
-        await somarMinutosCall(userId, decorrido / 60000).catch(() => null);
-    }
-}
-
-async function flushSessoesFarmCall() {
-    const agora = Date.now();
-    for (const [chave, sessao] of farmCallSessions) {
-        const [, userId] = chave.split('_');
-        const decorrido = agora - sessao.entradaEm;
-        if (decorrido <= 0) continue;
-
-        await somarMinutosCall(userId, decorrido / 60000).catch(() => null);
-        sessao.entradaEm = agora;
-    }
-}
-
 async function flushSessoesVoiceSorteio() {
     const agora = Date.now();
     for (const [chave, sessao] of sorteioVoiceSessions) {
@@ -3391,30 +3308,6 @@ async function removerMuteCargo(guildId, userId) {
 
     await MuteCargo.deleteOne({ _id: `${guildId}_${userId}` }).catch(() => null);
     muteCargoTimeouts.delete(`${guildId}_${userId}`);
-}
-
-async function verificarCargosLojaExpirados() {
-    try {
-        const expirados = await CargoLoja.find({ expiraEm: { $lte: Date.now() } });
-        if (!expirados.length) return;
-
-        for (const doc of expirados) {
-            try {
-                const guild = await client.guilds.fetch(doc.guildId).catch(() => null);
-                if (guild) {
-                    const membro = await guild.members.fetch(doc.userId).catch(() => null);
-                    if (membro) await membro.roles.remove(doc.cargoId).catch(() => null);
-                }
-            } catch (err) {
-                console.error(`--- Erro ao remover cargo da loja expirado (${doc.userId}) ---`, err);
-            }
-
-            await CargoLoja.deleteOne({ _id: doc._id }).catch(() => null);
-            console.log(`[Loja] Cargo ${doc.cargoId} removido de ${doc.userId} (expirado).`);
-        }
-    } catch (err) {
-        console.error('--- Erro ao verificar cargos da loja expirados ---', err);
-    }
 }
 
 function escapeHTML(texto) {
@@ -4160,31 +4053,6 @@ function pintarProgresso() {
     return html;
 }
 
-async function somarMensagens(userId, valor) {
-    const doc = await Mensagens.findOneAndUpdate(
-        { userId },
-        { $inc: { quantidade: valor } },
-        { upsert: true, new: true }
-    );
-    return doc.quantidade;
-}
-
-function bufferizarMensagem(userId) {
-    bufferMensagens.set(userId, (bufferMensagens.get(userId) || 0) + 1);
-}
-
-async function flushBufferMensagens() {
-    if (!bufferMensagens.size) return;
-    const entradas = [...bufferMensagens.entries()];
-    bufferMensagens.clear();
-
-    const ops = entradas.map(([userId, valor]) => ({
-        updateOne: { filter: { userId }, update: { $inc: { quantidade: valor } }, upsert: true }
-    }));
-
-    await Mensagens.bulkWrite(ops).catch(err => console.error('--- Erro no flush de mensagens ---', err));
-}
-
 async function obterMembrosCache(guild) {
     const agora = Date.now();
     if (cacheMembros && (agora - cacheMembrosTimestamp) < CACHE_MEMBROS_MS) {
@@ -4194,42 +4062,6 @@ async function obterMembrosCache(guild) {
     cacheMembros = membros;
     cacheMembrosTimestamp = agora;
     return membros;
-}
-
-async function darXP(message) {
-    const userId = message.author.id;
-
-    const dados = await getXP(userId);
-    const xpGanho = Math.floor(Math.random() * (XP_MAX_POR_MENSAGEM - XP_MIN_POR_MENSAGEM + 1)) + XP_MIN_POR_MENSAGEM;
-    dados.xp += xpGanho;
-
-    const ehTicket = ticketDB.has(message.channel.id);
-
-    while (dados.xp >= xpNecessario(dados.nivel)) {
-        const necessario = xpNecessario(dados.nivel);
-        const xpExcedente = dados.xp - necessario;
-
-        dados.xp = xpExcedente;
-        dados.nivel += 1;
-
-        const bonusMoedas = Math.floor(xpExcedente * TAXA_MOEDA_XP_EXTRA);
-        const moedasGanhas = MOEDAS_POR_NIVEL + bonusMoedas;
-
-        try {
-            await somarSaldo(userId, moedasGanhas);
-        } catch (err) {
-            console.error(`--- Erro ao creditar moedas de level up para ${userId} ---`, err);
-        }
-
-        if (!ehTicket) { // NOVO: só envia se não for ticket
-            await message.channel.send({
-                content: `Ei ${message.author}, você subiu para o nível **${dados.nivel}**!`,
-                allowedMentions: { users: [message.author.id] }
-            }).catch(() => null);
-        }
-    }
-
-    await setXP(userId, dados.xp, dados.nivel);
 }
 
 async function salvarProtecao() {
@@ -4650,21 +4482,6 @@ async function verificarSpamMensagem(message) {
     } finally {
         spamPunicaoEmAndamento.delete(userId);
     }
-}
-
-function montarPainelMoedas() {
-    return new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **Controle do evento de moedas**'))
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent('Controle o envio automático do evento de moedas no canal.'))
-        .addActionRowComponents(
-            new ActionRowBuilder().addComponents(
-                new ButtonBuilder()
-                    .setCustomId('moedas_toggle')
-                    .setLabel(eventoMoedasAtivo ? 'Ativar' : 'Desativado')
-                    .setStyle(eventoMoedasAtivo ? ButtonStyle.Success : ButtonStyle.Danger)
-            )
-        );
 }
 
 async function travarTodosCanais(guild, autorId, onProgresso) {
@@ -5789,76 +5606,6 @@ function monitorarDesconexaoBotCall(guildId, connection) {
     });
 }
 
-async function salvarEstadoEventoMoedas(mensagemId, enviadoEm) {
-    try {
-        const { error } = await supabase
-            .from('evento_moedas_state')
-            .upsert({ id: 'evento_moedas', mensagem_id: mensagemId, enviado_em: enviadoEm });
-        if (error) throw error;
-    } catch (err) {
-        console.error('--- Erro ao salvar estado do evento de moedas ---', err);
-    }
-}
-
-async function limparEstadoEventoMoedas() {
-    try {
-        const { error } = await supabase
-            .from('evento_moedas_state')
-            .delete()
-            .eq('id', 'evento_moedas');
-        if (error) throw error;
-    } catch (err) {
-        console.error('--- Erro ao limpar estado do evento de moedas ---', err);
-    }
-}
-
-async function verificarEventoMoedasAntigo() {
-    try {
-        const { data: estado } = await supabase
-            .from('evento_moedas_state')
-            .select('*')
-            .eq('id', 'evento_moedas')
-            .maybeSingle();
-        if (!estado) return;
-
-        const canal = await obterPrimeiroCanalCategoria(CATEGORIA_MOEDAS_BOASVINDAS);
-        if (!canal) { await limparEstadoEventoMoedas(); return; }
-
-        const msg = await canal.messages.fetch(estado.mensagem_id).catch(() => null);
-        if (!msg) { await limparEstadoEventoMoedas(); return; }
-
-        const tempoPassado = Date.now() - estado.enviado_em;
-        const tempoRestante = (60 * 1000) - tempoPassado;
-
-        if (tempoRestante <= 0) {
-            await msg.delete().catch(() => null);
-            await limparEstadoEventoMoedas();
-            console.log('[Moedas] Embed antiga expirada foi deletada ao reiniciar.');
-        } else {
-            eventoMoedas.ativo = true;
-            eventoMoedas.mensagem = msg;
-            eventoMoedas.ganho = false;
-            eventoMoedas.sorteado = false;
-            eventoMoedas.participantes = [];
-
-            eventoMoedas.timeoutId = setTimeout(async () => {
-                if (eventoMoedas.ativo && eventoMoedas.mensagem?.id === msg.id) {
-                    await msg.delete().catch(() => null);
-                    eventoMoedas.ativo = false;
-                    eventoMoedas.mensagem = null;
-                    eventoMoedas.timeoutId = null;
-                    await limparEstadoEventoMoedas();
-                }
-            }, tempoRestante);
-
-            console.log(`[Moedas] Embed antiga ainda válida, deletando em ${Math.ceil(tempoRestante / 1000)}s.`);
-        }
-    } catch (err) {
-        console.error('--- Erro ao verificar evento de moedas antigo ---', err);
-        await limparEstadoEventoMoedas();
-    }
-}
-
 async function carregarTickets() {
     try {
         const docs = await TicketData.find();
@@ -6086,47 +5833,6 @@ async function obterPrimeiroCanalCategoria(categoriaId) {
         .sort((a, b) => a.rawPosition - b.rawPosition);
 
     return canais[0] || null;
-}
-
-async function enviarEventoMoedas() {
-    if (!eventoMoedasAtivo) return;
-
-    try {
-        const canal = await obterPrimeiroCanalCategoria(CATEGORIA_MOEDAS_BOASVINDAS);
-        if (!canal) return;
-
-        if (eventoMoedas.ativo && eventoMoedas.mensagem) {
-            if (eventoMoedas.timeoutId) clearTimeout(eventoMoedas.timeoutId);
-            await eventoMoedas.mensagem.delete().catch(() => null);
-        }
-
-        const container = new ContainerBuilder()
-            .setAccentColor(0xFFFFFF)
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`# <:crow:${EMOJI_CROW}> Tropa da **Onze**\n Digite \`sacar\` e tente sua sorte!\n* Utilize \`/carteira\` e visualize seu saldo`))
-            .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(IMG_MOEDAS)));
-
-        const msg = await canal.send({ components: [container], flags: [MessageFlags.IsComponentsV2] });
-
-        eventoMoedas.ativo = true;
-        eventoMoedas.mensagem = msg;
-        eventoMoedas.ganho = false;
-        eventoMoedas.sorteado = false;
-        eventoMoedas.participantes = [];
-
-        salvarEstadoEventoMoedas(msg.id, Date.now());
-
-        eventoMoedas.timeoutId = setTimeout(async () => {
-            if (eventoMoedas.ativo && eventoMoedas.mensagem?.id === msg.id) {
-                await msg.delete().catch(() => null);
-                eventoMoedas.ativo = false;
-                eventoMoedas.mensagem = null;
-                eventoMoedas.timeoutId = null;
-                limparEstadoEventoMoedas();
-            }
-        }, 60 * 1000);
-    } catch (err) {
-        console.error('--- Erro ao enviar evento de moedas ---', err);
-    }
 }
 
 // ============ FIM FUNCTIONs/ASYNCs ============
@@ -7429,24 +7135,12 @@ function montarCardComentarioTellonym(dados, pagina) {
     return [container];
 }
 
-// ============ ACESSO AO "eventoMoedasAtivo" (variável reatribuída) ============
-
-function getEventoMoedasAtivo() {
-    return eventoMoedasAtivo;
-}
-
-function setEventoMoedasAtivo(valor) {
-    eventoMoedasAtivo = valor;
-}
-
 
 // ============ EXPORTS ============
 
 module.exports = {
     // --- controle ---
     setClient,
-    getEventoMoedasAtivo,
-    setEventoMoedasAtivo,
 
     // --- anti nuke de canais ---
     alternarAntiNukeCanais,
@@ -7464,7 +7158,6 @@ module.exports = {
     // --- estado e constantes compartilhados ---
     auditLogCache,
     AVATAR_SIZE,
-    bufferMensagens,
     CACHE_AUDIT_MS,
     canaisLockDB,
     CANAL_LOGS_CANAIS_TEXTO,
@@ -7479,7 +7172,6 @@ module.exports = {
     DURACAO_PUNICAO_STAFF_MS,
     EMOJI_SIZE,
     EMOJI_SIZE_CUSTOM,
-    eventoMoedas,
     EXCLUIR_CARGOS_POR_PAGINA,
     EXT_AUDIO,
     EXT_IMAGEM,
@@ -7553,12 +7245,10 @@ module.exports = {
     atualizarTodosPaineisProtecao,
     baixarTikTok,
     breakText,
-    bufferizarMensagem,
     buscarAuditLogsComCache,
     calculateHeight,
     canalDeLogParaTipo,
     carregarBotCallPaineis,
-    carregarConfigMoedas,
     carregarProtecao,
     carregarTellonymPendentes,
     carregarTickets,
@@ -7568,7 +7258,6 @@ module.exports = {
     construirEmbedPreview,
     contemConviteDoServidor,
     contemEveryoneOuHere,
-    darXP,
     definirStatusCanal,
     delCallTempPorCanal,
     destravarTodosCanais,
@@ -7580,7 +7269,6 @@ module.exports = {
     filtrarCargosPorNomeGRoles,
     encerrarSorteio,
     enviarAlertaProtecao,
-    enviarEventoMoedas,
     enviarWebhook,
     enviarWebhookComArquivo,
     escapeHTML,
@@ -7590,10 +7278,7 @@ module.exports = {
     fazerBackupServidor,
     filtrarCargosGRoles,
     filtrarPermsGRoles,
-    finalizarSessaoFarmCall,
     finalizarSessaoVoiceSorteio,
-    flushBufferMensagens,
-    flushSessoesFarmCall,
     flushSessoesVoiceSorteio,
     fontePorAtom,
     formatarBytes,
@@ -7619,15 +7304,12 @@ module.exports = {
     helpUsoOpcoes,
     hospedarMidiaTranscript,
     incrementarConviteStats,
-    inicializarSessoesFarmCall,
     inicializarSessoesVoiceSorteio,
-    iniciarSessaoFarmCall,
     iniciarSessaoVoiceSorteio,
     larguraDoAtom,
     limitarCache,
     limiteNukeAcao,
     limiteNukeAcaoExtra,
-    limparEstadoEventoMoedas,
     limparInvitesCacheDesatualizado,
     limparNukeTrackerAntigo,
     linkPermitido,
@@ -7664,7 +7346,6 @@ module.exports = {
     hashComentarioInsta,
     montarPainelListaCargo, montarPainelConfirmacaoAddCargo, montarPainelConfirmacaoRemCargo,
     montarPainelLock,
-    montarPainelMoedas,
     montarPainelMsgCriadorBuilder,
     montarPainelMsgCriadorInicial,
     montarPainelProgressoBackup,
@@ -7715,14 +7396,11 @@ module.exports = {
     renderComponenteV2,
     restaurarBackupServidor,
     roundedRect,
-    salvarConfigMoedas,
-    salvarEstadoEventoMoedas,
     salvarProtecao,
     salvarTellonymPendenteUsuario,
     salvarVoiceState,
     setAfk,
     setCallTemp,
-    somarMensagens,
     sortearGanhadorSorteio,
     temPermissaoEditarCargosGRoles,
     tokenizarLinhaComEmoji,
@@ -7731,8 +7409,6 @@ module.exports = {
     verificarAntiLink,
     verificarBanEmMassaStaff,
     verificarCallTemp,
-    verificarCargosLojaExpirados,
-    verificarEventoMoedasAntigo,
     verificarSpamMensagem,
     verificarUrlNaBio,
 };
