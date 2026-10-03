@@ -543,21 +543,43 @@ function roundedRect(ctx, x, y, width, height, radius) {
 
 }
 
-async function loadAvatar(url, anonimo) {
+// Imagem do avatar anônimo do card Tellonym: se existir o arquivo assets/anonimo.png (ao lado do index.js),
+// usa ele; senão cai na logo padrão do Discord. Carrega UMA vez e guarda na memória — antes baixava a
+// imagem da internet a cada card anônimo, e esse download era a parte lenta.
+const CAMINHO_AVATAR_ANONIMO = path.join(__dirname, 'assets', 'anonimo.png');
+let avatarAnonimoCache = null;
+let logoDiscordCache = null;
 
+async function carregarLogoDiscord() {
+    if (!logoDiscordCache) logoDiscordCache = await loadImage(IMG_DISCORD_LOGO);
+    return logoDiscordCache;
+}
+
+async function carregarAvatarAnonimo() {
+    if (avatarAnonimoCache) return avatarAnonimoCache;
     try {
-
-        if (anonimo || !url)
-            return await loadImage(IMG_DISCORD_LOGO);
-
-        return await loadImage(url);
-
-    } catch {
-
-        return await loadImage(IMG_DISCORD_LOGO);
-
+        if (fs.existsSync(CAMINHO_AVATAR_ANONIMO)) {
+            avatarAnonimoCache = await loadImage(CAMINHO_AVATAR_ANONIMO);
+            return avatarAnonimoCache;
+        }
+    } catch (err) {
+        console.error('--- Falha ao carregar assets/anonimo.png, usando a logo do Discord ---', err.message);
     }
+    avatarAnonimoCache = await carregarLogoDiscord();
+    return avatarAnonimoCache;
+}
 
+// Já deixa pronto no boot pra o primeiro card não pagar o custo de carregar
+carregarAvatarAnonimo().catch(() => null);
+
+async function loadAvatar(url, anonimo) {
+    try {
+        if (anonimo) return await carregarAvatarAnonimo();
+        if (!url) return await carregarLogoDiscord();
+        return await loadImage(url);
+    } catch {
+        return await carregarLogoDiscord();
+    }
 }
 
 // ============ FORMATAÇÃO ESTILO DISCORD (CARD DE TELLONYM) ============
