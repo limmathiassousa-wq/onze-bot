@@ -535,6 +535,14 @@ const client = new Client({
 });
 setClient(client);
 
+// Cargos do painel o!laterais (escopo global: usado no comando e no handler dos botões)
+const LATERAIS_CARGOS = {
+    laterais_lal:    { cargo: '1542321888234045540', emoji: { id: '1542593118371717230', name: 'lal' } },
+    laterais_blood:  { cargo: '1542321888175456365', emoji: { id: '1542592429742489671', name: 'blood' } },
+    laterais_star:   { cargo: '1542321888175456363', emoji: { id: '1542593328753803367', name: 'star' } },
+    laterais_splash: { cargo: '1542321888175456362', emoji: { id: '1542590392271376445', name: 'splash' } }
+};
+
 client.on('channelCreate', (canal) => {
     try { antiNukeCanalCriado(canal); } catch (err) { console.error('--- Erro no Anti Nuke (canal criado) ---', err); }
 });
@@ -2214,13 +2222,6 @@ if (message.content.toLowerCase() === `${PREFIXO}painelurl`) {
        
     
 // ============ LATERAIS (PREFIXO): painel de cargos por botão ============
-const LATERAIS_CARGOS = {
-    laterais_lal:    { cargo: '1542321888234045540', emoji: { id: '1542593118371717230', name: 'lal' } },
-    laterais_blood:  { cargo: '1542321888175456365', emoji: { id: '1542592429742489671', name: 'blood' } },
-    laterais_star:   { cargo: '1542321888175456363', emoji: { id: '1542593328753803367', name: 'star' } },
-    laterais_splash: { cargo: '1542321888175456362', emoji: { id: '1542590392271376445', name: 'splash' } }
-};
-
 if (message.content.toLowerCase() === `${PREFIXO}laterais`) {
     if (message.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) {
         return message.reply('Você não tem permissão para utilizar este comando!')
