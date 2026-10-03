@@ -840,13 +840,6 @@ client.on('channelUpdate', async (canalAntigo, canalNovo) => {
     if (canalAntigo.type !== canalNovo.type) {
         alteracoes.push(`**Tipo:** \`${nomeTipoCanalLog(canalAntigo.type)}\` → \`${nomeTipoCanalLog(canalNovo.type)}\``);
     }
-    const parentIdAntigo = canalAntigo.parentId ?? null;
-    const parentIdNovo = canalNovo.parentId ?? null;
-    if (parentIdAntigo !== parentIdNovo) {
-        const catAntiga = canalAntigo.parent ? canalAntigo.parent.name : 'Nenhuma';
-        const catNova = canalNovo.parent ? canalNovo.parent.name : 'Nenhuma';
-        alteracoes.push(`**Categoria:** \`${catAntiga}\` → \`${catNova}\``);
-    }
     if ('topic' in canalAntigo && (canalAntigo.topic || null) !== (canalNovo.topic || null)) {
         alteracoes.push(`**Tópico:** \`${canalAntigo.topic || 'Nenhum'}\` → \`${canalNovo.topic || 'Nenhum'}\``);
     }
@@ -876,12 +869,10 @@ client.on('channelUpdate', async (canalAntigo, canalNovo) => {
 
     // Uma edição de só permissões (sem mexer em nome/tópico/etc) é registrada pelo Discord
     // como ChannelOverwriteCreate/Update/Delete, não como ChannelUpdate — por isso busca nos dois.
-    // Arrastar o canal pra outra categoria não gera entrada no audit log: esperar segundos só atrasaria o log
-    const soMudouCategoria = alteracoes.length === 1 && alteracoes[0].startsWith('**Categoria:**');
     const executor = await obterExecutorAuditLog(canalNovo.guild, [
         AuditLogEvent.ChannelUpdate, AuditLogEvent.ChannelOverwriteCreate,
         AuditLogEvent.ChannelOverwriteUpdate, AuditLogEvent.ChannelOverwriteDelete
-    ], canalNovo.id, soMudouCategoria ? { esperas: [0, 400] } : {});
+    ], canalNovo.id);
 
     await logarCanalServidor({
         guild: canalNovo.guild,
