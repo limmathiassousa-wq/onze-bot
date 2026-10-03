@@ -435,8 +435,8 @@ const HELP_PREFIXO_DESCRICOES = {
     unmute: 'Remove o mute de um usuário com confirmação',
     muteinfo: 'Painel com a lista de mutados (adicionar/remover)',
     painelurl: 'Painel de verificação de link na bio',
+    laterais: 'Painel com botões para pegar os cargos laterais',
     info: 'Painel de hierarquia de cargos',
-    tiktok: 'Baixa vídeos do TikTok sem marca d\'água',
     msg: 'Cria e envia uma mensagem personalizada em um canal',
     cl: 'Apaga mensagens do autor do comando',
     limpar: 'Apaga mensagens do canal',
@@ -447,8 +447,8 @@ const HELP_PREFIXO_DESCRICOES = {
 // Só pra preencher o "Ajuda › Categoria › comando". Comando fora daqui cai em "Geral".
 const HELP_CATEGORIAS = {
     'Moderação': ['ban', 'unban', 'kick', 'mute', 'unmute', 'muteinfo', 'limpar', 'nuke', 'painelps', 'cl'],
-    'Administração': ['addemoji', 'regras', 'tickets', 'addcargo', 'remcargo', 'groles', 'roleall', 'painelurl'],
-    'Diversão': ['pd', 'tellonym', 'tiktok'],
+    'Administração': ['addemoji', 'regras', 'tickets', 'addcargo', 'remcargo', 'groles', 'roleall', 'painelurl', 'laterais'],
+    'Diversão': ['pd', 'tellonym'],
     'Utilidades': ['sorteio', 'convite', 'afk', 'botcall', 'avatar', 'painelcall', 'info', 'msg'],
     'Ajuda': ['help']
 };
@@ -487,8 +487,8 @@ const INFO_COMANDOS = {
     [`${PREFIXO}ban`]: { descricao: 'Bane um usuário mencionado do servidor, com uma etapa de confirmação antes de executar. A embed some em 1 minuto se ninguém agir.', comoUsar: `${PREFIXO}ban @usuário|ID [motivo]`, exemplo: `${PREFIXO}ban @Fulano Spam ou ${PREFIXO}ban 123456789012345678 Spam`, permissao: 'Banir Membros ou Equipe' },
     [`${PREFIXO}unban`]: { descricao: 'Remove o banimento de um usuário pelo ID, com uma etapa de confirmação antes de executar. A embed some em 1 minuto se ninguém agir.', comoUsar: `${PREFIXO}unban <ID|@usuário> [motivo]`, exemplo: `${PREFIXO}unban 123456789012345678`, permissao: 'Banir Membros ou Equipe' },
     [`${PREFIXO}painelurl`]: { descricao: 'Envia um painel para o usuário verificar se colocou o link do servidor na bio ou nos pronomes, e recebe um cargo automaticamente se encontrado.', comoUsar: `${PREFIXO}painelurl`, exemplo: `${PREFIXO}painelurl`, permissao: 'Equipe' },
+    [`${PREFIXO}laterais`]: { descricao: 'Envia um painel só com botões de emoji; cada botão adiciona (ou remove) um cargo lateral de quem clicar.', comoUsar: `${PREFIXO}laterais`, exemplo: `${PREFIXO}laterais`, permissao: 'Equipe' },
     [`${PREFIXO}info`]: { descricao: 'Envia o painel de hierarquia de cargos, permitindo consultar quem possui cada cargo do servidor.', comoUsar: `${PREFIXO}info`, exemplo: `${PREFIXO}info`, permissao: 'Nenhuma' },
-    [`${PREFIXO}tiktok`]: { descricao: 'Baixa e envia um vídeo do TikTok sem marca d\'água a partir do link enviado.', comoUsar: `${PREFIXO}tiktok <link do tiktok>`, exemplo: `${PREFIXO}tiktok https://www.tiktok.com/@usuario/video/123`, permissao: 'Nenhuma' },
     [`${PREFIXO}msg`]: { descricao: 'Abre um painel interativo pra montar uma mensagem personalizada (com texto, imagem e botões) e enviá-la em qualquer canal de texto do servidor. O painel expira e é apagado após 20 minutos.', comoUsar: `${PREFIXO}msg`, exemplo: `${PREFIXO}msg`, permissao: 'Equipe' },
     [`${PREFIXO}regras`]: { descricao: 'Envia o painel de regras do servidor no canal atual.', comoUsar: `${PREFIXO}regras`, exemplo: `${PREFIXO}regras`, permissao: 'Equipe' },
     [`${PREFIXO}tickets`]: { descricao: 'Envia o painel de abertura de atendimento (tickets) no canal atual.', comoUsar: `${PREFIXO}tickets`, exemplo: `${PREFIXO}tickets`, permissao: 'Equipe' },
@@ -2191,15 +2191,35 @@ async function restaurarBackupServidor(guild, backupId, onProgresso, estado) {
     return resultado;
 }
 
-function montarPainelInfoHierarquia(guild, autorId) {
+async function montarPainelInfoHierarquia(guild, autorId) {
     const iconUrl = guild.iconURL({ extension: 'png', size: 256 });
+
+    // Cargo com mais membros (ignora @everyone)
+    let cargoTexto = '`Nenhum`';
+    try {
+        const membros = await obterMembrosCache(guild);
+        const contagem = new Map();
+        for (const m of membros.values()) {
+            for (const id of m.roles.cache.keys()) {
+                if (id === guild.id) continue;
+                contagem.set(id, (contagem.get(id) || 0) + 1);
+            }
+        }
+        let topoId = null, topoQtd = 0;
+        for (const [id, qtd] of contagem) {
+            if (qtd > topoQtd) { topoId = id; topoQtd = qtd; }
+        }
+        if (topoId) cargoTexto = `<@&${topoId}> (${topoQtd} membros)`;
+    } catch (err) {
+        console.error('--- Erro ao calcular cargo com mais membros ---', err);
+    }
 
     return new ContainerBuilder()
         .addTextDisplayComponents(new TextDisplayBuilder().setContent('## <:23310:1548566772700024882> Hierarquia de Cargos'))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addSectionComponents(
             new SectionBuilder()
-                .addTextDisplayComponents(new TextDisplayBuilder().setContent('**Cargo mais alto atualmente**: <@&1542321888355684456>'))
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Cargo mais alto atualmente**: ${cargoTexto}`))
                 .setThumbnailAccessory(new ThumbnailBuilder().setURL(iconUrl || IMG_DISCORD_LOGO))
         )
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
@@ -2333,71 +2353,6 @@ function montarPainelConfirmacaoRemCargo(alvo, cargo, autor) {
                     .setStyle(ButtonStyle.Danger)
             )
         );
-}
-
-async function baixarTikTok(link) {
-    // ---- Tentativa 1: RapidAPI (tiktok-video-no-watermark2) ----
-    if (process.env.TIKTOK_RAPIDAPI_KEY) {
-        try {
-            const resposta = await fetch(
-                `https://tiktok-video-no-watermark2.p.rapidapi.com/?url=${encodeURIComponent(link)}&hd=1`,
-                {
-                    headers: {
-                        'X-RapidAPI-Key': process.env.TIKTOK_RAPIDAPI_KEY,
-                        'X-RapidAPI-Host': 'tiktok-video-no-watermark2.p.rapidapi.com'
-                    }
-                }
-            );
-            if (resposta.ok) {
-                const dados = await resposta.json();
-                if (dados.code === 0 && dados.data) {
-                    const url = dados.data.hdplay || dados.data.play;
-                    if (url) return url;
-                }
-            } else {
-                console.error(`--- RapidAPI retornou status ${resposta.status} ---`);
-            }
-        } catch (err) {
-            console.error('--- RapidAPI falhou, tentando fallback ---', err.message);
-        }
-    }
-
-    // ---- Tentativa 2: tikwm (grátis, sem chave) ----
-    try {
-        const resposta = await fetch(`https://www.tikwm.com/api/`, {
-            method: 'POST',
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                'Referer': 'https://www.tikwm.com/',
-                'Content-Type': 'application/x-www-form-urlencoded'
-            },
-            body: new URLSearchParams({ url: link, hd: '1' })
-        });
-        if (resposta.ok) {
-            const dados = await resposta.json();
-            if (dados.code === 0 && dados.data) {
-                return dados.data.hdplay || dados.data.play;
-            }
-        }
-    } catch (err) {
-        console.error('--- tikwm falhou, tentando próximo fallback ---', err.message);
-    }
-
-    // ---- Tentativa 3: tiklydown (grátis, sem chave) ----
-    try {
-        const respostaAlt = await fetch(`https://api.tiklydown.eu.org/api/download?url=${encodeURIComponent(link)}`, {
-            headers: { 'User-Agent': 'Mozilla/5.0' }
-        });
-        if (respostaAlt.ok) {
-            const dadosAlt = await respostaAlt.json();
-            const url = dadosAlt?.video?.playAddr?.[0] || dadosAlt?.video?.downloadAddr;
-            if (url) return url;
-        }
-    } catch (err) {
-        console.error('--- tiklydown falhou ---', err.message);
-    }
-
-    return null;
 }
 
 async function limparInvitesCacheDesatualizado() {
@@ -7243,7 +7198,6 @@ module.exports = {
     atualizarProgressoMensagensSorteio,
     atualizarStatusCallsSorteio,
     atualizarTodosPaineisProtecao,
-    baixarTikTok,
     breakText,
     buscarAuditLogsComCache,
     calculateHeight,

@@ -246,7 +246,7 @@ const {
     TIME_SIZE, agendarEncerramentoSorteio, agendarExpiracaoGRoles, agendarExpiracaoMsgCriador,
     agendarFimMuteCargo, aguardarEBuscarAuditLog, aplicarMuteCargo, assumirTicket,
     atualizarPainelBotCallAuto, atualizarProgressoCallSorteio, atualizarProgressoInviteSorteio, atualizarProgressoMensagensSorteio,
-    atualizarStatusCallsSorteio, atualizarTodosPaineisProtecao, auditLogCache, baixarTikTok,
+    atualizarStatusCallsSorteio, atualizarTodosPaineisProtecao, auditLogCache,
     breakText, buscarAuditLogsComCache,
     calculateHeight, canaisLockDB, canalDeLogParaTipo, carregarBotCallPaineis,
     carregarProtecao, carregarTellonymPendentes, carregarTickets,
@@ -2213,9 +2213,48 @@ if (message.content.toLowerCase() === `${PREFIXO}painelurl`) {
 }
        
     
+// ============ LATERAIS (PREFIXO): painel de cargos por botão ============
+const LATERAIS_CARGOS = {
+    laterais_lal:    { cargo: '1542321888234045540', emoji: { id: '1542593118371717230', name: 'lal' } },
+    laterais_blood:  { cargo: '1542321888175456365', emoji: { id: '1542592429742489671', name: 'blood' } },
+    laterais_star:   { cargo: '1542321888175456363', emoji: { id: '1542593328753803367', name: 'star' } },
+    laterais_splash: { cargo: '1542321888175456362', emoji: { id: '1542590392271376445', name: 'splash' } }
+};
+
+if (message.content.toLowerCase() === `${PREFIXO}laterais`) {
+    if (message.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) {
+        return message.reply('Você não tem permissão para utilizar este comando!')
+            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
+    }
+    const temPermissao = message.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
+    if (!temPermissao) {
+        return message.reply('Você não tem permissão para utilizar este comando!')
+            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
+    }
+
+    await message.delete().catch(() => null);
+
+    const container = new ContainerBuilder()
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                Object.entries(LATERAIS_CARGOS).map(([customId, { emoji }]) =>
+                    new ButtonBuilder()
+                        .setCustomId(customId)
+                        .setEmoji(emoji)
+                        .setStyle(ButtonStyle.Secondary)
+                )
+            )
+        );
+
+    return message.channel.send({
+        components: [container],
+        flags: [MessageFlags.IsComponentsV2]
+    });
+}
+
 if (message.content.toLowerCase() === `${PREFIXO}info`) {
     return message.channel.send({
-        components: [montarPainelInfoHierarquia(message.guild, message.author.id)],
+        components: [await montarPainelInfoHierarquia(message.guild, message.author.id)],
         flags: [MessageFlags.IsComponentsV2],
         allowedMentions: { parse: [] }
     });
@@ -2404,88 +2443,6 @@ if (message.content.toLowerCase() === `${PREFIXO}pd`) {
     return;
 }
 
-    if (message.content.toLowerCase().startsWith(`${PREFIXO}tiktok`)) {
-    const args = message.content.trim().split(/\s+/);
-    const link = args[1];
-
-    const regexTikTok = /https?:\/\/(www\.|vm\.|vt\.)?tiktok\.com\/\S+/i;
-    if (!link || !regexTikTok.test(link)) {
-        return message.channel.send(`Uso correto: \`${PREFIXO}tikv <link do tiktok>\``)
-            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
-    }
-
-    const containerCarregando = new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent('<a:carregando:1548558543253409882> Baixando vídeo, aguarde...'));
-
-    let msgCarregando;
-    try {
-        msgCarregando = await message.channel.send({
-            components: [containerCarregando],
-            flags: [MessageFlags.IsComponentsV2]
-        });
-    } catch (err) {
-        console.error('--- Erro ao enviar mensagem de carregamento do tikv ---', err);
-        return message.delete().catch(() => null);
-    }
-
-    try {
-        const videoUrl = await baixarTikTok(link);
-        if (!videoUrl) throw new Error('Não foi possível baixar esse vídeo em nenhum dos provedores disponíveis');
-
-        const respostaVideo = await fetch(videoUrl);
-        if (!respostaVideo.ok) throw new Error('Falha ao baixar o arquivo de vídeo');
-
-        const arrayBuffer = await respostaVideo.arrayBuffer();
-        const bufferVideo = Buffer.from(arrayBuffer);
-
-        const LIMITE_TAMANHO = 25 * 1024 * 1024;
-        if (bufferVideo.length > LIMITE_TAMANHO) {
-            await msgCarregando.edit({
-                components: containerTexto('O vídeo é muito grande para ser enviado aqui (limite de 25MB).'),
-                flags: [MessageFlags.IsComponentsV2]
-            }).catch(() => null);
-            return message.delete().catch(() => null);
-        }
-
-        const anexoVideo = new AttachmentBuilder(bufferVideo, { name: 'tiktok.mp4' });
-
-const containerFinal = new ContainerBuilder()
-	.setAccentColor(0xFFFFFF) 
-    .addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`<:tiktok2:1548558848258744372> **TIKTOK**・Enviado por ${message.author}`)
-    )
-    .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-    .addMediaGalleryComponents(
-        new MediaGalleryBuilder().addItems(
-            new MediaGalleryItemBuilder().setURL('attachment://tiktok.mp4')
-        )
-    )
-    .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-    .addTextDisplayComponents(
-        new TextDisplayBuilder().setContent('Será excluído em **3 minutos**')
-    );
-
-const msgFinalTikv = await comRetry(() => msgCarregando.edit({
-    components: [containerFinal],
-    files: [anexoVideo],
-    flags: [MessageFlags.IsComponentsV2]
-}));
-
-setTimeout(() => {
-    msgFinalTikv.delete().catch(() => null);
-}, 3 * 60 * 1000); 
-
-    } catch (err) {
-        console.error('--- Erro ao baixar vídeo do TikTok ---', err);
-        await msgCarregando.edit({
-            components: containerTexto('Ocorreu um erro ao baixar o vídeo. Verifique se o link está correto e tente novamente.'),
-            flags: [MessageFlags.IsComponentsV2]
-        }).catch(() => null);
-    }
-
-    return message.delete().catch(() => null);
-}
- 
     if (message.attachments.size > 0 && REACOES_ANEXO[message.channel.id]) {
         message.react(REACOES_ANEXO[message.channel.id]).catch(() => null);
     }
@@ -4762,6 +4719,48 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'help_categoria
 }
 
 	
+	if (interaction.isButton() && LATERAIS_CARGOS[interaction.customId]) {
+    const { cargo: cargoId } = LATERAIS_CARGOS[interaction.customId];
+
+    try {
+        const cargo = interaction.guild.roles.cache.get(cargoId) || await interaction.guild.roles.fetch(cargoId).catch(() => null);
+        if (!cargo) {
+            return interaction.reply({
+                components: containerTexto('Esse cargo não existe mais no servidor.'),
+                flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
+            });
+        }
+        if (!cargo.editable) {
+            return interaction.reply({
+                components: containerTexto('Não consigo gerenciar esse cargo. Verifique a hierarquia de cargos.'),
+                flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
+            });
+        }
+
+        const membro = await interaction.guild.members.fetch(interaction.user.id);
+        const jaTem = membro.roles.cache.has(cargoId);
+
+        if (jaTem) {
+            await membro.roles.remove(cargoId, 'Painel de laterais');
+        } else {
+            await membro.roles.add(cargoId, 'Painel de laterais');
+        }
+
+        return interaction.reply({
+            components: containerTexto(`${jaTem ? 'Cargo removido' : 'Cargo adicionado'} com sucesso: <@&${cargoId}>`),
+            flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral],
+            allowedMentions: { parse: [] }
+        });
+    } catch (err) {
+        console.error('--- Erro no painel de laterais ---', err);
+        const resposta = {
+            components: containerTexto('Ocorreu um erro ao atualizar seu cargo. Tente novamente em alguns instantes.'),
+            flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
+        };
+        return (interaction.replied || interaction.deferred ? interaction.followUp(resposta) : interaction.reply(resposta)).catch(() => null);
+    }
+}
+
 	if (interaction.isButton() && interaction.customId === 'painelurl_verificar') {
     const CARGO_URL_TURQUIA = '1542321888175456362';
 
