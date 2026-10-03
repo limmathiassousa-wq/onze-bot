@@ -4242,16 +4242,58 @@ async function buscarAuditLogsComCache(guild, tipoEvento) {
     }
 }
 
-async function obterExecutorAuditLog(guild, tipoEvento, alvoId = null) {
+// Busca sem cache de resultado: o cache de 800ms guardava listas SEM a entrada recém-criada (o audit log demora a registrar)
+// e fazia o executor sair como "Desconhecido". Buscas simultâneas do mesmo tipo (rajadas) dividem uma requisição só.
+const auditFrescoEmAndamento = new Map();
+let ultimoAvisoSemPermissaoAudit = 0;
+
+function buscarAuditFresco(guild, tipoEvento) {
+    const chave = `${guild.id}-${tipoEvento}`;
+    const atual = auditFrescoEmAndamento.get(chave);
+    if (atual && Date.now() - atual.inicio < 250) return atual.promessa;
+
+    const promessa = guild.fetchAuditLogs({ type: tipoEvento, limit: 10 })
+        .then(logs => [...logs.entries.values()])
+        .catch(err => {
+            if (err.code === 50013 || err.code === 50001) {
+                // Sem permissão: avisa no máximo 1x por minuto pra não inundar o console
+                if (Date.now() - ultimoAvisoSemPermissaoAudit > 60 * 1000) {
+                    ultimoAvisoSemPermissaoAudit = Date.now();
+                    console.warn('[AUDIT LOG] O bot não tem a permissão "Ver registro de auditoria" — os logs vão sair sem "Executado por".');
+                }
+            } else {
+                console.error(`--- Erro ao buscar audit log (tipo ${tipoEvento}) ---`, err.message);
+            }
+            return [];
+        });
+    auditFrescoEmAndamento.set(chave, { inicio: Date.now(), promessa });
+    return promessa;
+}
+
+const ESPERAS_AUDIT_PADRAO_MS = [0, 400, 1000, 2000];   // o audit log às vezes demora segundos pra registrar
+
+// Procura uma entrada do audit log que satisfaça o predicado, tentando de novo enquanto ela não aparece.
+// Só aceita entradas criadas desde pouco antes do evento chegar (evita pegar ação antiga como se fosse esta).
+async function aguardarEntradaAudit(guild, tipos, predicado, { esperas = ESPERAS_AUDIT_PADRAO_MS, toleranciaMs = 10000 } = {}) {
+    const chegada = Date.now();
+    const lista = Array.isArray(tipos) ? tipos : [tipos];
+
+    for (const espera of esperas) {
+        if (espera) await esperar(espera);
+        const listas = await Promise.all(lista.map(t => buscarAuditFresco(guild, t)));
+        const candidatas = listas.flat()
+            .filter(e => e.createdTimestamp >= chegada - toleranciaMs && predicado(e))
+            .sort((x, y) => y.createdTimestamp - x.createdTimestamp);
+        if (candidatas[0]) return candidatas[0];
+    }
+    return null;
+}
+
+async function obterExecutorAuditLog(guild, tipoEvento, alvoId = null, opcoes = {}) {
     // Aceita um tipo único ou uma lista de tipos (ex: permissão editada é logada como
     // ChannelOverwriteUpdate, não ChannelUpdate — quem chama pode precisar checar os dois).
-    const tipos = Array.isArray(tipoEvento) ? tipoEvento : [tipoEvento];
-    const listas = await Promise.all(tipos.map(t => buscarAuditLogsComCache(guild, t)));
-    const candidatas = listas
-        .flat()
-        .filter(e => (Date.now() - e.createdTimestamp) < 15000 && (!alvoId || e.target?.id === alvoId))
-        .sort((a, b) => b.createdTimestamp - a.createdTimestamp);
-    return candidatas[0]?.executor ?? null;
+    const entrada = await aguardarEntradaAudit(guild, tipoEvento, e => !alvoId || e.target?.id === alvoId, opcoes);
+    return entrada?.executor ?? null;
 }
 
 async function punirExecutorNuke(guild, executor, motivo) {
@@ -4527,6 +4569,7 @@ const canaisTemporarios = new Set();            // calls temporárias e call pri
 const acoesPropriasCanais = new Map();          // canalId -> { n, ate } (edições feitas pelo próprio bot)
 const restauracoesCanais = new Map();           // canalIdAntigo -> Promise do canal restaurado (ou null)
 const idsCanaisRestaurados = new Map();         // canalIdAntigo -> canalIdNovo
+const revertendoCanaisAntiNuke = new Map();      // canalId -> timestamp até quando eventos desse canal vêm de uma reversão do próprio Anti Nuke
 const punidosAntiNukeCanais = new Set();        // guildId:executorId punido há pouco (evita punir/avisar em duplicidade)
 const auditRapidoCanais = new Map();            // guildId -> { inicio, promessa } (um fetch atende vários eventos)
 const posicoesPendentesCanais = new Map();      // guildId -> { timer, mapa: Map(canalId -> posicao) }
@@ -4964,6 +5007,16 @@ async function restaurarCanalAntiNuke(guild, snap) {
     return novo;
 }
 
+function canalSendoRevertidoAntiNuke(canalId) {
+    const ate = revertendoCanaisAntiNuke.get(canalId);
+    if (!ate) return false;
+    if (ate < Date.now()) {
+        revertendoCanaisAntiNuke.delete(canalId);
+        return false;
+    }
+    return true;
+}
+
 // ---- reversão de canal editado ----
 async function reverterCanalAntiNuke(canal, snap, campos) {
     const guild = canal.guild;
@@ -4990,6 +5043,9 @@ async function reverterCanalAntiNuke(canal, snap, campos) {
         dados.permissionOverwrites = montarOverwritesAntiNuke(overwritesValidosAntiNuke(guild, snap.overwrites));
     }
 
+    // Marca o canal: o evento de edição gerado por esta reversão não deve virar mais um log de "Canal editado"
+    revertendoCanaisAntiNuke.set(canal.id, Date.now() + 15000);
+
     try {
         await canal.edit(dados);
     } catch (err) {
@@ -4998,6 +5054,7 @@ async function reverterCanalAntiNuke(canal, snap, campos) {
         await canal.edit(dados);
     }
 
+    revertendoCanaisAntiNuke.set(canal.id, Date.now() + 8000);
     if (campos.includes('parentId')) agendarAjustePosicoesAntiNuke(guild, canal.id, snap.posicao);
 }
 
@@ -5094,6 +5151,14 @@ async function antiNukeCanalEditado(antigo, novo) {
 
     const executor = await identificarExecutorCanal(guild, novo.id, TIPOS_AUDIT_EDICAO_CANAL, novo.parentId ?? snap.parentId ?? null);
     if ((await executorPermitidoCanais(guild, executor)) || (!executor && antiNukeCanaisPausas > 0)) {
+        obterMapaSnapshotsCanais(guild.id).set(novo.id, atual);
+        return;
+    }
+
+    // Arrastar um canal pra outra categoria usa o endpoint de reposicionamento em massa do Discord, que NÃO gera entrada
+    // no audit log. Sem executor e sem nenhuma outra mudança além da categoria (e das permissões herdadas ao sincronizar),
+    // não dá pra saber quem foi: em vez de reverter um movimento legítimo, aceita e atualiza o registro.
+    if (!executor && campos.includes('parentId') && campos.every(c => c === 'parentId' || c === 'overwrites')) {
         obterMapaSnapshotsCanais(guild.id).set(novo.id, atual);
         return;
     }
@@ -7102,6 +7167,7 @@ module.exports = {
     antiNukeCanalCriado,
     antiNukeCanalDeletado,
     antiNukeCanalEditado,
+    canalSendoRevertidoAntiNuke,
     definirBypassAntiNukeCanais,
     inicializarAntiNukeCanais,
     marcarAcaoPropriaCanal,
@@ -7324,6 +7390,7 @@ module.exports = {
     obterCargosGerenciaveisGRoles,
     obterDadosAfk,
     obterExecutorAuditLog,
+    aguardarEntradaAudit,
     obterMembrosCache,
     obterMemoriaContainer,
     obterPrimeiroCanalCategoria,

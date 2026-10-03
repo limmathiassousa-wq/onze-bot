@@ -291,7 +291,7 @@ const {
     temPermissaoEditarCargosGRoles, ticketDB, tokenizarLinhaComEmoji, tokenizarPalavraComEmoji,
     travarTodosCanais, verificarAntiLink, verificarBanEmMassaStaff, verificarCallTemp,
     verificarSpamMensagem, verificarUrlNaBio,
-    alternarAntiNukeCanais, antiNukeCanalCriado, antiNukeCanalDeletado, antiNukeCanalEditado,
+    alternarAntiNukeCanais, antiNukeCanalCriado, antiNukeCanalDeletado, antiNukeCanalEditado, canalSendoRevertidoAntiNuke,
     definirBypassAntiNukeCanais, inicializarAntiNukeCanais, marcarAcaoPropriaCanal,
     marcarCanalTemporarioAntiNuke, montarPainelAntiNukeCanais, pausarAntiNukeCanais, retomarAntiNukeCanais
 } = require('./functions');
@@ -619,7 +619,7 @@ client.on('guildMemberRemove', async (member) => {
     }).catch(() => null);
 
     // ============ EXPULSÃO — LOG + ANTI KICK EM MASSA ============
-    const executorKick = await obterExecutorAuditLog(guild, AuditLogEvent.MemberKick, userData.id);
+    const executorKick = await obterExecutorAuditLog(guild, AuditLogEvent.MemberKick, userData.id, { esperas: [0, 500, 1200] });
     if (executorKick) {
         if (executorKick.id !== client.user.id) {
             await logarExpulsao({
@@ -656,8 +656,7 @@ if (protecaoConfig.antiRaid.nukeAtivo) {
 });
 
 client.on('guildBanAdd', async (ban) => {
-    const entries = await buscarAuditLogsComCache(ban.guild, AuditLogEvent.MemberBanAdd);
-    const entrada = entries.find(e => (Date.now() - e.createdTimestamp) < 15000 && e.target?.id === ban.user.id);
+    const entrada = await aguardarEntradaAudit(ban.guild, AuditLogEvent.MemberBanAdd, e => e.target?.id === ban.user.id);
     const executor = entrada?.executor ?? null;
 
     if (protecaoConfig.antiRaid.nukeAtivo && executor) {
@@ -687,8 +686,7 @@ if (executor && executor.id !== client.user.id) {
 });
 
 client.on('guildBanRemove', async (ban) => {
-    const entries = await buscarAuditLogsComCache(ban.guild, AuditLogEvent.MemberBanRemove);
-    const entrada = entries.find(e => (Date.now() - e.createdTimestamp) < 15000 && e.target?.id === ban.user.id);
+    const entrada = await aguardarEntradaAudit(ban.guild, AuditLogEvent.MemberBanRemove, e => e.target?.id === ban.user.id);
     const executor = entrada?.executor ?? null;
 
     // Loga apenas unbans feitos manualmente (fora dos comandos do bot)
@@ -831,6 +829,8 @@ client.on('channelDelete', async (canal) => {
 
 client.on('channelUpdate', async (canalAntigo, canalNovo) => {
     if (!canalNovo.guild) return;
+    // Edição feita pela própria reversão do Anti Nuke: o relatório dele já cobre isso, não duplica o log
+    if (canalSendoRevertidoAntiNuke(canalNovo.id)) return;
 
     const alteracoes = [];
 
@@ -876,10 +876,12 @@ client.on('channelUpdate', async (canalAntigo, canalNovo) => {
 
     // Uma edição de só permissões (sem mexer em nome/tópico/etc) é registrada pelo Discord
     // como ChannelOverwriteCreate/Update/Delete, não como ChannelUpdate — por isso busca nos dois.
+    // Arrastar o canal pra outra categoria não gera entrada no audit log: esperar segundos só atrasaria o log
+    const soMudouCategoria = alteracoes.length === 1 && alteracoes[0].startsWith('**Categoria:**');
     const executor = await obterExecutorAuditLog(canalNovo.guild, [
         AuditLogEvent.ChannelUpdate, AuditLogEvent.ChannelOverwriteCreate,
         AuditLogEvent.ChannelOverwriteUpdate, AuditLogEvent.ChannelOverwriteDelete
-    ], canalNovo.id);
+    ], canalNovo.id, soMudouCategoria ? { esperas: [0, 400] } : {});
 
     await logarCanalServidor({
         guild: canalNovo.guild,
@@ -1083,12 +1085,7 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
     const estaMutado = depoisMs > agoraMs;
 
     if (estavaMutado !== estaMutado || (estaMutado && antesMs !== depoisMs)) {
-        const entries = await buscarAuditLogsComCache(newMember.guild, AuditLogEvent.MemberUpdate);
-        const entrada = entries.find(e =>
-            (Date.now() - e.createdTimestamp) < 15000 &&
-            e.target?.id === newMember.id &&
-            e.changes?.some(c => c.key === 'communication_disabled_until')
-        );
+        const entrada = await aguardarEntradaAudit(newMember.guild, AuditLogEvent.MemberUpdate, e => e.target?.id === newMember.id && e.changes?.some(c => c.key === 'communication_disabled_until'));
         const executor = entrada?.executor ?? null;
 
         if (executor && executor.id !== client.user.id) {
@@ -1120,11 +1117,7 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
     const temCargoMutado = newMember.roles.cache.has(CARGO_MUTADO);
 
     if (tinhaCargoMutado !== temCargoMutado) {
-        const entriesCargo = await buscarAuditLogsComCache(newMember.guild, AuditLogEvent.MemberRoleUpdate);
-        const entradaCargo = entriesCargo.find(e =>
-            (Date.now() - e.createdTimestamp) < 15000 &&
-            e.target?.id === newMember.id
-        );
+        const entradaCargo = await aguardarEntradaAudit(newMember.guild, AuditLogEvent.MemberRoleUpdate, e => e.target?.id === newMember.id);
         const executorCargo = entradaCargo?.executor ?? null;
 
         if (executorCargo && executorCargo.id !== client.user.id) {
@@ -1159,11 +1152,7 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
     const cargosRemovidosGeral = cargosAntesGeral.filter(c => !cargosDepoisGeral.has(c.id) && c.id !== CARGO_MUTADO);
 
     if (cargosAdicionadosGeral.size > 0 || cargosRemovidosGeral.size > 0) {
-        const entriesCargoGeral = await buscarAuditLogsComCache(newMember.guild, AuditLogEvent.MemberRoleUpdate);
-        const entradaGeral = entriesCargoGeral.find(e =>
-            (Date.now() - e.createdTimestamp) < 15000 &&
-            e.target?.id === newMember.id
-        );
+        const entradaGeral = await aguardarEntradaAudit(newMember.guild, AuditLogEvent.MemberRoleUpdate, e => e.target?.id === newMember.id);
         const executorGeral = entradaGeral?.executor ?? null;
 
         if (executorGeral && executorGeral.id !== client.user.id) {
@@ -1196,8 +1185,7 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
 
 client.on('roleCreate', async (role) => {
     try {
-        const entries = await buscarAuditLogsComCache(role.guild, AuditLogEvent.RoleCreate);
-        const entrada = entries.find(e => (Date.now() - e.createdTimestamp) < 15000 && e.target?.id === role.id);
+        const entrada = await aguardarEntradaAudit(role.guild, AuditLogEvent.RoleCreate, e => e.target?.id === role.id);
         const executor = entrada?.executor ?? null;
 
         await logarCargoServidor({
@@ -1229,8 +1217,7 @@ client.on('roleDelete', async (role) => {
     if (role.managed) return;
 
     try {
-        const entries = await buscarAuditLogsComCache(role.guild, AuditLogEvent.RoleDelete);
-        const entrada = entries.find(e => (Date.now() - e.createdTimestamp) < 15000 && e.target?.id === role.id);
+        const entrada = await aguardarEntradaAudit(role.guild, AuditLogEvent.RoleDelete, e => e.target?.id === role.id);
         const executor = entrada?.executor ?? null;
 
         await logarCargoServidor({
@@ -1297,8 +1284,7 @@ client.on('roleUpdate', async (cargoAntigo, cargoNovo) => {
 
         if (mudancas.length === 0) return;
 
-        const entries = await buscarAuditLogsComCache(cargoNovo.guild, AuditLogEvent.RoleUpdate);
-        const entrada = entries.find(e => (Date.now() - e.createdTimestamp) < 15000 && e.target?.id === cargoNovo.id);
+        const entrada = await aguardarEntradaAudit(cargoNovo.guild, AuditLogEvent.RoleUpdate, e => e.target?.id === cargoNovo.id);
         const executor = entrada?.executor ?? null;
 
         await logarCargoServidor({
@@ -1647,8 +1633,7 @@ if (oldState.channel && oldState.channelId !== CANAL_GERADOR_ID) {
             }).catch(err => console.error('--- Erro ao logar entrada em call ---', err));
 
         } else if (canalAntes && !canalDepois) {
-            const entradasDisconnect = await buscarAuditLogsComCache(newState.guild, AuditLogEvent.MemberDisconnect);
-            const entradaDisconnect = entradasDisconnect.find(e => (Date.now() - e.createdTimestamp) < 10000);
+            const entradaDisconnect = await aguardarEntradaAudit(newState.guild, AuditLogEvent.MemberDisconnect, e => true, { esperas: [0, 500] });
             const executorDisconnect = entradaDisconnect?.executor ?? null;
 
             if (executorDisconnect && executorDisconnect.id !== membroLogVoz.id) {
@@ -1684,12 +1669,7 @@ if (oldState.channel && oldState.channelId !== CANAL_GERADOR_ID) {
         }
 
         if (oldState.serverMute !== newState.serverMute) {
-            const entriesMute = await buscarAuditLogsComCache(newState.guild, AuditLogEvent.MemberUpdate);
-            const entradaMute = entriesMute.find(e =>
-                (Date.now() - e.createdTimestamp) < 10000 &&
-                e.target?.id === membroLogVoz.id &&
-                e.changes?.some(c => c.key === 'mute')
-            );
+            const entradaMute = await aguardarEntradaAudit(newState.guild, AuditLogEvent.MemberUpdate, e => e.target?.id === membroLogVoz.id && e.changes?.some(c => c.key === 'mute'));
             const executorMute = entradaMute?.executor ?? null;
 
             if (executorMute && executorMute.id !== client.user.id) {
@@ -1705,12 +1685,7 @@ if (oldState.channel && oldState.channelId !== CANAL_GERADOR_ID) {
         }
 
         if (oldState.serverDeaf !== newState.serverDeaf) {
-            const entriesDeaf = await aguardarEBuscarAuditLog(newState.guild, AuditLogEvent.MemberUpdate);
-            const entradaDeaf = entriesDeaf.find(e =>
-                (Date.now() - e.createdTimestamp) < 6000 &&
-                e.target?.id === membroLogVoz.id &&
-                e.changes?.some(c => c.key === 'deaf')
-            );
+            const entradaDeaf = await aguardarEntradaAudit(newState.guild, AuditLogEvent.MemberUpdate, e => e.target?.id === membroLogVoz.id && e.changes?.some(c => c.key === 'deaf'));
             const executorDeaf = entradaDeaf?.executor ?? null;
 
             if (executorDeaf && executorDeaf.id !== client.user.id) {
@@ -1877,7 +1852,7 @@ client.on('messageDelete', async (message) => {
         // Se nenhuma fonte conhece a mensagem, confere no audit log se quem foi
         // apagada foi uma mensagem do bot e, se for, não loga (igual antes do restart).
         if (!foiOBotQueApagou && !autorObj && conteudo === null) {
-            const execBot = await obterExecutorAuditLog(message.guild, AuditLogEvent.MessageDelete, client.user.id).catch(() => null);
+            const execBot = await obterExecutorAuditLog(message.guild, AuditLogEvent.MessageDelete, client.user.id, { esperas: [0, 500] }).catch(() => null);
             if (execBot) return;
         }
 
@@ -1887,7 +1862,7 @@ client.on('messageDelete', async (message) => {
         if (foiOBotQueApagou) {
             executor = `${client.user} — \`${client.user.tag}\` (ação automática do bot)`;
         } else if (autorObj) {
-            const executorAuditoria = await obterExecutorAuditLog(message.guild, AuditLogEvent.MessageDelete, autorObj.id).catch(() => null);
+            const executorAuditoria = await obterExecutorAuditLog(message.guild, AuditLogEvent.MessageDelete, autorObj.id, { esperas: [0, 500] }).catch(() => null);
 
             if (executorAuditoria && executorAuditoria.id === client.user.id) {
                 executor = 'Sistema';

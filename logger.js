@@ -14,6 +14,44 @@ const CANAL_LOGS_MENSAGENS_ID = CANAL_LOGS_MENSAGENS || '1548376183685783582';
 const CANAL_LOGS_VOZ_ID = CANAL_LOGS_VOZ || '1548380755804029090';
 
 // ================================================================
+// ENVIO ROBUSTO — usado por todas as funções de log
+// ================================================================
+// Pega o canal de logs do cache primeiro (sem ir na API a cada log); se o canal configurado
+// não existir mais, cai pro canal de logs de moderação pra o log não se perder.
+async function obterCanalLog(guild, canalId) {
+    const doCache = guild.channels.cache.get(canalId);
+    if (doCache) return doCache;
+
+    const buscado = await guild.channels.fetch(canalId).catch(() => null);
+    if (buscado) return buscado;
+
+    if (canalId !== CANAL_LOGS_MOD) {
+        console.warn(`[LOGS] Canal de logs ${canalId} não encontrado — usando o canal de moderação como reserva.`);
+        return guild.channels.cache.get(CANAL_LOGS_MOD) ?? await guild.channels.fetch(CANAL_LOGS_MOD).catch(() => null);
+    }
+    return null;
+}
+
+// Tenta enviar até 3 vezes (falha de rede, rate limit, erro 5xx). Erro de permissão não adianta repetir.
+async function enviarLogSeguro(canal, payload, tentativas = 3) {
+    let ultimoErro;
+    for (let i = 0; i < tentativas; i++) {
+        try {
+            return await canal.send(payload);
+        } catch (err) {
+            ultimoErro = err;
+            if (err.code === 50013 || err.code === 50001 || err.code === 10003) {
+                console.error(`[LOGS] Sem acesso ao canal de logs ${canal.id} (código ${err.code}).`);
+                break;
+            }
+            const espera = (err.retryAfter ? Number(err.retryAfter) : 800 * (i + 1));
+            await new Promise(resolve => setTimeout(resolve, Math.min(espera, 5000)));
+        }
+    }
+    throw ultimoErro;
+}
+
+// ================================================================
 // UTILITÁRIOS — só formatação, NÃO montam embed. Usados por todas
 // as funções de log abaixo pra evitar duplicar essa lógica em cada
 // uma, mas cada log continua responsável pela sua própria embed.
@@ -82,7 +120,7 @@ function obterDataHora() {
 // ================================================================
 async function enviarLogModeracao({ guild, tipo, alvo, alvoUser, autor, motivo, extra, canalId }) {
     try {
-        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_MOD).catch(() => null);
+        const canal = await obterCanalLog(guild, canalId || CANAL_LOGS_MOD);
         if (!canal) return;
 
         const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
@@ -119,7 +157,7 @@ async function enviarLogModeracao({ guild, tipo, alvo, alvoUser, autor, motivo, 
 
         container.addTextDisplayComponents(new TextDisplayBuilder().setContent(` ${dataFormatada} às ${horaFormatada}`));
 
-        await canal.send({
+        await enviarLogSeguro(canal, {
             components: [container],
             flags: [MessageFlags.IsComponentsV2],
             allowedMentions: { parse: [] }
@@ -150,7 +188,7 @@ async function logar(tipo, alvo, autor, opcoes = {}) {
 // ============ BANIMENTO / UNBAN — EMBED PRÓPRIA ============
 async function logarBanimento({ guild, tipo, alvo, alvoUser, autor, motivo, extra, canalId }) {
     try {
-        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_BANS).catch(() => null);
+        const canal = await obterCanalLog(guild, canalId || CANAL_LOGS_BANS);
         if (!canal) return;
 
         const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
@@ -179,7 +217,7 @@ async function logarBanimento({ guild, tipo, alvo, alvoUser, autor, motivo, extr
             .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
             .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
 
-        await canal.send({
+        await enviarLogSeguro(canal, {
             components: [container],
             flags: [MessageFlags.IsComponentsV2],
             allowedMentions: { parse: [] }
@@ -192,7 +230,7 @@ async function logarBanimento({ guild, tipo, alvo, alvoUser, autor, motivo, extr
 // ============ ENTRADA / SAÍDA DE MEMBROS — EMBED PRÓPRIA (sem campo Executor) ============
 async function logarMembro({ guild, tipo, membro, extra, canalId }) {
     try {
-        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_MEMBROS).catch(() => null);
+        const canal = await obterCanalLog(guild, canalId || CANAL_LOGS_MEMBROS);
         if (!canal) return;
 
         const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
@@ -218,7 +256,7 @@ async function logarMembro({ guild, tipo, membro, extra, canalId }) {
 
         container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
 
-        await canal.send({
+        await enviarLogSeguro(canal, {
             components: [container],
             flags: [MessageFlags.IsComponentsV2],
             allowedMentions: { parse: [] }
@@ -231,7 +269,7 @@ async function logarMembro({ guild, tipo, membro, extra, canalId }) {
 // ============ EXPULSÃO (KICK) — EMBED PRÓPRIA ============
 async function logarExpulsao({ guild, tipo, alvo, alvoUser, autor, motivo, extra, canalId }) {
     try {
-        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_KICKS).catch(() => null);
+        const canal = await obterCanalLog(guild, canalId || CANAL_LOGS_KICKS);
         if (!canal) return;
 
         const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
@@ -260,7 +298,7 @@ async function logarExpulsao({ guild, tipo, alvo, alvoUser, autor, motivo, extra
             .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
             .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
 
-        await canal.send({
+        await enviarLogSeguro(canal, {
             components: [container],
             flags: [MessageFlags.IsComponentsV2],
             allowedMentions: { parse: [] }
@@ -273,7 +311,7 @@ async function logarExpulsao({ guild, tipo, alvo, alvoUser, autor, motivo, extra
 // ============ MUTE / UNMUTE (TIMEOUT) — EMBED PRÓPRIA ============
 async function logarMute({ guild, tipo, alvo, alvoUser, autor, motivo, extra, canalId }) {
     try {
-        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_MOD).catch(() => null);
+        const canal = await obterCanalLog(guild, canalId || CANAL_LOGS_MOD);
         if (!canal) return;
 
         const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
@@ -306,7 +344,7 @@ async function logarMute({ guild, tipo, alvo, alvoUser, autor, motivo, extra, ca
 
         container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
 
-        await canal.send({
+        await enviarLogSeguro(canal, {
             components: [container],
             flags: [MessageFlags.IsComponentsV2],
             allowedMentions: { parse: [] }
@@ -319,7 +357,7 @@ async function logarMute({ guild, tipo, alvo, alvoUser, autor, motivo, extra, ca
 // ============ CARGOS (adicionado/removido de um membro) — EMBED PRÓPRIA ============
 async function logarCargo({ guild, tipo, alvo, alvoUser, autor, cargo, extra, canalId }) {
     try {
-        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_CARGOS).catch(() => null);
+        const canal = await obterCanalLog(guild, canalId || CANAL_LOGS_CARGOS);
         if (!canal) return;
 
         const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
@@ -350,7 +388,7 @@ async function logarCargo({ guild, tipo, alvo, alvoUser, autor, cargo, extra, ca
             .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
             .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
 
-        await canal.send({
+        await enviarLogSeguro(canal, {
             components: [container],
             flags: [MessageFlags.IsComponentsV2],
             allowedMentions: { parse: [] }
@@ -363,7 +401,7 @@ async function logarCargo({ guild, tipo, alvo, alvoUser, autor, cargo, extra, ca
 // ============ CALL TEMPORÁRIA — EMBED PRÓPRIA ============
 async function logarCallTemp({ guild, acao, dono, canalVoz, alvo, extra, canalId }) {
     try {
-        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_CALLTEMP).catch(() => null);
+        const canal = await obterCanalLog(guild, canalId || CANAL_LOGS_CALLTEMP);
         if (!canal) return;
 
         const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
@@ -394,7 +432,7 @@ async function logarCallTemp({ guild, acao, dono, canalVoz, alvo, extra, canalId
             .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
             .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
 
-        await canal.send({
+        await enviarLogSeguro(canal, {
             components: [container],
             flags: [MessageFlags.IsComponentsV2],
             allowedMentions: { parse: [] }
@@ -407,7 +445,7 @@ async function logarCallTemp({ guild, acao, dono, canalVoz, alvo, extra, canalId
 // ============ ANTI-LINK — EMBED PRÓPRIA ============
 async function logarAntiLink({ guild, usuario, motivo, link, canal: canalOrigem, canalId }) {
     try {
-        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_AUTOMOD).catch(() => null);
+        const canal = await obterCanalLog(guild, canalId || CANAL_LOGS_AUTOMOD);
         if (!canal) return;
 
         const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
@@ -430,7 +468,7 @@ async function logarAntiLink({ guild, usuario, motivo, link, canal: canalOrigem,
             .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
             .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
 
-        await canal.send({
+        await enviarLogSeguro(canal, {
             components: [container],
             flags: [MessageFlags.IsComponentsV2],
             allowedMentions: { parse: [] }
@@ -443,7 +481,7 @@ async function logarAntiLink({ guild, usuario, motivo, link, canal: canalOrigem,
 // ============ ANTI-SPAM — EMBED PRÓPRIA ============
 async function logarAntiSpam({ guild, usuario, motivo, canal: canalOrigem, muteMinutos, canalId, acao }) {
     try {
-        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_AUTOMOD).catch(() => null);
+        const canal = await obterCanalLog(guild, canalId || CANAL_LOGS_AUTOMOD);
         if (!canal) return;
 
         const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
@@ -471,7 +509,7 @@ async function logarAntiSpam({ guild, usuario, motivo, canal: canalOrigem, muteM
             .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
             .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
 
-        await canal.send({
+        await enviarLogSeguro(canal, {
             components: [container],
             flags: [MessageFlags.IsComponentsV2],
             allowedMentions: { parse: [] }
@@ -484,7 +522,7 @@ async function logarAntiSpam({ guild, usuario, motivo, canal: canalOrigem, muteM
 // ============ ANTI-BOT — EMBED PRÓPRIA ============
 async function logarAntiBot({ guild, bot, acao, canalId }) {
     try {
-        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_AUTOMOD).catch(() => null);
+        const canal = await obterCanalLog(guild, canalId || CANAL_LOGS_AUTOMOD);
         if (!canal) return;
 
         const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
@@ -507,7 +545,7 @@ async function logarAntiBot({ guild, bot, acao, canalId }) {
             .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
             .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
 
-        await canal.send({
+        await enviarLogSeguro(canal, {
             components: [container],
             flags: [MessageFlags.IsComponentsV2],
             allowedMentions: { parse: [] }
@@ -520,7 +558,7 @@ async function logarAntiBot({ guild, bot, acao, canalId }) {
 // ============ MENSAGEM APAGADA — EMBED PRÓPRIA ============
 async function logarMensagemApagada({ guild, autor, canal, executor, mensagemId, conteudo, canalId }) {
     try {
-        const canalLogs = await guild.channels.fetch(canalId || CANAL_LOGS_MENSAGENS_ID).catch(() => null);
+        const canalLogs = await obterCanalLog(guild, canalId || CANAL_LOGS_MENSAGENS_ID);
         if (!canalLogs) return;
 
         const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
@@ -554,7 +592,7 @@ async function logarMensagemApagada({ guild, autor, canal, executor, mensagemId,
             .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
             .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
 
-        await canalLogs.send({
+        await enviarLogSeguro(canalLogs, {
             components: [container],
             flags: [MessageFlags.IsComponentsV2],
             allowedMentions: { parse: [] }
@@ -567,7 +605,7 @@ async function logarMensagemApagada({ guild, autor, canal, executor, mensagemId,
 // ============ MENSAGEM EDITADA — EMBED PRÓPRIA ============
 async function logarMensagemEditada({ guild, autor, canal, mensagemId, antes, depois, antesIndisponivel, url, canalId }) {
     try {
-        const canalLogs = await guild.channels.fetch(canalId || CANAL_LOGS_MENSAGENS_ID).catch(() => null);
+        const canalLogs = await obterCanalLog(guild, canalId || CANAL_LOGS_MENSAGENS_ID);
         if (!canalLogs) return;
 
         const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
@@ -615,7 +653,7 @@ async function logarMensagemEditada({ guild, autor, canal, mensagemId, antes, de
             .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
             .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
 
-        await canalLogs.send({
+        await enviarLogSeguro(canalLogs, {
             components: [container],
             flags: [MessageFlags.IsComponentsV2],
             allowedMentions: { parse: [] }
@@ -628,7 +666,7 @@ async function logarMensagemEditada({ guild, autor, canal, mensagemId, antes, de
 // ============ LOGS DE VOZ — EMBED PRÓPRIA ============
 async function logarVoz({ guild, tipo, membro, extra, canalId }) {
     try {
-        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_VOZ_ID).catch(() => null);
+        const canal = await obterCanalLog(guild, canalId || CANAL_LOGS_VOZ_ID);
         if (!canal) return;
 
         const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
@@ -653,7 +691,7 @@ async function logarVoz({ guild, tipo, membro, extra, canalId }) {
 
         container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
 
-        await canal.send({
+        await enviarLogSeguro(canal, {
             components: [container],
             flags: [MessageFlags.IsComponentsV2],
             allowedMentions: { parse: [] }
@@ -666,7 +704,7 @@ async function logarVoz({ guild, tipo, membro, extra, canalId }) {
 // ============ CASTIGO MANUAL (TIMEOUT FORA DE COMANDO) — EMBED PRÓPRIA ============
 async function logarCastigo({ guild, tipo, alvo, alvoUser, autor, motivo, duracao, canalId }) {
     try {
-        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_MOD).catch(() => null);
+        const canal = await obterCanalLog(guild, canalId || CANAL_LOGS_MOD);
         if (!canal) return;
 
         const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
@@ -694,7 +732,7 @@ async function logarCastigo({ guild, tipo, alvo, alvoUser, autor, motivo, duraca
             .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
             .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
 
-        await canal.send({
+        await enviarLogSeguro(canal, {
             components: [container],
             flags: [MessageFlags.IsComponentsV2],
             allowedMentions: { parse: [] }
@@ -707,7 +745,7 @@ async function logarCastigo({ guild, tipo, alvo, alvoUser, autor, motivo, duraca
 // ============ CARGO DO SERVIDOR CRIADO / EXCLUÍDO — EMBED PRÓPRIA ============
 async function logarCargoServidor({ guild, tipo, cargo, executor, motivo, extra, canalId }) {
     try {
-        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_CARGOS).catch(() => null);
+        const canal = await obterCanalLog(guild, canalId || CANAL_LOGS_CARGOS);
         if (!canal) return;
 
         const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
@@ -733,7 +771,7 @@ async function logarCargoServidor({ guild, tipo, cargo, executor, motivo, extra,
             .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
             .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
 
-        await canal.send({
+        await enviarLogSeguro(canal, {
             components: [container],
             flags: [MessageFlags.IsComponentsV2],
             allowedMentions: { parse: [] }
@@ -746,7 +784,7 @@ async function logarCargoServidor({ guild, tipo, cargo, executor, motivo, extra,
 // ============ CANAL DO SERVIDOR CRIADO / EXCLUÍDO / EDITADO — EMBED PRÓPRIA ============
 async function logarCanalServidor({ guild, tipo, canal, tipoCanal, categoria, executor, extra, canalId }) {
     try {
-        const canalLogs = await guild.channels.fetch(canalId || CANAL_LOGS_MOD).catch(() => null);
+        const canalLogs = await obterCanalLog(guild, canalId || CANAL_LOGS_MOD);
         if (!canalLogs) return;
 
         const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
@@ -769,7 +807,7 @@ async function logarCanalServidor({ guild, tipo, canal, tipoCanal, categoria, ex
 
         container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
 
-        await canalLogs.send({
+        await enviarLogSeguro(canalLogs, {
             components: [container],
             flags: [MessageFlags.IsComponentsV2],
             allowedMentions: { parse: [] }
@@ -782,7 +820,7 @@ async function logarCanalServidor({ guild, tipo, canal, tipoCanal, categoria, ex
 // ============ REMOÇÃO/DEVOLUÇÃO TEMPORÁRIA DE CARGOS (ANTI-ABUSO) — EMBED PRÓPRIA ============
 async function logarPunicaoCargosStaff({ guild, tipo, membro, cargos, extra, canalId }) {
     try {
-        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_MOD).catch(() => null);
+        const canal = await obterCanalLog(guild, canalId || CANAL_LOGS_MOD);
         if (!canal) return;
 
         const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
@@ -814,7 +852,7 @@ async function logarPunicaoCargosStaff({ guild, tipo, membro, cargos, extra, can
             .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
             .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
 
-        await canal.send({
+        await enviarLogSeguro(canal, {
             components: [container],
             flags: [MessageFlags.IsComponentsV2],
             allowedMentions: { parse: [] }
@@ -827,7 +865,7 @@ async function logarPunicaoCargosStaff({ guild, tipo, membro, cargos, extra, can
 // ============ ANTI NUKE DE CANAIS (canais restaurados / edições revertidas) — EMBED PRÓPRIA ============
 async function logarAntiNukeCanais({ guild, executores, restaurados, revertidos, falhas, canalId }) {
     try {
-        const canal = await guild.channels.fetch(canalId || CANAL_LOGS_MOD).catch(() => null);
+        const canal = await obterCanalLog(guild, canalId || CANAL_LOGS_MOD);
         if (!canal) return;
 
         const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
@@ -889,7 +927,7 @@ async function logarAntiNukeCanais({ guild, executores, restaurados, revertidos,
             .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
             .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${dataFormatada} às ${horaFormatada}`));
 
-        await canal.send({
+        await enviarLogSeguro(canal, {
             components: [container],
             flags: [MessageFlags.IsComponentsV2],
             allowedMentions: { parse: [] }
