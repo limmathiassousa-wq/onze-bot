@@ -316,6 +316,67 @@ async function aguardarEntradaAudit(guild, tipo, filtro = () => true, { esperas 
     return null;
 }
 
+// ============ CARGOS EM MASSA: HELPERS ============
+function montarPainelRoleAllSelecao() {
+    return new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **CARGOS EM MASSA**'))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('Selecione o cargo.'))
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new RoleSelectMenuBuilder()
+                    .setCustomId('roleall_select')
+                    .setPlaceholder('Selecione o cargo')
+                    .setMinValues(1)
+                    .setMaxValues(1)
+            )
+        );
+}
+
+function roleAllTemPermissao(member) {
+    return member.permissions.has('Administrator') || member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
+}
+
+// modo: 'aplicar' | 'remover'
+async function executarCargoEmMassa(interaction, cargo, modo) {
+    const aplicar = modo === 'aplicar';
+    await interaction.deferUpdate();
+
+    const membros = await interaction.guild.members.fetch();
+    const alvos = [...membros.filter(m => !m.user.bot && (aplicar ? !m.roles.cache.has(cargo.id) : m.roles.cache.has(cargo.id))).values()];
+    interaction.guild.members.cache.sweep(() => true);
+
+    const total = alvos.length;
+    let processados = 0, sucesso = 0, erros = 0;
+
+    const montar = (finalizado = false) => new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            finalizado ? (aplicar ? ' **CARGO APLICADO**' : ' **CARGO REMOVIDO**') : (aplicar ? ' **APLICANDO...**' : ' **REMOVENDO...**')
+        ))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            `${cargo} • \`${processados}/${total}\`\n${EMOJI_ATIVADO} ${sucesso}\u2003${EMOJI_DESATIVADO} ${erros}`
+        ));
+
+    await interaction.editReply({ components: [montar(total === 0)], flags: [MessageFlags.IsComponentsV2] }).catch(() => null);
+
+    for (const membro of alvos) {
+        try {
+            if (aplicar) await membro.roles.add(cargo);
+            else await membro.roles.remove(cargo);
+            sucesso++;
+        } catch (err) {
+            erros++;
+        }
+        processados++;
+
+        if (processados % 10 === 0 || processados === total) {
+            await interaction.editReply({ components: [montar(processados === total)], flags: [MessageFlags.IsComponentsV2] }).catch(() => null);
+        }
+        await esperar(150);
+    }
+}
+
 // ============ MAPS ============
  
 const nukeEmAndamento = new Set();
@@ -2518,7 +2579,7 @@ if (message.content.toLowerCase() === `${PREFIXO}roleall`) {
     const container = new ContainerBuilder()
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **CARGOS EM MASSA**'))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent('Clique no botão abaixo para abrir o painel de aplicação de cargos em massa. Ele será exibido apenas para você.'))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('Aplique ou remova um cargo de todos os membros.'))
         .addActionRowComponents(
             new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
@@ -6052,135 +6113,81 @@ if (interaction.isModalSubmit() && interaction.customId.startsWith('modal_insta_
     }
 
     return interaction.reply({
-        components: [montarPainelRoleAllInicial()],
+        components: [montarPainelRoleAllSelecao()],
         flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
     });
 }
 
 if (interaction.isRoleSelectMenu() && interaction.customId === 'roleall_select') {
-    const cargo = interaction.roles.first();
+    if (!roleAllTemPermissao(interaction.member)) {
+        return interaction.reply({ content: 'Você não tem permissão para utilizar este comando!', flags: [MessageFlags.Ephemeral] });
+    }
 
+    const cargo = interaction.roles.first();
     if (!cargo) {
         return interaction.reply({ content: 'Cargo inválido.', flags: [MessageFlags.Ephemeral] });
     }
-
     if (cargo.id === interaction.guild.id) {
-        return interaction.reply({ content: 'Não é possível aplicar o cargo `@everyone` em massa!', flags: [MessageFlags.Ephemeral] });
+        return interaction.reply({ content: 'Não é possível usar o cargo `@everyone`.', flags: [MessageFlags.Ephemeral] });
     }
-
-    const cargoBotMaisAlto = interaction.guild.members.me.roles.highest;
-    if (cargo.position >= cargoBotMaisAlto.position) {
-        return interaction.reply({ content: `Não consigo gerenciar o cargo **${cargo.name}** — ele está no mesmo nível ou acima do meu cargo mais alto.`, flags: [MessageFlags.Ephemeral] });
+    if (cargo.position >= interaction.guild.members.me.roles.highest.position) {
+        return interaction.reply({ content: `Não consigo gerenciar o cargo **${cargo.name}**.`, flags: [MessageFlags.Ephemeral] });
     }
 
     const container = new ContainerBuilder()
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **CARGOS EM MASSA**'))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            `**Cargo selecionado:** ${cargo}\n\n` +
-            'Ao clicar em **Aplicar**, o bot vai adicionar esse cargo para todos os membros do servidor que ainda não o possuem (bots são ignorados). Esse painel vai atualizar o progresso em tempo real conforme os cargos forem aplicados.\n\n' +
-            ' Essa ação não é desfeita automaticamente. Revise o cargo escolhido antes de confirmar.'
-        ))
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`Cargo: ${cargo}`))
         .addActionRowComponents(
             new ActionRowBuilder().addComponents(
-                new ButtonBuilder()
-                    .setCustomId(`roleall_aplicar_${cargo.id}`)
-                    .setLabel('Aplicar')
-                    .setStyle(ButtonStyle.Success)
+                new ButtonBuilder().setCustomId(`roleall_aplicar_${cargo.id}`).setLabel('Aplicar').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId(`roleall_rmpedir_${cargo.id}`).setLabel('Remover').setStyle(ButtonStyle.Danger)
             )
         );
 
-    return interaction.update({
-        components: [container],
-        flags: [MessageFlags.IsComponentsV2]
-    });
+    return interaction.update({ components: [container], flags: [MessageFlags.IsComponentsV2] });
 }
 
-if (interaction.isButton() && interaction.customId.startsWith('roleall_aplicar_')) {
-    const cargoId = interaction.customId.replace('roleall_aplicar_', '');
+if (interaction.isButton() && (interaction.customId.startsWith('roleall_aplicar_') || interaction.customId.startsWith('roleall_rmpedir_') || interaction.customId.startsWith('roleall_rmconfirmar_') || interaction.customId === 'roleall_rmcancelar')) {
+    if (!roleAllTemPermissao(interaction.member)) {
+        return interaction.reply({ content: 'Você não tem permissão para utilizar este comando!', flags: [MessageFlags.Ephemeral] });
+    }
+
+    // Cancelar
+    if (interaction.customId === 'roleall_rmcancelar') {
+        return interaction.update({ components: containerTexto('Ação cancelada.'), flags: [MessageFlags.IsComponentsV2] });
+    }
+
+    const id = interaction.customId;
+    const cargoId = id.split('_').pop();
     const cargo = interaction.guild.roles.cache.get(cargoId);
 
     if (!cargo) {
-        return interaction.update({
-            components: containerTexto('Esse cargo não existe mais.'),
-            flags: [MessageFlags.IsComponentsV2]
-        });
+        return interaction.update({ components: containerTexto('Esse cargo não existe mais.'), flags: [MessageFlags.IsComponentsV2] });
+    }
+    if (cargo.position >= interaction.guild.members.me.roles.highest.position) {
+        return interaction.update({ components: containerTexto(`Não consigo mais gerenciar o cargo **${cargo.name}**.`), flags: [MessageFlags.IsComponentsV2] });
     }
 
-    const cargoBotMaisAlto = interaction.guild.members.me.roles.highest;
-    if (cargo.position >= cargoBotMaisAlto.position) {
-        return interaction.update({
-            components: containerTexto(`Não consigo mais gerenciar o cargo **${cargo.name}**.`),
-            flags: [MessageFlags.IsComponentsV2]
-        });
-    }
-
-    await interaction.deferUpdate();
-
-    const membros = await interaction.guild.members.fetch();
-    const jaTinham = membros.filter(m => !m.user.bot && m.roles.cache.has(cargo.id)).size;
-    const alvos = [...membros.filter(m => !m.user.bot && !m.roles.cache.has(cargo.id)).values()];
-
-    
-    interaction.guild.members.cache.sweep(m => true);
-    
-    const total = alvos.length;
-    let processados = 0;
-    let sucesso = 0;
-    let erros = 0;
-    const inicio = Date.now();
-
-function montarProgresso(finalizado = false) {
-        const tempoDecorrido = Math.floor((Date.now() - inicio) / 1000);
-        return new ContainerBuilder()
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(finalizado ? ' **APLICAÇÃO CONCLUÍDA**' : ' **APLICANDO CARGO...**'))
-            
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Cargo:** ${cargo}`))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Progresso:** \`${processados}/${total}\``))
+    // Pedir confirmação de remoção
+    if (id.startsWith('roleall_rmpedir_')) {
+        const confirmacao = new ContainerBuilder()
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **REMOVER CARGO**'))
             .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-                `${EMOJI_ATIVADO} **Sucesso**\u2003\u2003\u2003${EMOJI_DESATIVADO} **Falhas**\n` +
-                `${sucesso}\u2003\u2003\u2003\u2003\u2003\u2003\u2003${erros}`
-            ))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Já possuíam o cargo:** \`${jaTinham}\``))
-            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(` Tempo decorrido: ${tempoDecorrido}s${finalizado ? ' • Processo finalizado.' : ''}`));
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`Remover ${cargo} de todos os membros?`))
+            .addActionRowComponents(
+                new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId('roleall_rmcancelar').setLabel('Cancelar').setStyle(ButtonStyle.Secondary),
+                    new ButtonBuilder().setCustomId(`roleall_rmconfirmar_${cargo.id}`).setLabel('Confirmar').setStyle(ButtonStyle.Danger)
+                )
+            );
+        return interaction.update({ components: [confirmacao], flags: [MessageFlags.IsComponentsV2] });
     }
 
-    await interaction.editReply({
-        components: [montarProgresso()],
-        flags: [MessageFlags.IsComponentsV2]
-    });
-
-    for (const membro of alvos) {
-        try {
-            await membro.roles.add(cargo);
-            sucesso++;
-        } catch (err) {
-            erros++;
-        }
-        processados++;
-
-        if (processados % 10 === 0 || processados === total) {
-            await interaction.editReply({
-                components: [montarProgresso(processados === total)],
-                flags: [MessageFlags.IsComponentsV2]
-            }).catch(() => null);
-        }
-
-        await esperar(150);
-    }
-
-    if (total === 0) {
-        await interaction.editReply({
-            components: [montarProgresso(true)],
-            flags: [MessageFlags.IsComponentsV2]
-        }).catch(() => null);
-    }
+    // Confirmar remoção / Aplicar
+    return executarCargoEmMassa(interaction, cargo, id.startsWith('roleall_aplicar_') ? 'aplicar' : 'remover');
 }
-	
-	
+
 if (interaction.isButton() && interaction.customId === 'botcall_conectar') {
     const temPermissao = interaction.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
     if (!temPermissao) {
