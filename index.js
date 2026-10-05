@@ -2116,7 +2116,6 @@ if (message.content.toLowerCase() === `${PREFIXO}áreas` || message.content.toLo
 
     const areas = [
         ['Sup', 'Atende tickets e ajuda os membros da comunidade'],
-        ['Mod', 'Modera o servidor de forma controlada com permissão para banir, mutar e expulsar'],
         ['Verify TELLONYM', 'Verifica tellonyms enviados para avaliação, ele decide se o tellonym vai ser enviado pro canal, ou não'],
         ['Verify INSTAGRAM', 'Verifica imagens enviadas para avaliação em tickets para cargo de instagram, ele decide se o usuário vai poder enviar o post pro canal ou não']
     ];
