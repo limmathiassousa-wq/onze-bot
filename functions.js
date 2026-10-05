@@ -4204,7 +4204,7 @@ async function enviarAlertaProtecao(guild, titulo, linhas, avatarUrl = null) {
         const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
 
         const container = new ContainerBuilder()
-            .setAccentColor(0xE74C3C)
+            .setAccentColor(0xFF0000)
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(new TextDisplayBuilder().setContent(`### ${titulo} — ${guild.name}`))
