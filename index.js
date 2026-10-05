@@ -297,6 +297,25 @@ const {
 } = require('./functions');
 
 
+// ============ HELPER: AGUARDA ENTRADA RECENTE NO AUDIT LOG ============
+// Tenta buscar no audit log com pequenas esperas (o Discord demora a registrar).
+// Retorna a entrada mais recente que bate com o filtro, ou null.
+async function aguardarEntradaAudit(guild, tipo, filtro = () => true, { esperas = [0, 500, 1200], maxIdadeMs = 5000 } = {}) {
+    for (const espera of esperas) {
+        if (espera) await new Promise(r => setTimeout(r, espera));
+        try {
+            const logs = await guild.fetchAuditLogs({ type: tipo, limit: 6 });
+            const agora = Date.now();
+            const entrada = logs.entries.find(e => (agora - e.createdTimestamp) <= maxIdadeMs && filtro(e));
+            if (entrada) return entrada;
+        } catch (err) {
+            // sem permissão de ver audit log ou erro de API: não derruba o log principal
+            return null;
+        }
+    }
+    return null;
+}
+
 // ============ MAPS ============
  
 const nukeEmAndamento = new Set();
