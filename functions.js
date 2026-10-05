@@ -370,6 +370,19 @@ const nukeTracker = {
 // disparariam junto, deixando só o log do Anti-Bot mesmo.
 const antiBotRecentes = new Set();
 
+// Bots punidos pelo Anti-Nuke/Anti-Bot: enquanto estiverem aqui, os logs "soltos"
+// (canal editado, cargo criado, saída...) feitos por eles são suprimidos — fica só o log da proteção.
+const botsPunidosRecentes = new Map(); // id -> expira em (ms)
+const acaoPorExecutorNuke = new Map(); // id -> ação aplicada (pro relatório de canais)
+function marcarBotPunido(id, ms = 30000) {
+    botsPunidosRecentes.set(id, Date.now() + ms);
+    setTimeout(() => botsPunidosRecentes.delete(id), ms);
+}
+function botFoiPunido(id) {
+    const exp = botsPunidosRecentes.get(id);
+    return !!exp && exp > Date.now();
+}
+
 const LIMITES_ANTINUKE_EXTRA = {
     canaisCriados: 4,
     canaisEditados: 5,
@@ -4327,6 +4340,12 @@ async function punirExecutorNuke(guild, executor, motivo) {
     
     const cadeia = executor.bot ? ['banir'] : [protecaoConfig.antiRaid.acaoExecutor];
 
+    if (executor.bot) {
+        marcarBotPunido(executor.id);
+        antiBotRecentes.add(executor.id); // suprime o log de "Saída" desse bot
+        setTimeout(() => antiBotRecentes.delete(executor.id), 15000);
+    }
+
     let acaoAplicada = null;
 
     for (const tentativa of cadeia) {
@@ -4359,6 +4378,11 @@ async function punirExecutorNuke(guild, executor, motivo) {
     }
 
     const textoAcao = { banir: 'banido', kick: 'expulso', remover_cargos: 'cargos removidos' };
+    acaoPorExecutorNuke.set(executor.id, acaoAplicada || 'nenhuma');
+    setTimeout(() => acaoPorExecutorNuke.delete(executor.id), 30000);
+
+    // Anti Nuke de canais já manda o relatório próprio (com a ação) — não duplica com o alerta genérico
+    if (String(motivo).startsWith('Anti Nuke de canais')) return;
 
     await enviarAlertaProtecao(guild, acaoAplicada ? 'ANTI-NUKE ACIONADO' : 'ANTI-NUKE DETECTOU MAS A PUNIÇÃO FALHOU', [
         `**Executor:** ${executor.tag} (${executor.id})${executor.bot ? ' · **é um bot**' : ''}`,
@@ -4918,7 +4942,7 @@ async function enviarRelatorioAntiNukeCanais(guild, r) {
 
     // Mesmo formato/estilo dos outros logs (Executado por, Motivo, timestamp) — antes isso
     // caía num alerta genérico sem essas informações, por isso destoava do resto dos logs.
-    const executores = [...r.executores.values()].map(e => ({ ...e, acao: e.acao || 'nenhuma' }));
+    const executores = [...r.executores.values()].map(e => ({ ...e, acao: acaoPorExecutorNuke.get(e.id) || e.acao || 'nenhuma' }));
 
     await logarAntiNukeCanais({
         guild,
@@ -7245,6 +7269,8 @@ module.exports = {
     NAME_SIZE,
     nukeTracker,
     antiBotRecentes,
+    botFoiPunido,
+    marcarBotPunido,
     PADDING_TOP,
     PADDING_X,
     paineisProtecao,

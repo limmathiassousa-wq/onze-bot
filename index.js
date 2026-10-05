@@ -277,7 +277,7 @@ const {
     montarPainelProtecao, montarPainelRemoverConfirmacao, montarPainelRemoverSelect, montarPainelRoleAllInicial,
     montarPainelSorteioConfig, montarPainelSorteioInicial, montarPainelStatus, montarPainelVerificacaoCargos, montarPayloadFinalMsgCriador, montarPayloadPainelMsgCriador,
     montarPermissoesTextoGRoles, montarPreviewMsgCriador, validarLimiteMsgCriador, montarPayloadRespostaBotao, validarRespostaBotoes, msgCriadorTimeouts, muteCargoTimeouts, nomeTipoCanalLog,
-    nukeTracker, antiBotRecentes, obterCargosExcluiveisGRoles, obterCargosGerenciaveisGRoles, obterDadosAfk,
+    nukeTracker, antiBotRecentes, botFoiPunido, marcarBotPunido, obterCargosExcluiveisGRoles, obterCargosGerenciaveisGRoles, obterDadosAfk,
     obterExecutorAuditLog, obterMembrosCache, obterMemoriaContainer, obterPrimeiroCanalCategoria,
     obterTop3CallSorteio, obterUsoCPU, paineisProtecao, parseBlocosTexto, parseTrechosTexto, resumirTrecho,
     parseDuracaoTexto, parseQuantidadeTexto, participantesElegiveis, protecaoConfig,
@@ -641,6 +641,7 @@ client.on('channelUpdate', (canalAntigo, canalNovo) => {
 client.on('channelDelete', async (canal) => {
     if (!protecaoConfig.antiRaid.nukeAtivo || !canal.guild) return;
     const executor = await obterExecutorAuditLog(canal.guild, AuditLogEvent.ChannelDelete, canal.id);
+    if (await botSeraPunido(executor)) return;
     if (!executor) return;
     const total = registrarAcaoNuke(nukeTracker.canais, executor.id);
     if (total >= limiteNukeAcao(executor, 'limiteCanais')) {
@@ -734,6 +735,14 @@ if (protecaoConfig.antiRaid.nukeAtivo) {
     }
 
 });
+
+// Espera a proteção agir e diz se o executor é um bot que foi punido (nesse caso só o log da proteção sai).
+async function botSeraPunido(executor) {
+    if (!executor?.bot || executor.id === client.user.id) return false;
+    if (botFoiPunido(executor.id)) return true;
+    await new Promise(r => setTimeout(r, 2500));
+    return botFoiPunido(executor.id);
+}
 
 client.on('guildBanAdd', async (ban) => {
     const entrada = await aguardarEntradaAudit(ban.guild, AuditLogEvent.MemberBanAdd, e => e.target?.id === ban.user.id);
@@ -843,6 +852,7 @@ client.on('roleUpdate', async (cargoAntigo, cargoNovo) => {
 client.on('channelCreate', async (canal) => {
     if (!protecaoConfig.antiRaid.nukeAtivo || !canal.guild) return;
     const executor = await obterExecutorAuditLog(canal.guild, AuditLogEvent.ChannelCreate, canal.id);
+    if (await botSeraPunido(executor)) return;
     if (!executor) return;
     const total = registrarAcaoNuke(nukeTracker.canaisCriados, executor.id);
     if (total >= limiteNukeAcaoExtra(executor, 'canaisCriados')) {
@@ -953,6 +963,7 @@ client.on('channelUpdate', async (canalAntigo, canalNovo) => {
         AuditLogEvent.ChannelUpdate, AuditLogEvent.ChannelOverwriteCreate,
         AuditLogEvent.ChannelOverwriteUpdate, AuditLogEvent.ChannelOverwriteDelete
     ], canalNovo.id);
+    if (await botSeraPunido(executor)) return;
 
     await logarCanalServidor({
         guild: canalNovo.guild,
@@ -1255,9 +1266,13 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
 });
 
 client.on('roleCreate', async (role) => {
+    // Cargo "managed" é criado automaticamente pelo Discord quando um bot entra — não loga
+    // (o log de entrada/Anti-Bot já cobre).
+    if (role.managed) return;
     try {
         const entrada = await aguardarEntradaAudit(role.guild, AuditLogEvent.RoleCreate, e => e.target?.id === role.id);
         const executor = entrada?.executor ?? null;
+        if (await botSeraPunido(executor)) return;
 
         await logarCargoServidor({
             guild: role.guild,
@@ -1290,6 +1305,7 @@ client.on('roleDelete', async (role) => {
     try {
         const entrada = await aguardarEntradaAudit(role.guild, AuditLogEvent.RoleDelete, e => e.target?.id === role.id);
         const executor = entrada?.executor ?? null;
+        if (await botSeraPunido(executor)) return;
 
         await logarCargoServidor({
             guild: role.guild,
@@ -1379,6 +1395,7 @@ client.on('guildMemberAdd', async (member) => {
 	if (member.user.bot && protecaoConfig.antiBot.ativo) {
     const acaoBot = protecaoConfig.antiBot.acao;
     antiBotRecentes.add(member.id);
+    marcarBotPunido(member.id);
     setTimeout(() => antiBotRecentes.delete(member.id), 15000);
 
     try {
@@ -1411,6 +1428,7 @@ client.on('guildMemberAdd', async (member) => {
         extra:
             `**ID:** \`${member.id}\`\n` +
             `**Tag:** \`${member.user.tag}\`\n` +
+            (member.user.bot ? '**Tipo:** `Bot`\n' : '') +
             `**Conta criada em:** <t:${contaCriadaEm}:F> (\`${idadeContaDias}\` dia(s) atrás)\n` +
             `**Membros no servidor:** \`${member.guild.memberCount}\``
     }).catch(() => null);
