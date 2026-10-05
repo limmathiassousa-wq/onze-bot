@@ -5,6 +5,17 @@ const {
     CANAL_LOGS_MENSAGENS, CANAL_LOGS_VOZ
 } = require('./constants');
 
+// ============ COR DA BARRA POR TIPO DE LOG ============
+const COR_VERDE = 0x2ECC71;    // coisa boa: entrou, criou, devolveu, desbaniu...
+const COR_VERMELHO = 0xE74C3C; // coisa ruim: saiu, excluiu, baniu, mutou...
+function corPorTipo(tipo) {
+    const t = String(tipo ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (/unban|unmute|castigo removido|devolvid|desbanid|desmut/.test(t)) return COR_VERDE;
+    if (/saida|saiu|exclu|apagad|remov|ban|expuls|kick|mute|castigo|desconect|banido|fechad|privada/.test(t)) return COR_VERMELHO;
+    if (/entrad|entrou|criad|adicion|defin|abert|permitid/.test(t)) return COR_VERDE;
+    return 0xFFFFFF; // neutro (editado, movido, etc.)
+}
+
 // Se CANAL_LOGS_MENSAGENS ainda não existir em constants.js, usa o ID fixo como fallback.
 // (Recomendado: adicionar `CANAL_LOGS_MENSAGENS: '1548376183685783582'` em constants.js)
 const CANAL_LOGS_MENSAGENS_ID = CANAL_LOGS_MENSAGENS || '1548376183685783582';
@@ -135,7 +146,7 @@ async function enviarLogModeracao({ guild, tipo, alvo, alvoUser, autor, motivo, 
         }
 
         const container = new ContainerBuilder()
-            .setAccentColor(0xFFFFFF)
+            .setAccentColor(corPorTipo(tipo))
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(...camposPrincipais)
@@ -195,7 +206,7 @@ async function logarBanimento({ guild, tipo, alvo, alvoUser, autor, motivo, extr
         const avatarUrl = obterAvatarUrl(alvoUser);
 
         const container = new ContainerBuilder()
-            .setAccentColor(0xFFFFFF)
+            .setAccentColor(corPorTipo(tipo))
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
@@ -238,7 +249,7 @@ async function logarMembro({ guild, tipo, membro, extra, canalId }) {
         const alvo = `${obterMencao(membro)} (${obterTag(membro)})`;
 
         const container = new ContainerBuilder()
-            .setAccentColor(0xFFFFFF)
+            .setAccentColor(corPorTipo(tipo))
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
@@ -276,7 +287,7 @@ async function logarExpulsao({ guild, tipo, alvo, alvoUser, autor, motivo, extra
         const avatarUrl = obterAvatarUrl(alvoUser);
 
         const container = new ContainerBuilder()
-            .setAccentColor(0xFFFFFF)
+            .setAccentColor(corPorTipo(tipo))
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
@@ -318,7 +329,7 @@ async function logarMute({ guild, tipo, alvo, alvoUser, autor, motivo, extra, ca
         const avatarUrl = obterAvatarUrl(alvoUser);
 
         const container = new ContainerBuilder()
-            .setAccentColor(0xFFFFFF)
+            .setAccentColor(corPorTipo(tipo))
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
@@ -364,7 +375,7 @@ async function logarCargo({ guild, tipo, alvo, alvoUser, autor, cargo, extra, ca
         const avatarUrl = obterAvatarUrl(alvoUser);
 
         const container = new ContainerBuilder()
-            .setAccentColor(0xFFFFFF)
+            .setAccentColor(corPorTipo(tipo))
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
@@ -408,7 +419,7 @@ async function logarCallTemp({ guild, acao, dono, canalVoz, alvo, extra, canalId
         const avatarUrl = obterAvatarUrl(dono);
 
         const container = new ContainerBuilder()
-            .setAccentColor(0xFFFFFF)
+            .setAccentColor(corPorTipo(acao))
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
@@ -452,7 +463,7 @@ async function logarAntiLink({ guild, usuario, motivo, link, canal: canalOrigem,
         const avatarUrl = obterAvatarUrl(usuario);
 
         const container = new ContainerBuilder()
-            .setAccentColor(0xFFFFFF)
+            .setAccentColor(COR_VERMELHO)
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
@@ -493,7 +504,7 @@ async function logarAntiSpam({ guild, usuario, motivo, canal: canalOrigem, muteM
             : `Mensagens apagadas + timeout de \`${muteMinutos}\` minuto(s)`;
 
         const container = new ContainerBuilder()
-            .setAccentColor(0xFFFFFF)
+            .setAccentColor(COR_VERMELHO)
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
@@ -529,7 +540,7 @@ async function logarAntiBot({ guild, bot, acao, canalId }) {
         const avatarUrl = obterAvatarUrl(bot);
 
         const container = new ContainerBuilder()
-            .setAccentColor(0xFFFFFF)
+            .setAccentColor(COR_VERMELHO)
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
@@ -569,7 +580,7 @@ async function logarMensagemApagada({ guild, autor, canal, executor, mensagemId,
             : '`Sem conteúdo de texto (anexo, embed ou sticker)`';
 
         const container = new ContainerBuilder()
-            .setAccentColor(0xFFFFFF)
+            .setAccentColor(COR_VERMELHO)
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
@@ -673,7 +684,7 @@ async function logarVoz({ guild, tipo, membro, extra, canalId }) {
         const avatarUrl = obterAvatarUrl(membro);
 
         const container = new ContainerBuilder()
-            .setAccentColor(0xFFFFFF)
+            .setAccentColor(corPorTipo(tipo))
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
@@ -711,7 +722,7 @@ async function logarCastigo({ guild, tipo, alvo, alvoUser, autor, motivo, duraca
         const avatarUrl = obterAvatarUrl(alvoUser);
 
         const container = new ContainerBuilder()
-            .setAccentColor(0xFFFFFF)
+            .setAccentColor(corPorTipo(tipo))
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
@@ -751,7 +762,7 @@ async function logarCargoServidor({ guild, tipo, cargo, executor, motivo, extra,
         const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
 
         const container = new ContainerBuilder()
-            .setAccentColor(0xFFFFFF)
+            .setAccentColor(corPorTipo(tipo))
             .addTextDisplayComponents(
                 new TextDisplayBuilder().setContent(`### ${tipo} — ${guild.name}`),
                 new TextDisplayBuilder().setContent(`**Cargo:** ${cargo}`),
@@ -790,7 +801,7 @@ async function logarCanalServidor({ guild, tipo, canal, tipoCanal, categoria, ex
         const { hora: horaFormatada, data: dataFormatada } = obterDataHora();
 
         const container = new ContainerBuilder()
-            .setAccentColor(0xFFFFFF)
+            .setAccentColor(corPorTipo(tipo))
             .addTextDisplayComponents(
                 new TextDisplayBuilder().setContent(`### ${tipo} — ${guild.name}`),
                 new TextDisplayBuilder().setContent(`**Canal:** ${canal}`),
@@ -828,7 +839,7 @@ async function logarPunicaoCargosStaff({ guild, tipo, membro, cargos, extra, can
         const avatarUrl = obterAvatarUrl(usuarioAlvo);
 
         const container = new ContainerBuilder()
-            .setAccentColor(0xFFFFFF)
+            .setAccentColor(corPorTipo(tipo))
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
@@ -889,7 +900,7 @@ async function logarAntiNukeCanais({ guild, executores, restaurados, revertidos,
             new TextDisplayBuilder().setContent('**Executado por:** Sistema Automático')
         ];
 
-        const container = new ContainerBuilder().setAccentColor(0xFFFFFF);
+        const container = new ContainerBuilder().setAccentColor(COR_VERMELHO);
 
         if (principal) {
             container.addSectionComponents(
