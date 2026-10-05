@@ -218,7 +218,49 @@ const conversaAnaSchema = new mongoose.Schema({
 });
 const ConversaAna = mongoose.model('ConversaAna', conversaAnaSchema);
 
+// ===== Migrados do Supabase =====
+const mensagemCacheSchema = new mongoose.Schema({
+    _id: { type: String }, // id da mensagem
+    canalId: String,
+    autorId: String,
+    autorTag: String,
+    conteudo: { type: String, default: '' },
+    // TTL: mensagens cacheadas somem sozinhas após 30 dias (evita o banco crescer pra sempre)
+    criadoEm: { type: Date, default: Date.now, expires: 60 * 60 * 24 * 30 }
+});
+const MensagemCache = mongoose.model('MensagemCache', mensagemCacheSchema);
+
+const primeiraDamaSchema = new mongoose.Schema({
+    guildId: { type: String, required: true },
+    setterId: { type: String, required: true },
+    targetId: { type: String, required: true },
+    criadoEm: { type: Date, default: Date.now }
+});
+primeiraDamaSchema.index({ guildId: 1, setterId: 1, targetId: 1 }, { unique: true });
+const PrimeiraDama = mongoose.model('PrimeiraDama', primeiraDamaSchema);
+
+const botCallPainelSchema = new mongoose.Schema({
+    _id: { type: String }, // guildId
+    channelId: String,
+    messageId: String
+});
+const BotCallPainel = mongoose.model('BotCallPainel', botCallPainelSchema);
+
+const protecaoConfigSchema = new mongoose.Schema({
+    _id: { type: String, default: 'protecao_config' },
+    antiSpam: { type: mongoose.Schema.Types.Mixed, default: {} },
+    antiLink: { type: mongoose.Schema.Types.Mixed, default: {} },
+    antiFake: { type: mongoose.Schema.Types.Mixed, default: {} },
+    antiBot: { type: mongoose.Schema.Types.Mixed, default: {} },
+    antiRaid: { type: mongoose.Schema.Types.Mixed, default: {} }
+}, { minimize: false });
+const ProtecaoConfig = mongoose.model('ProtecaoConfig', protecaoConfigSchema);
+
 module.exports = {
+    MensagemCache,
+    PrimeiraDama,
+    BotCallPainel,
+    ProtecaoConfig,
     ServerBackup,
     VoiceState,
     ContadorTicket,

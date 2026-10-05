@@ -23,12 +23,11 @@ const {
 } = require('./helpers');
 const { logarAntiLink, logarAntiSpam, logarPunicaoCargosStaff, logarAntiNukeCanais, obterDataHora } = require('./logger');
 const redis = require('./redis');
-const { supabase } = require('./supabase');
 const {
     ServerBackup, VoiceState,
     ContadorTicket, TicketData, ConviteStats, Sorteio, InstaPost,
     TellonymPendente, MapaPersistenteEntry, MuteCargo,
-    TranscriptMedia
+    TranscriptMedia, ProtecaoConfig, BotCallPainel
 } = require('./models');
 const {
     EMOJI_ATIVADO, EMOJI_DESATIVADO, CANAL_LOGS_MOD, CORES_MSG_CRIADOR,
@@ -4056,17 +4055,15 @@ async function obterMembrosCache(guild) {
 
 async function salvarProtecao() {
     try {
-        const { error } = await supabase
-            .from('protecao_config')
-            .upsert({
-                id: 'protecao_config',
-                anti_spam: protecaoConfig.antiSpam,
-                anti_link: protecaoConfig.antiLink,
-                anti_fake: protecaoConfig.antiFake,
-                anti_bot: protecaoConfig.antiBot,
-                anti_raid: protecaoConfig.antiRaid
-            });
-        if (error) throw error;
+        await ProtecaoConfig.updateOne({ _id: 'protecao_config' }, {
+            $set: {
+                antiSpam: protecaoConfig.antiSpam,
+                antiLink: protecaoConfig.antiLink,
+                antiFake: protecaoConfig.antiFake,
+                antiBot: protecaoConfig.antiBot,
+                antiRaid: protecaoConfig.antiRaid
+            }
+        }, { upsert: true });
     } catch (err) {
         console.error('--- Erro ao salvar config de proteção ---', err);
     }
@@ -4074,19 +4071,14 @@ async function salvarProtecao() {
 
 async function carregarProtecao() {
     try {
-        const { data: doc, error } = await supabase
-            .from('protecao_config')
-            .select('*')
-            .eq('id', 'protecao_config')
-            .maybeSingle();
-        if (error) throw error;
+        const doc = await ProtecaoConfig.findById('protecao_config').lean();
         if (doc) {
-            Object.assign(protecaoConfig.antiSpam, doc.anti_spam ?? {});
-            Object.assign(protecaoConfig.antiLink, doc.anti_link ?? {});
-            Object.assign(protecaoConfig.antiFake, doc.anti_fake ?? {});
-            Object.assign(protecaoConfig.antiBot, doc.anti_bot ?? {});
-            Object.assign(protecaoConfig.antiRaid, doc.anti_raid ?? {});
-            console.log('[Proteção] Configuração carregada do Supabase.');
+            Object.assign(protecaoConfig.antiSpam, doc.antiSpam ?? {});
+            Object.assign(protecaoConfig.antiLink, doc.antiLink ?? {});
+            Object.assign(protecaoConfig.antiFake, doc.antiFake ?? {});
+            Object.assign(protecaoConfig.antiBot, doc.antiBot ?? {});
+            Object.assign(protecaoConfig.antiRaid, doc.antiRaid ?? {});
+            console.log('[Proteção] Configuração carregada do MongoDB.');
         } else {
             console.log('[Proteção] Nenhuma config salva encontrada, usando padrão.');
         }
@@ -5497,12 +5489,9 @@ async function atualizarPainelBotCallAuto(guildId) {
 
 async function carregarBotCallPaineis() {
     try {
-        const { data: docs, error } = await supabase
-            .from('bot_call_painel')
-            .select('*');
-        if (error) throw error;
+        const docs = await BotCallPainel.find().lean();
         for (const doc of docs) {
-            botCallPaineis.set(doc.guild_id, { channelId: doc.channel_id, messageId: doc.message_id });
+            botCallPaineis.set(doc._id, { channelId: doc.channelId, messageId: doc.messageId });
         }
         console.log(`[BotCall] ${docs.length} painel(is) carregado(s) do banco.`);
     } catch (err) {

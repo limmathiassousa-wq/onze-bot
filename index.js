@@ -194,9 +194,8 @@ const mongoConectado = mongoose.connect(MONGO_URI)
     });
     
 const redis = require('./redis');
-const { supabase } = require('./supabase');
-
 const {
+    MensagemCache, PrimeiraDama,
     ServerBackup,
     VoiceState, ContadorTicket, TicketData,
     ConviteStats,
@@ -1852,14 +1851,10 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
     await verificarAntiLink(newMessage);
 
 // ============ LOG: MENSAGEM EDITADA ============
-    // O Supabase é a fonte de verdade do conteúdo anterior — mesma lógica do
+    // O Mongo é a fonte de verdade do conteúdo anterior — mesma lógica do
     // log de mensagem apagada, não depende do cache em memória do discord.js.
-    const { data: cache, error: erroCache } = await supabase
-        .from('mensagens_cache')
-        .select('conteudo')
-        .eq('mensagem_id', newMessage.id)
-        .maybeSingle();
-    if (erroCache) console.error('--- Erro ao ler cache de mensagem no Supabase (edição) ---', erroCache);
+    const cache = await MensagemCache.findById(newMessage.id).lean()
+        .catch(err => { console.error('--- Erro ao ler cache de mensagem no Mongo (edição) ---', err); return null; });
 
     let conteudoAntigo = null;
     let antigoDisponivel = false;
@@ -1868,7 +1863,7 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
         conteudoAntigo = cache.conteudo;
         antigoDisponivel = true;
     } else if (!oldMessage.partial) {
-        // não tinha chegado a ser cacheado no Supabase (raro) — usa a mensagem
+        // não tinha chegado a ser cacheado no Mongo (raro) — usa a mensagem
         // ainda viva no cache do discord.js como último recurso
         conteudoAntigo = oldMessage.content;
         antigoDisponivel = typeof conteudoAntigo === 'string';
@@ -1891,10 +1886,9 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
 
     // atualiza o cache com o texto novo, pra próxima edição/apagada já pegar o atual
     try {
-        const { error: erroUpdate } = await supabase.from('mensagens_cache').update({ conteudo: newMessage.content }).eq('mensagem_id', newMessage.id);
-        if (erroUpdate) console.error('--- Erro ao atualizar cache de mensagem no Supabase ---', erroUpdate);
+        await MensagemCache.updateOne({ _id: newMessage.id }, { $set: { conteudo: newMessage.content } });
     } catch (err) {
-        console.error('--- Erro ao atualizar cache de mensagem no Supabase ---', err);
+        console.error('--- Erro ao atualizar cache de mensagem no Mongo ---', err);
     }
 });
 
@@ -1906,37 +1900,33 @@ client.on('messageDelete', async (message) => {
         if (mensagensSemLog.has(message.id)) {
             mensagensSemLog.delete(message.id);
             mensagensApagadasPeloBot.delete(message.id);
-            await supabase.from('mensagens_cache').delete().eq('mensagem_id', message.id);
+            await MensagemCache.deleteOne({ _id: message.id }).catch(() => null);
             return;
         }
 
         const foiOBotQueApagou = mensagensApagadasPeloBot.has(message.id);
         if (foiOBotQueApagou) mensagensApagadasPeloBot.delete(message.id);
 
-        // O Supabase é a fonte de verdade do conteúdo/autor — não depende do
+        // O Mongo é a fonte de verdade do conteúdo/autor — não depende do
         // cache em memória do discord.js, que é varrido periodicamente pelo
         // sweeper (ver "sweepers" na criação do client) e se perde num restart.
-        const { data: cache, error: erroCache } = await supabase
-            .from('mensagens_cache')
-            .select('*')
-            .eq('mensagem_id', message.id)
-            .maybeSingle();
-        if (erroCache) console.error('--- Erro ao ler cache de mensagem no Supabase (apagada) ---', erroCache);
+        const cache = await MensagemCache.findById(message.id).lean()
+            .catch(err => { console.error('--- Erro ao ler cache de mensagem no Mongo (apagada) ---', err); return null; });
 
         let autorObj = null;
         let conteudo = null;
 
         if (cache) {
-            autorObj = await client.users.fetch(cache.autor_id).catch(() => null);
+            autorObj = await client.users.fetch(cache.autorId).catch(() => null);
             conteudo = cache.conteudo;
         } else if (!message.partial) {
-            // não tinha chegado a ser cacheado no Supabase (raro) — usa a mensagem
+            // não tinha chegado a ser cacheado no Mongo (raro) — usa a mensagem
             // ainda viva no cache do discord.js como último recurso
             autorObj = message.author || null;
             conteudo = message.content ?? null;
         }
 
-        // Mensagens do próprio bot (painéis, logs etc.) não vão pro Supabase.
+        // Mensagens do próprio bot (painéis, logs etc.) não vão pro Mongo.
         // Depois de um restart elas chegam aqui como "partial", sem autor/conteúdo.
         // Se nenhuma fonte conhece a mensagem, confere no audit log se quem foi
         // apagada foi uma mensagem do bot e, se for, não loga (igual antes do restart).
@@ -1973,7 +1963,7 @@ client.on('messageDelete', async (message) => {
             conteudo: conteudo ?? '`conteúdo não disponível (mensagem não estava em cache)`'
         }).catch(() => null);
 
-        await supabase.from('mensagens_cache').delete().eq('mensagem_id', message.id);
+        await MensagemCache.deleteOne({ _id: message.id }).catch(() => null);
     } catch (err) {
         console.error('--- Erro ao processar log de mensagem apagada ---', err);
     }
@@ -1982,16 +1972,17 @@ client.on('messageDelete', async (message) => {
 client.on('messageCreate', async (message) => {
     if (!message.guild || message.author.bot) return;
     try {
-        const { error } = await supabase.from('mensagens_cache').upsert({
-            mensagem_id: message.id,
-            canal_id: message.channel.id,
-            autor_id: message.author.id,
-            autor_tag: message.author.tag,
-            conteudo: message.content
-        }, { onConflict: 'mensagem_id' });
-        if (error) console.error('--- Erro ao cachear mensagem no Supabase ---', error);
+        await MensagemCache.updateOne({ _id: message.id }, {
+            $set: {
+                canalId: message.channel.id,
+                autorId: message.author.id,
+                autorTag: message.author.tag,
+                conteudo: message.content
+            },
+            $setOnInsert: { criadoEm: new Date() }
+        }, { upsert: true });
     } catch (err) {
-        console.error('--- Erro ao cachear mensagem no Supabase ---', err);
+        console.error('--- Erro ao cachear mensagem no Mongo ---', err);
     }
 });
 
@@ -7619,22 +7610,12 @@ if (interaction.isUserSelectMenu() && interaction.customId.startsWith('pd_seleci
         return interaction.reply({ content: 'Você não pode definir um bot como primeira dama!', flags: [MessageFlags.Ephemeral] });
     }
 
-    const { data: jaExiste } = await supabase
-    .from('primeira_dama')
-    .select('id')
-    .eq('guild_id', interaction.guild.id)
-    .eq('setter_id', interaction.user.id)
-    .eq('target_id', alvoId)
-    .maybeSingle();
+    const jaExiste = await PrimeiraDama.exists({ guildId: interaction.guild.id, setterId: interaction.user.id, targetId: alvoId });
 if (jaExiste) {
     return interaction.reply({ content: `${alvoMembro} já é uma das suas primeiras damas!`, flags: [MessageFlags.Ephemeral] });
 }
 
-const { count: totalAtual } = await supabase
-    .from('primeira_dama')
-    .select('id', { count: 'exact', head: true })
-    .eq('guild_id', interaction.guild.id)
-    .eq('setter_id', interaction.user.id);
+const totalAtual = await PrimeiraDama.countDocuments({ guildId: interaction.guild.id, setterId: interaction.user.id });
 if (totalAtual >= LIMITE_PRIMEIRAS_DAMAS) {
     return interaction.reply({ content: `Você já atingiu o limite de **${LIMITE_PRIMEIRAS_DAMAS}** primeiras damas!`, flags: [MessageFlags.Ephemeral] });
 }
@@ -7647,10 +7628,7 @@ if (totalAtual >= LIMITE_PRIMEIRAS_DAMAS) {
     }
 
     try {
-    const { error } = await supabase
-        .from('primeira_dama')
-        .insert({ guild_id: interaction.guild.id, setter_id: interaction.user.id, target_id: alvoId });
-    if (error) throw error;
+    await PrimeiraDama.create({ guildId: interaction.guild.id, setterId: interaction.user.id, targetId: alvoId });
 } catch (err) {
         console.error('--- Erro ao salvar primeira dama no banco ---', err);
         await alvoMembro.roles.remove(CARGO_PRIMEIRA_DAMA).catch(() => null);
@@ -7692,25 +7670,14 @@ if (interaction.isStringSelectMenu() && interaction.customId.startsWith('pd_remo
 
     const alvoId = interaction.values[0];
 
-    const { data: registros, error: erroDelete } = await supabase
-    .from('primeira_dama')
-    .delete()
-    .eq('guild_id', interaction.guild.id)
-    .eq('setter_id', interaction.user.id)
-    .eq('target_id', alvoId)
-    .select();
-const registro = !erroDelete && registros && registros[0];
+    const registro = await PrimeiraDama.findOneAndDelete({ guildId: interaction.guild.id, setterId: interaction.user.id, targetId: alvoId }).catch(() => null);
 if (!registro) {
     return interaction.reply({ content: 'Esse registro não foi encontrado ou já foi removido.', flags: [MessageFlags.Ephemeral] });
 }
 
 const alvoMembro = await interaction.guild.members.fetch({ user: alvoId, force: true }).catch(() => null);
 
-const { count: outrosRegistros } = await supabase
-    .from('primeira_dama')
-    .select('id', { count: 'exact', head: true })
-    .eq('guild_id', interaction.guild.id)
-    .eq('target_id', alvoId);
+const outrosRegistros = await PrimeiraDama.countDocuments({ guildId: interaction.guild.id, targetId: alvoId });
 if (outrosRegistros === 0 && alvoMembro) {
     await alvoMembro.roles.remove(CARGO_PRIMEIRA_DAMA).catch(() => null);
 }

@@ -7,14 +7,13 @@ const {
 const { getVoiceConnection } = require('@discordjs/voice');
 
 const redis = require('./redis');
-const { supabase } = require('./supabase');
 const {
     CARGOS_ATENDENTE, CARGO_PD_PERMISSAO, CARGO_PRIMEIRA_DAMA, LIMITE_PRIMEIRAS_DAMAS,
     USUARIOS_BLOQUEADOS_EDICAO, CARGO_MUTADO,
     CARGO_BLOQUEADO_MODERACAO, CANAL_LOGS_KICKS
 } = require('./constants');
 const {
- ConviteStats
+ ConviteStats, PrimeiraDama, BotCallPainel
 } = require('./models');
 const { botCallDB, botCallPaineis, confirmacaoModeracaoDB, msgCriadorDB, sorteioDraftDB, muteDraftDB} = require('./state');
 const {
@@ -79,10 +78,7 @@ function montarPainelBotCall(guildId) {
 async function registrarPainelBotCall(guildId, channelId, messageId) {
     botCallPaineis.set(guildId, { channelId, messageId });
     try {
-        const { error } = await supabase
-            .from('bot_call_painel')
-            .upsert({ guild_id: guildId, channel_id: channelId, message_id: messageId });
-        if (error) throw error;
+        await BotCallPainel.updateOne({ _id: guildId }, { $set: { channelId, messageId } }, { upsert: true });
     } catch (err) {
         console.error('--- Erro ao salvar painel de botcall ---', err);
     }
@@ -299,21 +295,18 @@ async function atualizarPainelMuteInfo(guild, info, idsRefetch = []) {
 }
 
 async function obterPrimeirasDamas(guildId, setterId) {
-    const { data, error } = await supabase
-        .from('primeira_dama')
-        .select('*')
-        .eq('guild_id', guildId)
-        .eq('setter_id', setterId)
-        .order('criado_em', { ascending: true });
-    if (error) {
+    let data;
+    try {
+        data = await PrimeiraDama.find({ guildId, setterId }).sort({ criadoEm: 1 }).lean();
+    } catch (error) {
         console.error('--- Erro ao obter primeiras damas ---', error);
         return [];
     }
     return data.map(d => ({
-        guildId: d.guild_id,
-        setterId: d.setter_id,
-        targetId: d.target_id,
-        criadoEm: d.criado_em
+        guildId: d.guildId,
+        setterId: d.setterId,
+        targetId: d.targetId,
+        criadoEm: d.criadoEm
     }));
 }
 
