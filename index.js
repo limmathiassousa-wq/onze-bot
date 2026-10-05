@@ -2279,7 +2279,8 @@ if (message.content.toLowerCase() === `${PREFIXO}painelurl`) {
 
     return message.channel.send({
         components: [container],
-        flags: [MessageFlags.IsComponentsV2]
+        flags: [MessageFlags.IsComponentsV2],
+        allowedMentions: { parse: [] }
     });
 }
        
