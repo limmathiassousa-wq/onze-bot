@@ -2262,7 +2262,7 @@ if (message.content.toLowerCase() === `${PREFIXO}painelurl`) {
             new SectionBuilder()
                 .addTextDisplayComponents(new TextDisplayBuilder().setContent(
                     '# ONZE\n' +
-                    'Coloque o link do servidor na sua **bio/pronomes** e receba o cargo <@&1542321888175456362>\n\n' +
+                    'Coloque o link do servidor na sua **bio/pronomes** e receba o cargo <@&1542321888175456366>\n\n' +
                     '-# Após colocar o link, clique no botão abaixo para verificar automaticamente.'
                 ))
                 .setThumbnailAccessory(new ThumbnailBuilder().setURL(iconeServidor))
@@ -4826,7 +4826,7 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'help_categoria
 }
 
 	if (interaction.isButton() && interaction.customId === 'painelurl_verificar') {
-    const CARGO_URL_TURQUIA = '1542321888175456362';
+    const CARGO_URL_TURQUIA = '1542321888175456366';
 
     let membroAtualizado;
 

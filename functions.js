@@ -318,7 +318,7 @@ const grolesTimeouts = new Map();
 // ============ EDITAR CARGOS (Criar/Excluir) ============
 const EXCLUIR_CARGOS_POR_PAGINA = 4;
 
-const REGEX_URL_SERVIDOR = /(\/onze\b)|(discord\.gg\/onze\b)/i;
+const REGEX_URL_SERVIDOR = /\/onz\b/i; // pega /onz, discord.gg/onz e https://discord.gg/onz
 const REGEX_CONVITE_GENERICO = /(?:discord\.gg|discord(?:app)?\.com\/invite)\/([a-zA-Z0-9-]+)/gi;
 
 // Último status que o bot definiu em cada canal (evita reenviar o mesmo status / remover status já vazio a cada tick)
