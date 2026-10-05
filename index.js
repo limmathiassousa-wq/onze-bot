@@ -6140,12 +6140,95 @@ if (interaction.isRoleSelectMenu() && interaction.customId === 'roleall_select')
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(`Cargo: ${cargo}`))
         .addActionRowComponents(
             new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(`roleall_aplicar_${cargo.id}`).setLabel('Aplicar').setStyle(ButtonStyle.Success),
-                new ButtonBuilder().setCustomId(`roleall_rmpedir_${cargo.id}`).setLabel('Remover').setStyle(ButtonStyle.Danger)
+                new ButtonBuilder().setCustomId(`roleall_aplicar_${cargo.id}`).setLabel('Aplicar a todos').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId(`roleall_rmpedir_${cargo.id}`).setLabel('Remover de todos').setStyle(ButtonStyle.Danger)
+            )
+        )
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new UserSelectMenuBuilder()
+                    .setCustomId(`roleall_user_${cargo.id}`)
+                    .setPlaceholder('Ou selecione um membro')
+                    .setMinValues(1)
+                    .setMaxValues(1)
             )
         );
 
     return interaction.update({ components: [container], flags: [MessageFlags.IsComponentsV2] });
+}
+
+// ---- Cargo individual: seleção do membro ----
+if (interaction.isUserSelectMenu() && interaction.customId.startsWith('roleall_user_')) {
+    if (!roleAllTemPermissao(interaction.member)) {
+        return interaction.reply({ content: 'Você não tem permissão para utilizar este comando!', flags: [MessageFlags.Ephemeral] });
+    }
+
+    const cargo = interaction.guild.roles.cache.get(interaction.customId.replace('roleall_user_', ''));
+    const alvo = interaction.users.first();
+
+    if (!cargo || !alvo) {
+        return interaction.update({ components: containerTexto('Cargo ou membro inválido.'), flags: [MessageFlags.IsComponentsV2] });
+    }
+    if (cargo.position >= interaction.guild.members.me.roles.highest.position) {
+        return interaction.update({ components: containerTexto(`Não consigo mais gerenciar o cargo **${cargo.name}**.`), flags: [MessageFlags.IsComponentsV2] });
+    }
+
+    const container = new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **CARGO INDIVIDUAL**'))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`Cargo: ${cargo}\nMembro: ${alvo}`))
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId(`roleall_uadd_${cargo.id}_${alvo.id}`).setLabel('Adicionar').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId(`roleall_urem_${cargo.id}_${alvo.id}`).setLabel('Remover').setStyle(ButtonStyle.Danger)
+            )
+        );
+
+    return interaction.update({ components: [container], flags: [MessageFlags.IsComponentsV2] });
+}
+
+// ---- Cargo individual: adicionar/remover ----
+if (interaction.isButton() && (interaction.customId.startsWith('roleall_uadd_') || interaction.customId.startsWith('roleall_urem_'))) {
+    if (!roleAllTemPermissao(interaction.member)) {
+        return interaction.reply({ content: 'Você não tem permissão para utilizar este comando!', flags: [MessageFlags.Ephemeral] });
+    }
+
+    const [, acao, cargoId, alvoId] = interaction.customId.split('_');
+    const adicionar = acao === 'uadd';
+    const cargo = interaction.guild.roles.cache.get(cargoId);
+    const membro = await interaction.guild.members.fetch(alvoId).catch(() => null);
+
+    if (!cargo) {
+        return interaction.update({ components: containerTexto('Esse cargo não existe mais.'), flags: [MessageFlags.IsComponentsV2] });
+    }
+    if (!membro) {
+        return interaction.update({ components: containerTexto('Esse membro não está mais no servidor.'), flags: [MessageFlags.IsComponentsV2] });
+    }
+    if (cargo.position >= interaction.guild.members.me.roles.highest.position) {
+        return interaction.update({ components: containerTexto(`Não consigo mais gerenciar o cargo **${cargo.name}**.`), flags: [MessageFlags.IsComponentsV2] });
+    }
+
+    const possui = membro.roles.cache.has(cargo.id);
+    if (adicionar && possui) {
+        return interaction.update({ components: containerTexto(`${membro} já possui ${cargo}.`), flags: [MessageFlags.IsComponentsV2] });
+    }
+    if (!adicionar && !possui) {
+        return interaction.update({ components: containerTexto(`${membro} não possui ${cargo}.`), flags: [MessageFlags.IsComponentsV2] });
+    }
+
+    try {
+        if (adicionar) await membro.roles.add(cargo);
+        else await membro.roles.remove(cargo);
+    } catch (err) {
+        console.error('--- Erro ao alterar cargo individual ---', err);
+        return interaction.update({ components: containerTexto('Não consegui alterar o cargo desse membro.'), flags: [MessageFlags.IsComponentsV2] });
+    }
+
+    return interaction.update({
+        components: containerTexto(`${EMOJI_ATIVADO} ${cargo} ${adicionar ? 'adicionado a' : 'removido de'} ${membro}.`),
+        flags: [MessageFlags.IsComponentsV2]
+    });
 }
 
 if (interaction.isButton() && (interaction.customId.startsWith('roleall_aplicar_') || interaction.customId.startsWith('roleall_rmpedir_') || interaction.customId.startsWith('roleall_rmconfirmar_') || interaction.customId === 'roleall_rmcancelar')) {
