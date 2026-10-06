@@ -3164,27 +3164,7 @@ if (message.content.toLowerCase() === `${PREFIXO}tickets`) {
 
         await message.delete().catch(() => null);
 
-        const container = new ContainerBuilder()
-            .addMediaGalleryComponents(
-                new MediaGalleryBuilder().addItems(
-                    new MediaGalleryItemBuilder().setURL('https://i.supaimg.com/001f5659-bb07-44c4-a79d-4338b59c3c1a/4d48bb6c-e5e1-489f-b7f6-a32aa1e41653.png')
-                )
-            )
-            .addActionRowComponents(
-                new ActionRowBuilder().addComponents(
-                    new StringSelectMenuBuilder()
-                        .setCustomId('ticket_selecionar')
-                        .setPlaceholder('Selecione uma opção para iniciar o atendimento')
-                        .addOptions(
-                            Object.entries(TICKET_OPCOES).map(([valor, op]) =>
-                                new StringSelectMenuOptionBuilder()
-                                    .setLabel(op.label)
-                                    .setDescription(op.descricao)
-                                    .setValue(valor)
-                            )
-                        )
-                )
-            );
+        const container = montarPainelTickets();
 
         return message.channel.send({
             components: [container],
@@ -3193,6 +3173,31 @@ if (message.content.toLowerCase() === `${PREFIXO}tickets`) {
     }
 });
 
+
+// Painel de abertura de tickets (usado no comando e para resetar a seleção do menu)
+function montarPainelTickets() {
+    return new ContainerBuilder()
+        .addMediaGalleryComponents(
+            new MediaGalleryBuilder().addItems(
+                new MediaGalleryItemBuilder().setURL('https://i.supaimg.com/001f5659-bb07-44c4-a79d-4338b59c3c1a/4d48bb6c-e5e1-489f-b7f6-a32aa1e41653.png')
+            )
+        )
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new StringSelectMenuBuilder()
+                    .setCustomId('ticket_selecionar')
+                    .setPlaceholder('Selecione uma opção ›')
+                    .addOptions(
+                        Object.entries(TICKET_OPCOES).map(([valor, op]) =>
+                            new StringSelectMenuOptionBuilder()
+                                .setLabel(op.label)
+                                .setDescription(op.descricao)
+                                .setValue(valor)
+                        )
+                    )
+            )
+        );
+}
 
 client.on('interactionCreate', async (interaction) => {
     
@@ -8926,6 +8931,9 @@ if (interaction.customId === 'insta_info') {
 
      // ============ SISTEMA DE TICKETS============
     if (interaction.isStringSelectMenu() && interaction.customId === 'ticket_selecionar') {
+    // Reseta o menu (remove a opção marcada) para poder ser selecionado de novo
+    interaction.message.edit({ components: [montarPainelTickets()], flags: [MessageFlags.IsComponentsV2] }).catch(() => null);
+
     const opcao = TICKET_OPCOES[interaction.values[0]];
     if (!opcao) return interaction.reply({ content: 'Opção inválida.', flags: [MessageFlags.Ephemeral] });
     const motivo = opcao.label;
