@@ -138,7 +138,7 @@ async function enviarLogModeracao({ guild, tipo, alvo, alvoUser, autor, motivo, 
         const avatarUrl = obterAvatarUrl(alvoUser);
 
         const camposPrincipais = [
-            new TextDisplayBuilder().setContent(`### ${tipo} — ${guild.name}`),
+            new TextDisplayBuilder().setContent(`## ${tipo} — ${guild.name}`),
             new TextDisplayBuilder().setContent(`**Usuário:** ${alvo}`)
         ];
         if (autor) {
@@ -210,7 +210,7 @@ async function logarBanimento({ guild, tipo, alvo, alvoUser, autor, motivo, extr
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
-                        new TextDisplayBuilder().setContent(`### ${tipo} — ${guild.name}`),
+                        new TextDisplayBuilder().setContent(`## ${tipo} — ${guild.name}`),
                         new TextDisplayBuilder().setContent(`**Usuário:** ${alvo}`),
                         new TextDisplayBuilder().setContent(`**Executado por:** ${autor}`)
                     )
@@ -253,7 +253,7 @@ async function logarMembro({ guild, tipo, membro, extra, canalId }) {
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
-                        new TextDisplayBuilder().setContent(`### ${tipo} — ${guild.name}`),
+                        new TextDisplayBuilder().setContent(`## ${tipo} — ${guild.name}`),
                         new TextDisplayBuilder().setContent(`**Usuário:** ${alvo}`)
                     )
                     .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
@@ -291,7 +291,7 @@ async function logarExpulsao({ guild, tipo, alvo, alvoUser, autor, motivo, extra
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
-                        new TextDisplayBuilder().setContent(`### ${tipo || 'Expulsão (Kick)'} — ${guild.name}`),
+                        new TextDisplayBuilder().setContent(`## ${tipo || 'Expulsão (Kick)'} — ${guild.name}`),
                         new TextDisplayBuilder().setContent(`**Usuário:** ${alvo}`),
                         new TextDisplayBuilder().setContent(`**Executado por:** ${autor}`)
                     )
@@ -333,7 +333,7 @@ async function logarMute({ guild, tipo, alvo, alvoUser, autor, motivo, extra, ca
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
-                        new TextDisplayBuilder().setContent(`### ${tipo} — ${guild.name}`),
+                        new TextDisplayBuilder().setContent(`## ${tipo} — ${guild.name}`),
                         new TextDisplayBuilder().setContent(`**Usuário:** ${alvo}`),
                         new TextDisplayBuilder().setContent(`**Executado por:** ${autor}`)
                     )
@@ -379,7 +379,7 @@ async function logarCargo({ guild, tipo, alvo, alvoUser, autor, cargo, extra, ca
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
-                        new TextDisplayBuilder().setContent(`### ${tipo} — ${guild.name}`),
+                        new TextDisplayBuilder().setContent(`## ${tipo} — ${guild.name}`),
                         new TextDisplayBuilder().setContent(`**Usuário:** ${alvo}`),
                         new TextDisplayBuilder().setContent(`**Executado por:** ${autor}`)
                     )
@@ -423,7 +423,7 @@ async function logarCallTemp({ guild, acao, dono, canalVoz, alvo, extra, canalId
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
-                        new TextDisplayBuilder().setContent(`### Call Temp — ${acao} — ${guild.name}`),
+                        new TextDisplayBuilder().setContent(`## Call Temp — ${acao} — ${guild.name}`),
                         new TextDisplayBuilder().setContent(`**Usuário:** ${dono} (${obterTag(dono)})`),
                         new TextDisplayBuilder().setContent(`**Canal:** ${canalVoz}`)
                     )
@@ -467,7 +467,7 @@ async function logarAntiLink({ guild, usuario, motivo, link, canal: canalOrigem,
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
-                        new TextDisplayBuilder().setContent(`### Anti-Link — ${guild.name}`),
+                        new TextDisplayBuilder().setContent(`## Anti-Link — ${guild.name}`),
                         new TextDisplayBuilder().setContent(`**Usuário:** ${usuario} — \`${obterTag(usuario)}\` (\`${usuario?.id ?? '?'}\`)`),
                         new TextDisplayBuilder().setContent('**Executado por:** Sistema Automático')
                     )
@@ -508,7 +508,7 @@ async function logarAntiSpam({ guild, usuario, motivo, canal: canalOrigem, muteM
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
-                        new TextDisplayBuilder().setContent(`### Anti-Spam — ${guild.name}`),
+                        new TextDisplayBuilder().setContent(`## Anti-Spam — ${guild.name}`),
                         new TextDisplayBuilder().setContent(`**Usuário:** ${usuario} — \`${obterTag(usuario)}\` (\`${usuario?.id ?? '?'}\`)${ehBanimento ? ' — **BOT**' : ''}`),
                         new TextDisplayBuilder().setContent('**Executado por:** Sistema Automático')
                     )
@@ -544,7 +544,7 @@ async function logarAntiBot({ guild, bot, acao, canalId }) {
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
-                        new TextDisplayBuilder().setContent(`### Anti-Bot — ${guild.name}`),
+                        new TextDisplayBuilder().setContent(`## Anti-Bot — ${guild.name}`),
                         new TextDisplayBuilder().setContent(`**Usuário:** ${bot} — \`${obterTag(bot)}\` (\`${bot?.id ?? '?'}\`)`),
                         new TextDisplayBuilder().setContent('**Executado por:** Sistema Automático')
                     )
@@ -584,7 +584,7 @@ async function logarMensagemApagada({ guild, autor, canal, executor, mensagemId,
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
-                        new TextDisplayBuilder().setContent('### Mensagem apagada'),
+                        new TextDisplayBuilder().setContent('## Mensagem apagada'),
                         new TextDisplayBuilder().setContent(`**Autor:** ${autor ?? '\`desconhecido\`'} — \`${obterTag(autor)}\` (\`${autor?.id ?? '?'}\`)`)
                     )
                     .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
@@ -632,7 +632,7 @@ async function logarMensagemEditada({ guild, autor, canal, mensagemId, antes, de
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
-                        new TextDisplayBuilder().setContent('### Mensagem editada'),
+                        new TextDisplayBuilder().setContent('## Mensagem editada'),
                         new TextDisplayBuilder().setContent(`**Autor:** ${autor} — \`${obterTag(autor)}\` (\`${autor?.id ?? '?'}\`)`)
                     )
                     .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
@@ -688,7 +688,7 @@ async function logarVoz({ guild, tipo, membro, extra, canalId }) {
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
-                        new TextDisplayBuilder().setContent(`### Voz — ${tipo} — ${guild.name}`),
+                        new TextDisplayBuilder().setContent(`## Voz — ${tipo} — ${guild.name}`),
                         new TextDisplayBuilder().setContent(`**Usuário:** ${membro} — \`${obterTag(membro)}\` (\`${membro?.id ?? '?'}\`)`)
                     )
                     .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
@@ -726,7 +726,7 @@ async function logarCastigo({ guild, tipo, alvo, alvoUser, autor, motivo, duraca
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
-                        new TextDisplayBuilder().setContent(`### ${tipo} — ${guild.name}`),
+                        new TextDisplayBuilder().setContent(`## ${tipo} — ${guild.name}`),
                         new TextDisplayBuilder().setContent(`**Usuário:** ${alvo}`),
                         new TextDisplayBuilder().setContent(`**Executado por:** ${autor}`)
                     )
@@ -764,7 +764,7 @@ async function logarCargoServidor({ guild, tipo, cargo, executor, motivo, extra,
         const container = new ContainerBuilder()
             .setAccentColor(corPorTipo(tipo))
             .addTextDisplayComponents(
-                new TextDisplayBuilder().setContent(`### ${tipo} — ${guild.name}`),
+                new TextDisplayBuilder().setContent(`## ${tipo} — ${guild.name}`),
                 new TextDisplayBuilder().setContent(`**Cargo:** ${cargo}`),
                 new TextDisplayBuilder().setContent(`**Executado por:** ${executor}`)
             )
@@ -803,7 +803,7 @@ async function logarCanalServidor({ guild, tipo, canal, tipoCanal, categoria, ex
         const container = new ContainerBuilder()
             .setAccentColor(corPorTipo(tipo))
             .addTextDisplayComponents(
-                new TextDisplayBuilder().setContent(`### ${tipo} — ${guild.name}`),
+                new TextDisplayBuilder().setContent(`## ${tipo} — ${guild.name}`),
                 new TextDisplayBuilder().setContent(`**Canal:** ${canal}`),
                 ...(tipoCanal ? [new TextDisplayBuilder().setContent(`**Tipo:** ${tipoCanal}`)] : []),
                 ...(categoria ? [new TextDisplayBuilder().setContent(`**Categoria:** ${categoria}`)] : []),
@@ -843,7 +843,7 @@ async function logarPunicaoCargosStaff({ guild, tipo, membro, cargos, extra, can
             .addSectionComponents(
                 new SectionBuilder()
                     .addTextDisplayComponents(
-                        new TextDisplayBuilder().setContent(`### ${tipo} — ${guild.name}`),
+                        new TextDisplayBuilder().setContent(`## ${tipo} — ${guild.name}`),
                         new TextDisplayBuilder().setContent(`**Usuário:** ${membro} (${obterTag(usuarioAlvo)})`),
                         new TextDisplayBuilder().setContent('**Executado por:** Sistema (Anti-Abuso)')
                     )
@@ -889,7 +889,7 @@ async function logarAntiNukeCanais({ guild, executores, restaurados, revertidos,
         const unico = executores.length === 1 ? executores[0] : null;
 
         const linhasTopo = [
-            new TextDisplayBuilder().setContent(`### Anti Nuke — ${guild.name}`),
+            new TextDisplayBuilder().setContent(`## Anti Nuke — ${guild.name}`),
             new TextDisplayBuilder().setContent(
                 !executores.length
                     ? '**Usuário:** `não identificado`'

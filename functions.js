@@ -2357,7 +2357,11 @@ function montarPainelConfirmacaoAddCargo(alvo, cargo, autor) {
                 new ButtonBuilder()
                     .setCustomId(`cargo_add_confirmar`)
                     .setLabel('Adicionar')
-                    .setStyle(ButtonStyle.Success)
+                    .setStyle(ButtonStyle.Success),
+                new ButtonBuilder()
+                    .setCustomId('cargo_cancelar')
+                    .setLabel('Cancelar')
+                    .setStyle(ButtonStyle.Secondary)
             )
         );
 }
@@ -2384,7 +2388,11 @@ function montarPainelConfirmacaoRemCargo(alvo, cargo, autor) {
                 new ButtonBuilder()
                     .setCustomId(`cargo_rem_confirmar`)
                     .setLabel('Remover')
-                    .setStyle(ButtonStyle.Danger)
+                    .setStyle(ButtonStyle.Danger),
+                new ButtonBuilder()
+                    .setCustomId('cargo_cancelar')
+                    .setLabel('Cancelar')
+                    .setStyle(ButtonStyle.Secondary)
             )
         );
 }
@@ -4199,7 +4207,7 @@ async function enviarAlertaProtecao(guild, titulo, linhas, avatarUrl = null) {
             .setAccentColor(0xFF0000)
             .addSectionComponents(
                 new SectionBuilder()
-                    .addTextDisplayComponents(new TextDisplayBuilder().setContent(`### ${titulo} — ${guild.name}`))
+                    .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${titulo} — ${guild.name}`))
                     .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl || IMG_DISCORD_LOGO))
             )
             .addSeparatorComponents(new SeparatorBuilder().setDivider(true))

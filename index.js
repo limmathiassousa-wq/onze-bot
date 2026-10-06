@@ -1892,6 +1892,40 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
     }
 });
 
+// ============ QUEM APAGOU A MENSAGEM (audit log) ============
+// O Discord NÃO cria uma entrada nova a cada mensagem apagada: se o mesmo executor apaga
+// várias mensagens do mesmo autor no mesmo canal em poucos minutos, ele só aumenta o
+// `count` da entrada que já existe (e o createdTimestamp continua o antigo). Por isso a
+// detecção olha o AUMENTO do count, e não a data da entrada. Quando o próprio autor apaga,
+// não existe entrada nenhuma. Funciona também quando o executor é outro bot.
+const contagemAuditMsgApagada = new Map(); // id da entrada -> último count visto
+
+async function descobrirQuemApagouMensagem(guild, autorId, canalId) {
+    for (const espera of [0, 700, 1600]) {
+        if (espera) await new Promise(r => setTimeout(r, espera));
+        const logs = await guild.fetchAuditLogs({ type: AuditLogEvent.MessageDelete, limit: 15 }).catch(() => null);
+        if (!logs) continue;
+
+        let achado = null;
+        for (const e of logs.entries.values()) {
+            const count = e.extra?.count ?? 1;
+            const visto = contagemAuditMsgApagada.get(e.id);
+            const ehDoAutor = e.target?.id === autorId && e.extra?.channel?.id === canalId;
+            const recente = Date.now() - e.createdTimestamp < 15000;
+
+            if (ehDoAutor && !achado && (visto === undefined ? recente : count > visto)) {
+                achado = e.executor ?? null;
+            }
+            contagemAuditMsgApagada.set(e.id, Math.max(count, visto ?? 0));
+        }
+        if (contagemAuditMsgApagada.size > 500) {
+            for (const k of [...contagemAuditMsgApagada.keys()].slice(0, 250)) contagemAuditMsgApagada.delete(k);
+        }
+        if (achado) return achado;
+    }
+    return null;
+}
+
 // ============ LOG: MENSAGEM APAGADA ============
 client.on('messageDelete', async (message) => {
     try {
@@ -1941,12 +1975,13 @@ client.on('messageDelete', async (message) => {
         if (foiOBotQueApagou) {
             executor = `${client.user} — \`${client.user.tag}\` (ação automática do bot)`;
         } else if (autorObj) {
-            const executorAuditoria = await obterExecutorAuditLog(message.guild, AuditLogEvent.MessageDelete, autorObj.id, { esperas: [0, 500] }).catch(() => null);
+            const executorAuditoria = await descobrirQuemApagouMensagem(message.guild, autorObj.id, message.channel.id);
 
             if (executorAuditoria && executorAuditoria.id === client.user.id) {
                 executor = 'Sistema';
             } else if (executorAuditoria && executorAuditoria.id !== autorObj.id) {
-                executor = `${executorAuditoria} — \`${executorAuditoria.tag ?? executorAuditoria.username}\` (\`${executorAuditoria.id}\`)`;
+                const tagExec = executorAuditoria.tag ?? executorAuditoria.username;
+                executor = `${executorAuditoria} — \`${tagExec}\` (\`${executorAuditoria.id}\`)${executorAuditoria.bot ? ' [bot]' : ''}`;
             } else {
                 executor = `${autorObj} — \`${autorObj.tag ?? autorObj.username}\` (o próprio autor)`;
             }
@@ -5334,6 +5369,17 @@ if (interaction.isButton() && interaction.customId.startsWith('info_hierarquia_p
     });
 }
 	
+if (interaction.isButton() && interaction.customId === 'cargo_cancelar') {
+    const draft = confirmacaoModeracaoDB.get(interaction.message.id);
+    if (draft && interaction.user.id !== draft.autorId) {
+        return interaction.reply({ content: 'Esse painel não pertence a você!', flags: [MessageFlags.Ephemeral] });
+    }
+
+    confirmacaoModeracaoDB.delete(interaction.message.id);
+    await interaction.update({ components: containerTexto('Ação cancelada.'), flags: [MessageFlags.IsComponentsV2] });
+    return apagarInteracaoApos(interaction);
+}
+
 if (interaction.isButton() && interaction.customId === 'cargo_add_confirmar') {
     const draft = confirmacaoModeracaoDB.get(interaction.message.id);
     if (!draft || draft.tipo !== 'addcargo') {
@@ -9159,7 +9205,7 @@ let transcriptId = null;
                 .setAccentColor(0xFFFFFF)
                 .addSectionComponents(
                     new SectionBuilder()
-                        .addTextDisplayComponents(new TextDisplayBuilder().setContent('### TICKET FINALIZADO'))
+                        .addTextDisplayComponents(new TextDisplayBuilder().setContent('## TICKET FINALIZADO'))
                         .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarLogTicket))
                 )
                 .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
