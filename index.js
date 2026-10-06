@@ -744,6 +744,7 @@ async function botSeraPunido(executor) {
 }
 
 client.on('guildBanAdd', async (ban) => {
+    agendarRefreshPaineisUnbanall(ban.guild);
     const entrada = await aguardarEntradaAudit(ban.guild, AuditLogEvent.MemberBanAdd, e => e.target?.id === ban.user.id);
     const executor = entrada?.executor ?? null;
 
@@ -774,6 +775,8 @@ if (executor && executor.id !== client.user.id) {
 });
 
 client.on('guildBanRemove', async (ban) => {
+    agendarRefreshPaineisUnbanall(ban.guild);
+    if (unbanallIgnorar.has(ban.user.id)) { unbanallIgnorar.delete(ban.user.id); return; }
     const entrada = await aguardarEntradaAudit(ban.guild, AuditLogEvent.MemberBanRemove, e => e.target?.id === ban.user.id);
     const executor = entrada?.executor ?? null;
 
@@ -2418,6 +2421,29 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}unban `) || message.cont
     return;
 }
 
+if (message.content.toLowerCase() === `${PREFIXO}unbanall`) {
+    const aviso = (texto) => message.channel.send({ content: `${message.author} ${texto}`, allowedMentions: { users: [message.author.id] } }).then(m => apagarMensagemApos(m));
+
+    if (message.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO) || !roleAllTemPermissao(message.member)) {
+        return aviso('Você não tem permissão para usar este comando!');
+    }
+    if (!message.guild.members.me.permissions.has('BanMembers')) {
+        return aviso('Eu preciso da permissão **Banir Membros** para usar este comando.');
+    }
+
+    let painel;
+    try {
+        painel = await montarPainelUnbanallPrincipal(message.guild);
+    } catch (err) {
+        console.error('--- Erro ao montar painel unbanall ---', err);
+        return aviso('Não consegui carregar a lista de banidos agora. Tente novamente.');
+    }
+
+    const msgPainel = await message.channel.send({ components: [painel.container], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
+    unbanallDB.set(msgPainel.id, { autorId: message.author.id, guildId: message.guild.id, msg: msgPainel, tela: 'principal', timer: null });
+    return;
+}
+
 if (message.content.toLowerCase().startsWith(`${PREFIXO}kick `) || message.content.toLowerCase() === `${PREFIXO}kick`) {
     const aviso = (texto) => message.channel.send({ content: `${message.author} ${texto}`, allowedMentions: { users: [message.author.id] } }).then(m => apagarMensagemApos(m));
 
@@ -3174,6 +3200,177 @@ if (message.content.toLowerCase() === `${PREFIXO}tickets`) {
 });
 
 
+// ============ UNBANALL (painel de desbanimento geral / por alvo / adicionar ban) ============
+// Estado em memória por mensagem do painel: { autorId, guildId, msg, tela, timer }
+// tela: 'principal' | 'alvo' | 'executando'
+const unbanallDB = new Map();
+// IDs desbanidos pelo sistema agora: o listener guildBanRemove ignora (evita consulta de audit em massa)
+const unbanallIgnorar = new Set();
+let unbanallRefreshTimer = null;
+
+async function buscarTodosBans(guild) {
+    const todos = [];
+    let after;
+    for (let i = 0; i < 100; i++) { // trava de segurança: até 100k bans
+        const lote = await guild.bans.fetch({ limit: 1000, after, cache: false });
+        if (!lote.size) break;
+        const arr = [...lote.values()];
+        todos.push(...arr);
+        if (lote.size < 1000) break;
+        after = arr.reduce((maior, b) => (BigInt(b.user.id) > BigInt(maior) ? b.user.id : maior), arr[0].user.id);
+    }
+    return todos;
+}
+
+function formatarTempoUnbanall(ms) {
+    const s = Math.floor(ms / 1000);
+    const min = Math.floor(s / 60);
+    return min > 0 ? `${min}min ${s % 60}s` : `${s}s`;
+}
+
+async function montarPainelUnbanallPrincipal(guild) {
+    const bans = await buscarTodosBans(guild);
+    const total = bans.length;
+
+    const select = new StringSelectMenuBuilder()
+        .setCustomId('unbanall_alvo')
+        .setPlaceholder(total > 25 ? `Selecione um alvo ›  (mostrando 25 de ${total})` : 'Selecione um alvo ›');
+
+    if (total === 0) {
+        select.setDisabled(true).addOptions(new StringSelectMenuOptionBuilder().setLabel('Nenhum banido').setValue('vazio'));
+    } else {
+        select.addOptions(bans.slice(0, 25).map(b =>
+            new StringSelectMenuOptionBuilder()
+                .setLabel(String(b.user.tag).slice(0, 100))
+                .setDescription(`ID: ${b.user.id}`)
+                .setValue(b.user.id)
+        ));
+    }
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0xFFFFFF)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('## UnBanall geral — onze'))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# **Total de pessoas banidas**: ${total}`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('-# **Selecione um alvo a ser desbanido:**'))
+        .addActionRowComponents(new ActionRowBuilder().addComponents(select))
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('unbanall_geral').setLabel('Desbanir geral').setStyle(ButtonStyle.Danger).setDisabled(total === 0),
+                new ButtonBuilder().setCustomId('unbanall_adicionar').setLabel('Adicionar').setStyle(ButtonStyle.Secondary)
+            )
+        );
+
+    return { container, total };
+}
+
+function montarPainelUnbanallAlvo(alvoId, alvoTag) {
+    return new ContainerBuilder()
+        .setAccentColor(0xFFFFFF)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## UnBanall — <@${alvoId}>`))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# **UnBan por alvo**: ${alvoTag} — ${alvoId}`))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('-# **Você tem 1 min para fazer esta ação.**'))
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('unbanall_alvo_desbanir').setLabel('Desbanir').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId('unbanall_alvo_cancelar').setLabel('Cancelar').setStyle(ButtonStyle.Secondary)
+            )
+        );
+}
+
+function montarPainelUnbanallProgresso(erros, concluidos, inicioMs, finalizado = false) {
+    const agoraUnix = Math.floor(Date.now() / 1000);
+    return new ContainerBuilder()
+        .setAccentColor(0xFFFFFF)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('## Desbanimento geral — onze'))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Erros:** ${erros} — **Concluídos:** ${concluidos}`))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            `-# **<t:${agoraUnix}:F> — Tempo: ${formatarTempoUnbanall(Date.now() - inicioMs)}${finalizado ? '' : ' (em andamento)'}**`
+        ));
+}
+
+function limparTimerUnbanall(estado) {
+    if (estado?.timer) { clearTimeout(estado.timer); estado.timer = null; }
+}
+
+// Volta o painel para a tela principal (recalcula total de banidos)
+async function voltarUnbanallPrincipal(guild, msgId) {
+    const estado = unbanallDB.get(msgId);
+    if (!estado) return;
+    limparTimerUnbanall(estado);
+    estado.tela = 'principal';
+    const { container } = await montarPainelUnbanallPrincipal(guild);
+    await estado.msg.edit({ components: [container], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } }).catch(() => null);
+}
+
+// Atualiza todos os painéis abertos na tela principal quando algum ban/unban acontece (debounce de 2s)
+function agendarRefreshPaineisUnbanall(guild) {
+    if (unbanallRefreshTimer) clearTimeout(unbanallRefreshTimer);
+    unbanallRefreshTimer = setTimeout(async () => {
+        unbanallRefreshTimer = null;
+        for (const [msgId, estado] of unbanallDB) {
+            if (estado.guildId !== guild.id || estado.tela !== 'principal') continue;
+            await voltarUnbanallPrincipal(guild, msgId).catch(() => null);
+        }
+    }, 2000);
+}
+
+async function executarUnbanGeral(interaction, estado, msgId, efemero) {
+    const guild = interaction.guild;
+            limparTimerUnbanall(estado);
+
+        let bans;
+        try {
+            bans = await buscarTodosBans(guild);
+        } catch (err) {
+            console.error('--- Erro ao buscar bans (unbanall geral) ---', err);
+            await interaction.followUp(efemero('Não consegui carregar a lista de banidos agora.'));
+            return voltarUnbanallPrincipal(guild, msgId);
+        }
+        if (!bans.length) {
+            await interaction.followUp(efemero('Não há ninguém banido no servidor.'));
+            return voltarUnbanallPrincipal(guild, msgId);
+        }
+
+        estado.tela = 'executando';
+        const inicio = Date.now();
+        let concluidos = 0, erros = 0, ultimaEdicao = 0;
+        const editarProgresso = (final = false) => estado.msg.edit({
+            components: [montarPainelUnbanallProgresso(erros, concluidos, inicio, final)],
+            flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] }
+        }).catch(() => null);
+
+        await editarProgresso();
+
+        const TAMANHO_LOTE = 5;
+        for (let i = 0; i < bans.length; i += TAMANHO_LOTE) {
+            const lote = bans.slice(i, i + TAMANHO_LOTE);
+            const resultados = await Promise.allSettled(lote.map(b => {
+                unbanallIgnorar.add(b.user.id);
+                setTimeout(() => unbanallIgnorar.delete(b.user.id), 60 * 1000);
+                return guild.members.unban(b.user.id, `UnBanall geral — ${interaction.user.tag}`);
+            }));
+            resultados.forEach((r, idx) => {
+                if (r.status === 'fulfilled') concluidos++;
+                else { erros++; unbanallIgnorar.delete(lote[idx].user.id); }
+            });
+            if (Date.now() - ultimaEdicao >= 1500) { ultimaEdicao = Date.now(); await editarProgresso(); }
+        }
+
+        const tempoFinal = formatarTempoUnbanall(Date.now() - inicio);
+        await editarProgresso(true);
+
+        await logarBanimento({
+            guild, tipo: 'Unban Geral',
+            alvo: `${concluidos} pessoa(s) desbanida(s)`,
+            alvoUser: null, autor: interaction.user,
+            motivo: `UnBanall geral — Concluídos: ${concluidos} • Erros: ${erros} • Tempo: ${tempoFinal}`
+        }).catch(err => console.error('--- Erro ao logar unban geral ---', err));
+
+        await new Promise(r => setTimeout(r, 5000)); // deixa o resultado visível antes de voltar
+        return voltarUnbanallPrincipal(guild, msgId);
+}
+
 // Painel de abertura de tickets (usado no comando e para resetar a seleção do menu)
 function montarPainelTickets() {
     return new ContainerBuilder()
@@ -3200,6 +3397,219 @@ function montarPainelTickets() {
 }
 
 client.on('interactionCreate', async (interaction) => {
+    // ============ UNBANALL ============
+    if ((interaction.isButton() || interaction.isStringSelectMenu()) && interaction.customId.startsWith('unbanall_')) {
+        const efemero = (texto) => ({ components: containerTexto(texto), flags: [MessageFlags.Ephemeral, MessageFlags.IsComponentsV2] });
+        const estado = unbanallDB.get(interaction.message.id);
+
+        if (!estado) {
+            return interaction.update({ components: containerTexto('Esse painel expirou. Use o comando novamente.'), flags: [MessageFlags.IsComponentsV2] });
+        }
+        if (interaction.user.id !== estado.autorId) {
+            return interaction.reply(efemero('Esse painel não pertence a você!'));
+        }
+        if (!roleAllTemPermissao(interaction.member) || interaction.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) {
+            return interaction.reply(efemero('Você não tem permissão para usar este painel!'));
+        }
+        if (estado.tela === 'executando') {
+            return interaction.reply(efemero('Aguarde o desbanimento geral terminar.'));
+        }
+
+        const guild = interaction.guild;
+        const msgId = interaction.message.id;
+        const id = interaction.customId;
+
+        // Abre o select efêmero (sem texto) para escolher quem banir
+        if (id === 'unbanall_adicionar') {
+            const containerAdd = new ContainerBuilder()
+                .setAccentColor(0xFFFFFF)
+                .addActionRowComponents(
+                    new ActionRowBuilder().addComponents(
+                        new UserSelectMenuBuilder()
+                            .setCustomId(`unbanall_add_user:${msgId}`)
+                            .setPlaceholder('Selecione quem deseja banir ›')
+                            .setMinValues(1)
+                            .setMaxValues(1)
+                    )
+                );
+            return interaction.reply({ components: [containerAdd], flags: [MessageFlags.Ephemeral, MessageFlags.IsComponentsV2] });
+        }
+
+        // Alvo escolhido no select: vira o painel "UnBan por alvo" (1 min para agir)
+        if (id === 'unbanall_alvo' && interaction.isStringSelectMenu()) {
+            await interaction.deferUpdate();
+            const alvoId = interaction.values[0];
+            const banido = await guild.bans.fetch({ user: alvoId, force: true }).catch(() => null);
+            if (!banido) {
+                await voltarUnbanallPrincipal(guild, msgId);
+                return interaction.followUp(efemero('Esse usuário não está mais banido.'));
+            }
+
+            limparTimerUnbanall(estado);
+            estado.tela = 'alvo';
+            estado.alvoId = alvoId;
+            estado.alvoTag = banido.user.tag;
+            await interaction.editReply({
+                components: [montarPainelUnbanallAlvo(alvoId, banido.user.tag)],
+                flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] }
+            });
+            estado.timer = setTimeout(async () => {
+                unbanallDB.delete(msgId);
+                await estado.msg.delete().catch(() => null);
+            }, 60 * 1000);
+            return;
+        }
+
+        if (id === 'unbanall_alvo_cancelar') {
+            await interaction.deferUpdate();
+            await interaction.followUp(efemero('Ação cancelada.'));
+            return voltarUnbanallPrincipal(guild, msgId);
+        }
+
+        if (id === 'unbanall_alvo_desbanir') {
+            await interaction.deferUpdate();
+            const { alvoId, alvoTag } = estado;
+            unbanallIgnorar.add(alvoId);
+            setTimeout(() => unbanallIgnorar.delete(alvoId), 30 * 1000);
+
+            try {
+                await guild.members.unban(alvoId, `UnBanall (por alvo) — ${interaction.user.tag}`);
+            } catch (err) {
+                console.error('--- Erro ao desbanir (unbanall alvo) ---', err);
+                unbanallIgnorar.delete(alvoId);
+                await interaction.followUp(efemero('Ocorreu um erro ao desbanir esse usuário.'));
+                return voltarUnbanallPrincipal(guild, msgId);
+            }
+
+            const alvoUser = await client.users.fetch(alvoId).catch(() => null);
+            await logarBanimento({
+                guild, tipo: 'Unban',
+                alvo: `${alvoTag} (${alvoId})`,
+                alvoUser, autor: interaction.user, motivo: 'UnBanall (por alvo)'
+            }).catch(err => console.error('--- Erro ao logar unban (unbanall) ---', err));
+
+            await interaction.followUp(efemero(`**${alvoTag}** foi desbanido com sucesso!`));
+            return voltarUnbanallPrincipal(guild, msgId);
+        }
+
+        // Pede confirmação (embed efêmera) antes de desbanir todo mundo
+        if (id === 'unbanall_geral') {
+            const containerConf = new ContainerBuilder()
+                .setAccentColor(0xFFFFFF)
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent('## Desbanir geral'))
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent('-# **Deseja realmente desbanir todas as pessoas banidas do servidor?**'))
+                .addActionRowComponents(
+                    new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId(`unbanconf_geral:${msgId}`).setLabel('Confirmar').setStyle(ButtonStyle.Danger),
+                        new ButtonBuilder().setCustomId('unbanconf_cancelar').setLabel('Cancelar').setStyle(ButtonStyle.Secondary)
+                    )
+                );
+            return interaction.reply({ components: [containerConf], flags: [MessageFlags.Ephemeral, MessageFlags.IsComponentsV2] });
+        }
+        return;
+    }
+
+    // Select efêmero do "Adicionar": bane quem foi escolhido
+    if (interaction.isUserSelectMenu() && interaction.customId.startsWith('unbanall_add_user:')) {
+        const msgId = interaction.customId.split(':')[1];
+        const estado = unbanallDB.get(msgId);
+        const guild = interaction.guild;
+
+        if (!estado || interaction.user.id !== estado.autorId) {
+            return interaction.update({ components: containerTexto('Esse painel expirou ou não pertence a você.'), flags: [MessageFlags.IsComponentsV2] });
+        }
+        if (!roleAllTemPermissao(interaction.member) || interaction.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) {
+            return interaction.update({ components: containerTexto('Você não tem permissão para banir membros!'), flags: [MessageFlags.IsComponentsV2] });
+        }
+
+        const alvoId = interaction.values[0];
+        const erroEfemero = (texto) => interaction.update({ components: containerTexto(texto), flags: [MessageFlags.IsComponentsV2] });
+
+        if (alvoId === interaction.user.id) return erroEfemero('Você não pode se banir!');
+        if (alvoId === client.user.id) return erroEfemero('Eu não posso me banir!');
+
+        const membroAlvo = interaction.members?.get(alvoId) ? await guild.members.fetch({ user: alvoId, force: true }).catch(() => null) : null;
+        if (membroAlvo && !membroAlvo.bannable) return erroEfemero('Não consigo banir esse usuário. Verifique a hierarquia de cargos.');
+
+        const alvoUser = interaction.users?.get(alvoId) || await client.users.fetch(alvoId).catch(() => null);
+        const alvoTag = alvoUser?.tag || alvoId;
+
+        const containerConfAdd = new ContainerBuilder()
+            .setAccentColor(0xFFFFFF)
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## Banir — <@${alvoId}>`))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# **Alvo**: ${alvoTag} — ${alvoId}`))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent('-# **Deseja realmente banir esta pessoa?**'))
+            .addActionRowComponents(
+                new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId(`unbanconf_add:${msgId}:${alvoId}`).setLabel('Confirmar').setStyle(ButtonStyle.Danger),
+                    new ButtonBuilder().setCustomId('unbanconf_cancelar').setLabel('Cancelar').setStyle(ButtonStyle.Secondary)
+                )
+            );
+        return interaction.update({ components: [containerConfAdd], flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
+    }
+
+    // ===== Confirmações efêmeras (banir / desbanir geral) =====
+    if (interaction.isButton() && interaction.customId.startsWith('unbanconf_')) {
+        const efemero = (texto) => ({ components: containerTexto(texto), flags: [MessageFlags.Ephemeral, MessageFlags.IsComponentsV2] });
+        const [acao, msgId, alvoId] = interaction.customId.split(':');
+
+        if (acao === 'unbanconf_cancelar') {
+            await interaction.update({ components: containerTexto('Ação cancelada.'), flags: [MessageFlags.IsComponentsV2] });
+            setTimeout(() => interaction.deleteReply().catch(() => null), 3000);
+            return;
+        }
+
+        const estado = unbanallDB.get(msgId);
+        if (!estado || interaction.user.id !== estado.autorId) {
+            return interaction.update({ components: containerTexto('Esse painel expirou ou não pertence a você.'), flags: [MessageFlags.IsComponentsV2] });
+        }
+        if (!roleAllTemPermissao(interaction.member) || interaction.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) {
+            return interaction.update({ components: containerTexto('Você não tem permissão para usar este painel!'), flags: [MessageFlags.IsComponentsV2] });
+        }
+        const guild = interaction.guild;
+
+        if (acao === 'unbanconf_geral') {
+            if (estado.tela === 'executando') {
+                return interaction.update({ components: containerTexto('Aguarde o desbanimento geral terminar.'), flags: [MessageFlags.IsComponentsV2] });
+            }
+            await interaction.update({ components: containerTexto('Desbanimento geral iniciado!'), flags: [MessageFlags.IsComponentsV2] });
+            setTimeout(() => interaction.deleteReply().catch(() => null), 3000);
+            return executarUnbanGeral(interaction, estado, msgId, efemero);
+        }
+
+        if (acao === 'unbanconf_add') {
+            const membroAlvo = await guild.members.fetch({ user: alvoId, force: true }).catch(() => null);
+            if (membroAlvo && !membroAlvo.bannable) {
+                return interaction.update({ components: containerTexto('Não consigo banir esse usuário. Verifique a hierarquia de cargos.'), flags: [MessageFlags.IsComponentsV2] });
+            }
+            const alvoUser = membroAlvo?.user || await client.users.fetch(alvoId).catch(() => null);
+            const alvoTag = alvoUser?.tag || alvoId;
+
+            await interaction.deferUpdate();
+            try {
+                await guild.members.ban(alvoId, { reason: `UnBanall (Adicionar) — ${interaction.user.tag}` });
+            } catch (err) {
+                console.error('--- Erro ao banir (unbanall adicionar) ---', err);
+                return interaction.editReply({ components: containerTexto('Ocorreu um erro ao banir esse usuário.'), flags: [MessageFlags.IsComponentsV2] });
+            }
+
+            await logarBanimento({
+                guild, tipo: 'Banimento',
+                alvo: `<@${alvoId}> (${alvoTag})`,
+                alvoUser, autor: interaction.user, motivo: 'UnBanall (Adicionar)'
+            }).catch(err => console.error('--- Erro ao logar ban (unbanall) ---', err));
+
+            verificarBanEmMassaStaff(guild, interaction.user).catch(err => console.error('--- Erro no Anti-Abuso (unbanall) ---', err));
+
+            await interaction.editReply({ components: containerTexto(`**${alvoTag}** foi banido com sucesso!`), flags: [MessageFlags.IsComponentsV2] });
+            setTimeout(() => interaction.deleteReply().catch(() => null), 5000);
+
+            if (estado.tela === 'principal') await voltarUnbanallPrincipal(guild, msgId);
+            return;
+        }
+        return;
+    }
+
     
 // ============ PAINEL STAFF DO TICKET ============
 if (interaction.isButton() && interaction.customId === 'ticket_painelstaff') {
