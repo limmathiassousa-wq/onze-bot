@@ -3199,6 +3199,18 @@ async function localizarMensagemPainelTicket(thread, painelMessageId) {
     return mensagens.find(m => m.author.id === client.user.id && m.components?.length) ?? null;
 }
 
+const TICKET_OPCOES = {
+    suporte:   { label: 'Suporte',   titulo: 'SUPORTE',   descricao: 'Tire dúvidas ou peça ajuda da equipe' },
+    denunciar: { label: 'Denunciar', titulo: 'DENUNCIAR', descricao: 'Denuncie um membro ou situação' },
+    parceria:  { label: 'Parceria',  titulo: 'PARCERIA',  descricao: 'Proponha uma parceria com o servidor' }
+};
+
+// Aceita o label salvo ("Suporte"); tickets antigos (motivo livre) caem em SUPORTE.
+function tituloTicket(opcaoSalva) {
+    const op = Object.values(TICKET_OPCOES).find(o => o.label === opcaoSalva);
+    return op ? op.titulo : 'SUPORTE';
+}
+
 async function assumirTicket(thread, dados, staffMember) {
     if (dados.assumidoPor) return false;
 
@@ -3216,11 +3228,11 @@ async function assumirTicket(thread, dados, staffMember) {
         .addSectionComponents(
             new SectionBuilder()
                 .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Assumido por:** \`${staffMember.user.username}\``))
-                .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Motivo:**\n\`\`\`${dados.motivo}\`\`\``))
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Opção selecionada:**\n\`\`\`${dados.motivo}\`\`\``))
                 .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))
         )
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## SUPORTE\n Porfavor, aguarde as instruções do staff responsável.`))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${tituloTicket(dados.motivo)}\n Porfavor, aguarde as instruções do staff responsável.`))
         .addActionRowComponents(
             new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('ticket_assumir').setLabel('Assumido').setStyle(ButtonStyle.Success).setDisabled(true),
@@ -7202,6 +7214,8 @@ function montarCardComentarioTellonym(dados, pagina) {
 // ============ EXPORTS ============
 
 module.exports = {
+    TICKET_OPCOES,
+    tituloTicket,
     // --- controle ---
     setClient,
 

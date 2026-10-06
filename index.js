@@ -243,7 +243,7 @@ const {
     PUBLIC_BASE_URL, REGEX_CONVITE_GENERICO, REGEX_EMOJI_INTERNO, REGEX_EVERYONE_HERE,
     REGEX_URL_SERVIDOR, RE_HELP_PREFIXO, RE_HELP_SEM_PREFIXO, SCALE,
     TIME_SIZE, agendarEncerramentoSorteio, agendarExpiracaoGRoles, agendarExpiracaoMsgCriador,
-    agendarFimMuteCargo, aguardarEBuscarAuditLog, aplicarMuteCargo, assumirTicket,
+    agendarFimMuteCargo, aguardarEBuscarAuditLog, aplicarMuteCargo, assumirTicket, TICKET_OPCOES, tituloTicket,
     atualizarPainelBotCallAuto, atualizarProgressoCallSorteio, atualizarProgressoInviteSorteio, atualizarProgressoMensagensSorteio,
     atualizarStatusCallsSorteio, atualizarTodosPaineisProtecao, auditLogCache,
     breakText, buscarAuditLogsComCache,
@@ -1592,7 +1592,7 @@ if (newState.channelId === CANAL_GERADOR_ID) {
             )
             .addMediaGalleryComponents(
                 new MediaGalleryBuilder().addItems(
-                    new MediaGalleryItemBuilder().setURL('https://i.supaimg.com/001f5659-bb07-44c4-a79d-4338b59c3c1a/1beb5014-901c-4eb7-942c-e23ae7db7696.png')
+                    new MediaGalleryItemBuilder().setURL('https://i.supaimg.com/001f5659-bb07-44c4-a79d-4338b59c3c1a/4d48bb6c-e5e1-489f-b7f6-a32aa1e41653.png')
                 )
             )
             .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
@@ -2698,7 +2698,7 @@ if (message.content.toLowerCase() === `${PREFIXO}tellonym`) {
     const container = new ContainerBuilder()
         .addMediaGalleryComponents(
             new MediaGalleryBuilder().addItems(
-                new MediaGalleryItemBuilder().setURL('https://i.supaimg.com/001f5659-bb07-44c4-a79d-4338b59c3c1a/6b621b9b-fdf2-4f4e-a913-6ca022e839bc.png')
+                new MediaGalleryItemBuilder().setURL('https://i.supaimg.com/001f5659-bb07-44c4-a79d-4338b59c3c1a/4d48bb6c-e5e1-489f-b7f6-a32aa1e41653.png')
             )
         )
         .addActionRowComponents(
@@ -3167,16 +3167,22 @@ if (message.content.toLowerCase() === `${PREFIXO}tickets`) {
         const container = new ContainerBuilder()
             .addMediaGalleryComponents(
                 new MediaGalleryBuilder().addItems(
-                    new MediaGalleryItemBuilder().setURL('https://i.supaimg.com/001f5659-bb07-44c4-a79d-4338b59c3c1a/6b621b9b-fdf2-4f4e-a913-6ca022e839bc.png')
+                    new MediaGalleryItemBuilder().setURL('https://i.supaimg.com/001f5659-bb07-44c4-a79d-4338b59c3c1a/4d48bb6c-e5e1-489f-b7f6-a32aa1e41653.png')
                 )
             )
             .addActionRowComponents(
                 new ActionRowBuilder().addComponents(
-                    new ButtonBuilder()
-                        .setCustomId('ticket_iniciar')
-                        .setEmoji('<:pontoblack:1548558686136307732>')
-                        .setLabel('Iniciar atendimento')
-                        .setStyle(ButtonStyle.Secondary)
+                    new StringSelectMenuBuilder()
+                        .setCustomId('ticket_selecionar')
+                        .setPlaceholder('Selecione uma opção para iniciar o atendimento')
+                        .addOptions(
+                            Object.entries(TICKET_OPCOES).map(([valor, op]) =>
+                                new StringSelectMenuOptionBuilder()
+                                    .setLabel(op.label)
+                                    .setDescription(op.descricao)
+                                    .setValue(valor)
+                            )
+                        )
                 )
             );
 
@@ -8919,8 +8925,11 @@ if (interaction.customId === 'insta_info') {
     }
 
      // ============ SISTEMA DE TICKETS============
-    if (interaction.isButton() && interaction.customId === 'ticket_iniciar') {
-    
+    if (interaction.isStringSelectMenu() && interaction.customId === 'ticket_selecionar') {
+    const opcao = TICKET_OPCOES[interaction.values[0]];
+    if (!opcao) return interaction.reply({ content: 'Opção inválida.', flags: [MessageFlags.Ephemeral] });
+    const motivo = opcao.label;
+
     const ticketExistente = [...ticketDB.entries()].find(([, dados]) => dados.autorId === interaction.user.id);
 
     if (ticketExistente) {
@@ -8937,28 +8946,9 @@ if (interaction.customId === 'insta_info') {
                 flags: [MessageFlags.Ephemeral]
             });
         } else {
-            
             ticketDB.delete(threadId);
         }
     }
-
-    const modal = new ModalBuilder()
-        .setCustomId('ticket_modal')
-        .setTitle('Atendimento');
-
-    const motivoInput = new TextInputBuilder()
-        .setCustomId('motivo')
-        .setLabel('Insira o motivo do seu atendimento')
-        .setStyle(TextInputStyle.Paragraph)
-        .setRequired(true)
-        .setMaxLength(1000);
-
-    modal.addComponents(new ActionRowBuilder().addComponents(motivoInput));
-    return interaction.showModal(modal);
-}
-
-    if (interaction.isModalSubmit() && interaction.customId === 'ticket_modal') {
-    const motivo = interaction.fields.getTextInputValue('motivo');
 
     await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
 
@@ -9022,7 +9012,7 @@ ticketThread = await canalBase.threads.create({
                     new TextDisplayBuilder().setContent(`**Assumido por:** \`ninguém\``)
                 )
                 .addTextDisplayComponents(
-                    new TextDisplayBuilder().setContent(`**Motivo:**\n\`\`\`${motivo}\`\`\``)
+                    new TextDisplayBuilder().setContent(`**Opção selecionada:**\n\`\`\`${motivo}\`\`\``)
                 )
                 .setThumbnailAccessory(
                     new ThumbnailBuilder().setURL(interaction.user.displayAvatarURL({ extension: 'png', size: 256 }))
@@ -9030,7 +9020,7 @@ ticketThread = await canalBase.threads.create({
         )
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addTextDisplayComponents(
-            new TextDisplayBuilder().setContent(`## SUPORTE\n Aguarde ser atendido pela equipe responsável.`)
+            new TextDisplayBuilder().setContent(`## ${opcao.titulo}\n Aguarde ser atendido pela equipe responsável.`)
         )
         .addActionRowComponents(
             new ActionRowBuilder().addComponents(
@@ -9211,7 +9201,7 @@ let transcriptId = null;
                 .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
                 .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Aberto por:** <@${autorId}>`))
                 .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Assumido por:** ${assumidoPor ? `<@${assumidoPor}>` : '\`ninguém\`'}`))
-                .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Motivo:**\n\`\`\`${motivo}\`\`\``))
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Opção selecionada:**\n\`\`\`${motivo}\`\`\``))
                 .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Ticket:** N°${numero}`))
                 .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Finalizado por:** ${finalizadoPor}`));
 
