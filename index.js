@@ -2944,7 +2944,7 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}addcargo`)) {
         return message.reply('Você não tem permissão para utilizar este comando!')
             .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
     }
-    if (!message.member.permissions.has('Administrator') && !message.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
+    if (!message.member.permissions.has('Administrator') && !message.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id)) && !message.member.roles.cache.has(CARGO_LIBERADO_ADDREMCARGO)) {
         return message.reply('Você não tem permissão para utilizar este comando!')
             .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
     }
@@ -3003,7 +3003,7 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}remcargo`)) {
         return message.reply('Você não tem permissão para utilizar este comando!')
             .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
     }
-    if (!message.member.permissions.has('Administrator') && !message.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id))) {
+    if (!message.member.permissions.has('Administrator') && !message.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id)) && !message.member.roles.cache.has(CARGO_LIBERADO_ADDREMCARGO)) {
         return message.reply('Você não tem permissão para utilizar este comando!')
             .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
     }
@@ -3200,6 +3200,9 @@ if (message.content.toLowerCase() === `${PREFIXO}tickets`) {
     }
 });
 
+
+// Cargo extra autorizado a usar apenas os comandos addcargo/remcargo
+const CARGO_LIBERADO_ADDREMCARGO = '1542321888309809210';
 
 // ============ UNBANALL (painel de desbanimento geral / por alvo / adicionar ban) ============
 // Estado em memória por mensagem do painel: { autorId, guildId, msg, tela, timer }
