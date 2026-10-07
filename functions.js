@@ -4133,12 +4133,17 @@ async function carregarTellonymPendentes() {
     }
 }
 
+// Cargo dos bots: podem mandar links normalmente (só convites e domínios ilícitos continuam bloqueados)
+const CARGO_BOTS_LINK_LIVRE = '1555562699881054218';
+
 async function verificarAntiLink(message) {
     if (!protecaoConfig.antiLink.ativo) return false;
     if (ticketDB.has(message.channel.id)) return false; // NOVO: anti-link não age dentro de tickets
 
     const cargosLiberados = [CARGO_BOOSTER, ...CARGOS_ATENDENTE, ...protecaoConfig.antiLink.cargosBypass];
     if (message.member.roles.cache.some(r => cargosLiberados.includes(r.id))) return false;
+
+    const botComLinkLivre = message.member.roles.cache.has(CARGO_BOTS_LINK_LIVRE);
 
     if (protecaoConfig.antiLink.bloquearConvites) {
     const regexConvite = new RegExp(`(?:https?:\\/\\/)?(?:www\\.)?(${DOMINIOS_CONVITE.map(d => d.replace('.', '\\.')).join('|')})\\/(invite\\/)?[a-zA-Z0-9-]+`, 'i');
@@ -4189,7 +4194,7 @@ if (BLACKLIST_DOMINIOS.some(d => host === d || host.endsWith(`.${d}`))) {
     return true;
 }
 
-if (!linkPermitido(link)) {
+if (!botComLinkLivre && !linkPermitido(link)) { // bots liberados pulam só a whitelist
     await message.delete().catch(() => null);
     message.channel.send(`${message.author} Sem links aqui, seu trouxa!!`)
         .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
