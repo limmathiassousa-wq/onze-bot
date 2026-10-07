@@ -5805,7 +5805,7 @@ function linkPermitido(url) {
         const host = hostname.toLowerCase().replace(/^www\./, '');
 
         // Domínios extras liberados (ex.: cards/gifs do bot Zany)
-        const DOMINIOS_EXTRAS_LIBERADOS = ['zanybot.cc'];
+        const DOMINIOS_EXTRAS_LIBERADOS = ['zanybot.cc', 'zany.cc'];
         const listaDominios = [...DOMINIOS_MUSICA_PERMITIDOS, ...DOMINIOS_IMAGEM_CONFIAVEIS, ...DOMINIOS_EXTRAS_LIBERADOS];
         if (listaDominios.some(d => host === d || host.endsWith(`.${d}`))) {
             return true;
