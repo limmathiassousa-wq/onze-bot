@@ -2955,8 +2955,7 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}addcargo`)) {
         return message.reply('Você não tem permissão para utilizar este comando!')
             .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
     }
-    const excecaoTemp = message.author.id === ADDCARGO_EXCECAO_TEMP.userId; // TEMPORÁRIO
-    if (!excecaoTemp && !message.member.permissions.has('Administrator') && !message.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id)) && !message.member.roles.cache.has(CARGO_LIBERADO_ADDREMCARGO)) {
+    if (!message.member.permissions.has('Administrator') && !message.member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id)) && !message.member.roles.cache.has(CARGO_LIBERADO_ADDREMCARGO)) {
         return message.reply('Você não tem permissão para utilizar este comando!')
             .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
     }
@@ -2974,18 +2973,12 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}addcargo`)) {
             .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
     }
     
-    // TEMPORÁRIO: a exceção só vale para um cargo específico
-    if (excecaoTemp && cargo.id !== ADDCARGO_EXCECAO_TEMP.cargoId) {
-        return message.reply('Você só pode gerenciar um cargo específico com este comando.')
-            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
-    }
-
-    if (!excecaoTemp && cargo.id === CARGO_RESTRITO_UNICO && !message.member.roles.cache.has(CARGO_RESTRITO_UNICO)) {
+    if (cargo.id === CARGO_RESTRITO_UNICO && !message.member.roles.cache.has(CARGO_RESTRITO_UNICO)) {
         return message.reply('Você não tem permissão para gerenciar esse cargo!')
             .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
     }
 
-    if (!excecaoTemp && message.member.roles.cache.some(r => CARGOS_GERENCIADOR_LIMITADO.includes(r.id)) && CARGOS_RESTRITOS_GERENCIADOR_LIMITADO.includes(cargo.id)) {
+    if (message.member.roles.cache.some(r => CARGOS_GERENCIADOR_LIMITADO.includes(r.id)) && CARGOS_RESTRITOS_GERENCIADOR_LIMITADO.includes(cargo.id)) {
         return message.reply('Você não tem permissão para gerenciar esse cargo!')
             .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
     }
@@ -3400,9 +3393,6 @@ async function carregarStatusCall() {
 
 // Cargo extra autorizado a usar apenas os comandos addcargo/remcargo
 const CARGO_LIBERADO_ADDREMCARGO = '1542321888309809210';
-
-// TEMPORÁRIO: este usuário pode usar o addcargo SOMENTE para dar este cargo. Remova este bloco (e os usos abaixo) quando não precisar mais.
-const ADDCARGO_EXCECAO_TEMP = { userId: '1552021101519839283', cargoId: '1542321888355684456' };
 
 // ============ UNBANALL (painel de desbanimento geral / por alvo / adicionar ban) ============
 // Estado em memória por mensagem do painel: { autorId, guildId, msg, tela, timer }
