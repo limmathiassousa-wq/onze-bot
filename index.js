@@ -3319,16 +3319,17 @@ function montarPainelStatusCall(guildId) {
             .setChannelTypes(ChannelType.GuildVoice)
             .setMinValues(1).setMaxValues(1);
         if (cfg[tipo].canalId) select.setDefaultChannels(cfg[tipo].canalId);
-        return new ContainerBuilder().addActionRowComponents(new ActionRowBuilder().addComponents(select));
+        const container = new ContainerBuilder().addActionRowComponents(new ActionRowBuilder().addComponents(select));
+        // a linha "Call selecionada" fica dentro do container, logo abaixo do select
+        if (cfg[tipo].canalId) {
+            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# **Call selecionada (${STATUSCALL_TIPOS[tipo]}): <#${cfg[tipo].canalId}>**`));
+        }
+        return container;
     };
 
-    // cada select vem seguido da própria linha "Call selecionada" (quando já houver call escolhida)
     const componentes = [principal];
     for (const t of tipos) {
         componentes.push(containerSelect(t));
-        if (cfg[t].canalId) {
-            componentes.push(new TextDisplayBuilder().setContent(`-# **Call selecionada (${STATUSCALL_TIPOS[t]}): <#${cfg[t].canalId}>**`));
-        }
     }
 
     const configurados = tipos.filter(t => statusCallConfigurado(cfg[t]));
