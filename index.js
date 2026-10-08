@@ -3322,11 +3322,14 @@ function montarPainelStatusCall(guildId) {
         return new ContainerBuilder().addActionRowComponents(new ActionRowBuilder().addComponents(select));
     };
 
-    const componentes = [principal, containerSelect('servidor'), containerSelect('call')];
-
-    const linhas = tipos.filter(t => cfg[t].canalId)
-        .map(t => `-# **Call selecionada (${STATUSCALL_TIPOS[t]}): <#${cfg[t].canalId}>**`);
-    if (linhas.length) componentes.push(new TextDisplayBuilder().setContent(linhas.join('\n')));
+    // cada select vem seguido da própria linha "Call selecionada" (quando já houver call escolhida)
+    const componentes = [principal];
+    for (const t of tipos) {
+        componentes.push(containerSelect(t));
+        if (cfg[t].canalId) {
+            componentes.push(new TextDisplayBuilder().setContent(`-# **Call selecionada (${STATUSCALL_TIPOS[t]}): <#${cfg[t].canalId}>**`));
+        }
+    }
 
     const configurados = tipos.filter(t => statusCallConfigurado(cfg[t]));
     if (configurados.length) {
