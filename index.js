@@ -2427,7 +2427,7 @@ if (message.content.toLowerCase() === `${PREFIXO}statuscall`) {
         return message.reply('Você não tem permissão para usar este comando!').then(m => apagarMensagemApos(m));
     }
     return message.channel.send({
-        components: montarPainelStatusCall(message.guild.id),
+        components: [montarPainelStatusCallInicial()],
         flags: [MessageFlags.IsComponentsV2],
         allowedMentions: { parse: [] }
     });
@@ -3346,6 +3346,23 @@ function montarPainelStatusCall(guildId) {
     return componentes;
 }
 
+// Painel público do comando: só um botão que abre o painel completo em resposta efêmera
+function montarPainelStatusCallInicial() {
+    return new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('## Contador da call — onze'))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            "**Configure o Contador de call's clicando no botão abaixo.**\n-# a **Ana** rotaciona o status das call's de acordo com o tempo configurado."))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('statuscall_abrir').setLabel('Configurar').setStyle(ButtonStyle.Success)
+            )
+        );
+}
+
+// id da mensagem efêmera do painel -> interaction que a criou (para atualizá-la depois de Ativar/Desativar)
+const statusCallPaineisEfemeros = new Map();
+
 function montarModalStatusCall(tipo, existente = {}) {
     const inputStatus = new TextInputBuilder().setCustomId('status').setStyle(TextInputStyle.Paragraph).setMaxLength(500).setRequired(true);
     const inputTempo = new TextInputBuilder().setCustomId('intervalo').setStyle(TextInputStyle.Short).setMaxLength(6).setRequired(true).setPlaceholder('60');
@@ -3586,10 +3603,26 @@ client.on('interactionCreate', async (interaction) => {
         const [acao, arg] = interaction.customId.split(':');
         const cfg = obterStatusCallCfg(guild.id);
         const tipos = Object.keys(STATUSCALL_TIPOS);
-        const atualizarPainelPrincipal = async (msgId) => {
-            const msg = await interaction.channel.messages.fetch(msgId).catch(() => null);
-            if (msg) await msg.edit({ components: montarPainelStatusCall(guild.id), flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } }).catch(() => null);
+        // atualiza o painel efêmero (o token da interaction que o abriu vale 15 min)
+        const atualizarPainelPrincipal = async (painelId) => {
+            const original = statusCallPaineisEfemeros.get(painelId);
+            if (original) await original.editReply({ components: montarPainelStatusCall(guild.id), flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } }).catch(() => null);
         };
+
+        // Botão do painel público -> abre o painel completo (efêmero)
+        if (acao === 'statuscall_abrir') {
+            await interaction.reply({
+                components: montarPainelStatusCall(guild.id),
+                flags: [MessageFlags.Ephemeral, MessageFlags.IsComponentsV2],
+                allowedMentions: { parse: [] }
+            });
+            const resposta = await interaction.fetchReply().catch(() => null);
+            if (resposta) {
+                statusCallPaineisEfemeros.set(resposta.id, interaction);
+                setTimeout(() => statusCallPaineisEfemeros.delete(resposta.id), 14 * 60 * 1000);
+            }
+            return;
+        }
 
         // Botão "Configurar" -> modal
         if (acao === 'statuscall_cfg') {
