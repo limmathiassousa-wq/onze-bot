@@ -443,6 +443,7 @@ const HELP_PREFIXO_DESCRICOES = {
     ban: 'Bane um usuário com confirmação',
     unban: 'Desbane um usuário pelo ID com confirmação',
     unbanall: 'Painel para desbanir todos, desbanir por alvo ou banir alguém',
+    statuscall: 'Painel para o status de uma call mostrar o contador de membros',
     kick: 'Expulsa um usuário com confirmação',
     mute: 'Abre o painel de mute (timeout ou por cargo)',
     unmute: 'Remove o mute de um usuário com confirmação',
@@ -460,7 +461,7 @@ const HELP_PREFIXO_DESCRICOES = {
 // Só pra preencher o "Ajuda › Categoria › comando". Comando fora daqui cai em "Geral".
 const HELP_CATEGORIAS = {
     'Moderação': ['ban', 'unban', 'unbanall', 'kick', 'mute', 'unmute', 'muteinfo', 'limpar', 'nuke', 'painelps', 'cl'],
-    'Administração': ['addemoji', 'regras', 'tickets', 'addcargo', 'remcargo', 'groles', 'roleall', 'painelurl', 'laterais'],
+    'Administração': ['statuscall', 'addemoji', 'regras', 'tickets', 'addcargo', 'remcargo', 'groles', 'roleall', 'painelurl', 'laterais'],
     'Diversão': ['pd', 'tellonym'],
     'Utilidades': ['sorteio', 'convite', 'afk', 'botcall', 'avatar', 'painelcall', 'info', 'msg'],
     'Ajuda': ['help']
@@ -498,6 +499,7 @@ const INFO_COMANDOS = {
     [`${PREFIXO}unmute`]: { descricao: 'Remove o silenciamento (timeout ou mute por cargo) de um usuário, com uma etapa de confirmação.', comoUsar: `${PREFIXO}unmute @usuário|ID [motivo]`, exemplo: `${PREFIXO}unmute @Fulano ou ${PREFIXO}unmute 123456789012345678`, permissao: 'Silenciar Membros ou Equipe' },
     [`${PREFIXO}muteinfo`]: { descricao: 'Mostra quantas pessoas estão mutadas e quem são, com botões para mutar (Adicionar) ou desmutar (Remover) pelo painel.', comoUsar: `${PREFIXO}muteinfo`, exemplo: `${PREFIXO}muteinfo`, permissao: 'Silenciar Membros ou Equipe' },
     [`${PREFIXO}ban`]: { descricao: 'Bane um usuário mencionado do servidor, com uma etapa de confirmação antes de executar. A embed some em 1 minuto se ninguém agir.', comoUsar: `${PREFIXO}ban @usuário|ID [motivo]`, exemplo: `${PREFIXO}ban @Fulano Spam ou ${PREFIXO}ban 123456789012345678 Spam`, permissao: 'Banir Membros ou Equipe' },
+    [`${PREFIXO}statuscall`]: { descricao: 'Abre o painel do contador da call. Configure o texto (use [membros]) e o tempo de rotação, escolha a call e ative: o bot atualiza o status dessa call com o total de membros do servidor ou de membros em call.', comoUsar: `${PREFIXO}statuscall`, exemplo: `${PREFIXO}statuscall`, permissao: 'Equipe' },
     [`${PREFIXO}unbanall`]: { descricao: 'Abre um painel com o total de banidos. Dá para desbanir um alvo (escolhido no menu), desbanir todo mundo de uma vez com acompanhamento de progresso, ou banir alguém pelo botão Adicionar. Todos os bans e unbans são logados.', comoUsar: `${PREFIXO}unbanall`, exemplo: `${PREFIXO}unbanall`, permissao: 'Equipe' },
     [`${PREFIXO}unban`]: { descricao: 'Remove o banimento de um usuário pelo ID, com uma etapa de confirmação antes de executar. A embed some em 1 minuto se ninguém agir.', comoUsar: `${PREFIXO}unban <ID|@usuário> [motivo]`, exemplo: `${PREFIXO}unban 123456789012345678`, permissao: 'Banir Membros ou Equipe' },
     [`${PREFIXO}painelurl`]: { descricao: 'Envia um painel para o usuário verificar se colocou o link do servidor na bio ou nos pronomes, e recebe um cargo automaticamente se encontrado.', comoUsar: `${PREFIXO}painelurl`, exemplo: `${PREFIXO}painelurl`, permissao: 'Equipe' },

@@ -2422,6 +2422,17 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}unban `) || message.cont
     return;
 }
 
+if (message.content.toLowerCase() === `${PREFIXO}statuscall`) {
+    if (message.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO) || !roleAllTemPermissao(message.member)) {
+        return message.reply('Você não tem permissão para usar este comando!').then(m => apagarMensagemApos(m));
+    }
+    return message.channel.send({
+        components: montarPainelStatusCall(message.guild.id),
+        flags: [MessageFlags.IsComponentsV2],
+        allowedMentions: { parse: [] }
+    });
+}
+
 if (message.content.toLowerCase() === `${PREFIXO}unbanall`) {
     const aviso = (texto) => message.channel.send({ content: `${message.author} ${texto}`, allowedMentions: { users: [message.author.id] } }).then(m => apagarMensagemApos(m));
 
@@ -3201,6 +3212,164 @@ if (message.content.toLowerCase() === `${PREFIXO}tickets`) {
 });
 
 
+// ============ STATUS CALL (contador no status de uma call de voz) ============
+// Config por servidor, salva no Mongo: { servidor: {texto, intervalo, canalId, ativo}, call: {...} }
+const StatusCallConfig = mongoose.models.StatusCallConfig || mongoose.model('StatusCallConfig',
+    new mongoose.Schema({ _id: String, dados: mongoose.Schema.Types.Mixed }, { minimize: false }));
+const statusCallConfig = new Map();
+const statusCallTimers = new Map();
+const statusCallUltimoTexto = new Map();
+const STATUSCALL_INTERVALO_MIN = 30; // segundos (evita rate limit da API)
+const STATUSCALL_TIPOS = { servidor: 'Membros no servidor', call: 'Membros em call' };
+
+function obterStatusCallCfg(guildId) {
+    if (!statusCallConfig.has(guildId)) statusCallConfig.set(guildId, { servidor: {}, call: {} });
+    const cfg = statusCallConfig.get(guildId);
+    cfg.servidor = cfg.servidor || {};
+    cfg.call = cfg.call || {};
+    return cfg;
+}
+
+async function salvarStatusCallCfg(guildId) {
+    await StatusCallConfig.updateOne({ _id: guildId }, { $set: { dados: obterStatusCallCfg(guildId) } }, { upsert: true })
+        .catch(err => console.error('--- Erro ao salvar StatusCall ---', err));
+}
+
+function statusCallConfigurado(c) {
+    return !!(c && c.texto && c.intervalo && c.canalId);
+}
+
+function contarStatusCall(guild, tipo) {
+    if (tipo === 'servidor') return guild.memberCount;
+    return guild.voiceStates.cache.filter(vs => vs.channelId && !vs.member?.user?.bot).size;
+}
+
+function definirStatusContador(canalId, status) {
+    return client.rest.put(`/channels/${canalId}/voice-status`, { body: { status } });
+}
+
+async function tickStatusCall(guildId, tipo) {
+    const cfg = obterStatusCallCfg(guildId)[tipo];
+    const chave = `${guildId}:${tipo}`;
+    if (!cfg.ativo) return;
+
+    const guild = client.guilds.cache.get(guildId);
+    if (guild) {
+        const texto = String(cfg.texto).replace(/\[membros\]/gi, String(contarStatusCall(guild, tipo))).slice(0, 500);
+        if (statusCallUltimoTexto.get(chave) !== texto) {
+            try {
+                await definirStatusContador(cfg.canalId, texto);
+                statusCallUltimoTexto.set(chave, texto);
+            } catch (err) {
+                if (err.code === 10003) { // call apagada
+                    cfg.ativo = false;
+                    await salvarStatusCallCfg(guildId);
+                    return;
+                }
+                console.error(`--- Erro ao atualizar StatusCall (${tipo}) ---`, err.message || err);
+            }
+        }
+    }
+
+    if (!obterStatusCallCfg(guildId)[tipo].ativo) return; // foi desativado durante o tick
+    statusCallTimers.set(chave, setTimeout(() => tickStatusCall(guildId, tipo).catch(() => null), cfg.intervalo * 1000));
+}
+
+function iniciarStatusCall(guildId, tipo) {
+    const chave = `${guildId}:${tipo}`;
+    clearTimeout(statusCallTimers.get(chave));
+    statusCallUltimoTexto.delete(chave);
+    tickStatusCall(guildId, tipo).catch(err => console.error('--- Erro no StatusCall ---', err));
+}
+
+// limpa o status da call (canalId informado, pois pode ter mudado)
+async function pararStatusCall(guildId, tipo, canalId) {
+    const chave = `${guildId}:${tipo}`;
+    clearTimeout(statusCallTimers.get(chave));
+    statusCallTimers.delete(chave);
+    statusCallUltimoTexto.delete(chave);
+    if (canalId) await definirStatusContador(canalId, '').catch(() => null);
+}
+
+function montarPainelStatusCall(guildId) {
+    const cfg = obterStatusCallCfg(guildId);
+    const tipos = Object.keys(STATUSCALL_TIPOS);
+
+    const principal = new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('## Contador da call — onze'))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+                    '**Membros no servidor:**\n-# **Ative-o e deixe a Ana rotacionando o status da call contando membros do servidor.**'))
+                .setButtonAccessory(new ButtonBuilder().setCustomId('statuscall_cfg:servidor').setLabel('Configurar').setStyle(ButtonStyle.Success))
+        )
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+                    '**Membros em call:**\n-# **Ative-o e deixe a Ana rotacionando o status da call contando quantos membros há em call.**'))
+                .setButtonAccessory(new ButtonBuilder().setCustomId('statuscall_cfg:call').setLabel('Configurar').setStyle(ButtonStyle.Success))
+        );
+
+    const containerSelect = (tipo) => {
+        const select = new ChannelSelectMenuBuilder()
+            .setCustomId(`statuscall_canal:${tipo}`)
+            .setPlaceholder(`Selecione a call (${STATUSCALL_TIPOS[tipo]}) ›`)
+            .setChannelTypes(ChannelType.GuildVoice)
+            .setMinValues(1).setMaxValues(1);
+        if (cfg[tipo].canalId) select.setDefaultChannels(cfg[tipo].canalId);
+        return new ContainerBuilder().addActionRowComponents(new ActionRowBuilder().addComponents(select));
+    };
+
+    const componentes = [principal, containerSelect('servidor'), containerSelect('call')];
+
+    const linhas = tipos.filter(t => cfg[t].canalId)
+        .map(t => `-# **Call selecionada (${STATUSCALL_TIPOS[t]}): <#${cfg[t].canalId}>**`);
+    if (linhas.length) componentes.push(new TextDisplayBuilder().setContent(linhas.join('\n')));
+
+    const configurados = tipos.filter(t => statusCallConfigurado(cfg[t]));
+    if (configurados.length) {
+        componentes.push(new ContainerBuilder().addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('statuscall_ativar').setLabel('Ativar').setStyle(ButtonStyle.Success)
+                    .setDisabled(!configurados.some(t => !cfg[t].ativo)),
+                new ButtonBuilder().setCustomId('statuscall_desativar').setLabel('Desativar').setStyle(ButtonStyle.Danger)
+                    .setDisabled(!tipos.some(t => cfg[t].ativo))
+            )
+        ));
+    }
+    return componentes;
+}
+
+function montarModalStatusCall(tipo, existente = {}) {
+    const inputStatus = new TextInputBuilder().setCustomId('status').setStyle(TextInputStyle.Paragraph).setMaxLength(500).setRequired(true);
+    const inputTempo = new TextInputBuilder().setCustomId('intervalo').setStyle(TextInputStyle.Short).setMaxLength(6).setRequired(true).setPlaceholder('60');
+    if (existente.texto) inputStatus.setValue(existente.texto);
+    if (existente.intervalo) inputTempo.setValue(String(existente.intervalo));
+
+    return new ModalBuilder().setCustomId(`statuscall_modal:${tipo}`).setTitle(STATUSCALL_TIPOS[tipo])
+        .addLabelComponents(
+            new LabelBuilder().setLabel('Status').setDescription('Use [membros] para o número. Ex: [membros] no servidor').setTextInputComponent(inputStatus),
+            new LabelBuilder().setLabel('Tempo de rotação (segundos)').setDescription(`Ex: 60 (1 min). Mínimo ${STATUSCALL_INTERVALO_MIN}.`).setTextInputComponent(inputTempo)
+        );
+}
+
+async function carregarStatusCall() {
+    try {
+        const docs = await StatusCallConfig.find({}).lean();
+        for (const d of docs) {
+            statusCallConfig.set(d._id, d.dados || { servidor: {}, call: {} });
+            const cfg = obterStatusCallCfg(d._id);
+            for (const tipo of Object.keys(STATUSCALL_TIPOS)) {
+                if (cfg[tipo].ativo && statusCallConfigurado(cfg[tipo])) iniciarStatusCall(d._id, tipo);
+            }
+        }
+    } catch (err) {
+        console.error('--- Erro ao carregar StatusCall ---', err);
+    }
+}
+
 // Cargo extra autorizado a usar apenas os comandos addcargo/remcargo
 const CARGO_LIBERADO_ADDREMCARGO = '1542321888309809210';
 
@@ -3401,6 +3570,125 @@ function montarPainelTickets() {
 }
 
 client.on('interactionCreate', async (interaction) => {
+    // ============ STATUS CALL ============
+    if ((interaction.isButton() || interaction.isChannelSelectMenu() || interaction.isStringSelectMenu() || interaction.isModalSubmit())
+        && interaction.customId.startsWith('statuscall_')) {
+        const efemero = (texto) => ({ components: containerTexto(texto), flags: [MessageFlags.Ephemeral, MessageFlags.IsComponentsV2] });
+        if (!roleAllTemPermissao(interaction.member) || interaction.member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) {
+            return interaction.reply(efemero('Você não tem permissão para usar este painel!'));
+        }
+
+        const guild = interaction.guild;
+        const [acao, arg] = interaction.customId.split(':');
+        const cfg = obterStatusCallCfg(guild.id);
+        const tipos = Object.keys(STATUSCALL_TIPOS);
+        const atualizarPainelPrincipal = async (msgId) => {
+            const msg = await interaction.channel.messages.fetch(msgId).catch(() => null);
+            if (msg) await msg.edit({ components: montarPainelStatusCall(guild.id), flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } }).catch(() => null);
+        };
+
+        // Botão "Configurar" -> modal
+        if (acao === 'statuscall_cfg') {
+            return interaction.showModal(montarModalStatusCall(arg, cfg[arg]));
+        }
+
+        // Modal salvo
+        if (acao === 'statuscall_modal') {
+            const tipo = arg;
+            const texto = interaction.fields.getTextInputValue('status').trim();
+            const bruto = interaction.fields.getTextInputValue('intervalo').trim();
+            const intervalo = /^\d+$/.test(bruto) ? parseInt(bruto, 10) : NaN;
+
+            if (!texto) return interaction.reply(efemero('O status não pode ficar vazio.'));
+            if (!Number.isInteger(intervalo) || intervalo < STATUSCALL_INTERVALO_MIN || intervalo > 86400) {
+                return interaction.reply(efemero(`Tempo de rotação inválido. Use um número de segundos entre ${STATUSCALL_INTERVALO_MIN} e 86400.`));
+            }
+
+            cfg[tipo].texto = texto;
+            cfg[tipo].intervalo = intervalo;
+            await salvarStatusCallCfg(guild.id);
+            if (cfg[tipo].ativo) iniciarStatusCall(guild.id, tipo); // aplica a nova config na hora
+
+            if (interaction.isFromMessage()) {
+                return interaction.update({ components: montarPainelStatusCall(guild.id), flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
+            }
+            return interaction.reply(efemero('Configuração salva!'));
+        }
+
+        // Select de call
+        if (acao === 'statuscall_canal' && interaction.isChannelSelectMenu()) {
+            const tipo = arg;
+            const canalAntigo = cfg[tipo].canalId;
+            const canalNovo = interaction.values[0];
+            if (cfg[tipo].ativo && canalAntigo && canalAntigo !== canalNovo) {
+                await pararStatusCall(guild.id, tipo, canalAntigo); // limpa o status da call antiga
+            }
+            cfg[tipo].canalId = canalNovo;
+            await salvarStatusCallCfg(guild.id);
+            if (cfg[tipo].ativo) iniciarStatusCall(guild.id, tipo);
+            return interaction.update({ components: montarPainelStatusCall(guild.id), flags: [MessageFlags.IsComponentsV2], allowedMentions: { parse: [] } });
+        }
+
+        // Botões Ativar / Desativar -> select efêmero (container solo)
+        if (acao === 'statuscall_ativar' || acao === 'statuscall_desativar') {
+            const ativando = acao === 'statuscall_ativar';
+            const disponiveis = tipos.filter(t => ativando ? (statusCallConfigurado(cfg[t]) && !cfg[t].ativo) : cfg[t].ativo);
+            if (!disponiveis.length) {
+                return interaction.reply(efemero(ativando ? 'Não há nenhum contador configurado para ativar.' : 'Não há nenhum contador ativo.'));
+            }
+            const select = new StringSelectMenuBuilder()
+                .setCustomId(`${ativando ? 'statuscall_ativar_sel' : 'statuscall_desativar_sel'}:${interaction.message.id}`)
+                .setPlaceholder(ativando ? 'Selecione qual ativar ›' : 'Selecione qual desativar ›')
+                .addOptions(disponiveis.map(t => new StringSelectMenuOptionBuilder().setLabel(STATUSCALL_TIPOS[t]).setValue(t)));
+            return interaction.reply({
+                components: [new ContainerBuilder().addActionRowComponents(new ActionRowBuilder().addComponents(select))],
+                flags: [MessageFlags.Ephemeral, MessageFlags.IsComponentsV2]
+            });
+        }
+
+        // Escolheu qual ativar
+        if (acao === 'statuscall_ativar_sel' && interaction.isStringSelectMenu()) {
+            const tipo = interaction.values[0];
+            const erro = (texto) => interaction.update({ components: containerTexto(texto), flags: [MessageFlags.IsComponentsV2] });
+
+            if (!statusCallConfigurado(cfg[tipo])) return erro('Esse contador ainda não está configurado.');
+            if (cfg[tipo].ativo) return erro('Esse contador já está ativo.');
+
+            const canal = guild.channels.cache.get(cfg[tipo].canalId);
+            if (!canal) return erro('A call selecionada não existe mais. Selecione outra.');
+            const outro = tipos.find(t => t !== tipo && cfg[t].ativo && cfg[t].canalId === cfg[tipo].canalId);
+            if (outro) return erro(`A call <#${canal.id}> já está sendo usada por **${STATUSCALL_TIPOS[outro]}**. Escolha outra call.`);
+            const flagStatus = PermissionFlagsBits.SetVoiceChannelStatus;
+            if (flagStatus && !canal.permissionsFor(guild.members.me)?.has(flagStatus)) {
+                return erro(`Eu preciso da permissão **Definir status do canal de voz** em <#${canal.id}>.`);
+            }
+
+            cfg[tipo].ativo = true;
+            await salvarStatusCallCfg(guild.id);
+            iniciarStatusCall(guild.id, tipo);
+
+            await interaction.update({ components: containerTexto(`**${STATUSCALL_TIPOS[tipo]}** ativado!`), flags: [MessageFlags.IsComponentsV2] });
+            setTimeout(() => interaction.deleteReply().catch(() => null), 4000);
+            return atualizarPainelPrincipal(arg);
+        }
+
+        // Escolheu qual desativar
+        if (acao === 'statuscall_desativar_sel' && interaction.isStringSelectMenu()) {
+            const tipo = interaction.values[0];
+            if (!cfg[tipo].ativo) {
+                return interaction.update({ components: containerTexto('Esse contador já está desativado.'), flags: [MessageFlags.IsComponentsV2] });
+            }
+            cfg[tipo].ativo = false;
+            await salvarStatusCallCfg(guild.id);
+            await pararStatusCall(guild.id, tipo, cfg[tipo].canalId);
+
+            await interaction.update({ components: containerTexto(`**${STATUSCALL_TIPOS[tipo]}** desativado!`), flags: [MessageFlags.IsComponentsV2] });
+            setTimeout(() => interaction.deleteReply().catch(() => null), 4000);
+            return atualizarPainelPrincipal(arg);
+        }
+        return;
+    }
+
     // ============ UNBANALL ============
     if ((interaction.isButton() || interaction.isStringSelectMenu()) && interaction.customId.startsWith('unbanall_')) {
         const efemero = (texto) => ({ components: containerTexto(texto), flags: [MessageFlags.Ephemeral, MessageFlags.IsComponentsV2] });
@@ -9654,6 +9942,7 @@ let transcriptId = null;
 console.log('[DISCORD] Iniciando conexão com o Gateway...');
 
 client.once(Events.ClientReady, async (c) => {
+    carregarStatusCall();
     console.log('========================================');
     console.log(`[DISCORD] BOT ONLINE: ${c.user.tag}`);
     console.log(`[DISCORD] ID: ${c.user.id}`);
