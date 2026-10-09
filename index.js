@@ -2274,7 +2274,7 @@ if (message.content.toLowerCase() === `${PREFIXO}msg`) {
         embedFooter: '',
         imagemUrl: null,
         thumbUrl: null,
-        thumbLado: 'direito',
+        imagemPosicao: 'abaixo',
         cor: null,
         botoes: [],
         totalCriadas: await contarMsgCriadas(message.guild.id)
@@ -8858,7 +8858,7 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_edi
         embedFooter: registro.embedFooter || '',
         imagemUrl: registro.imagemUrl || null,
         thumbUrl: registro.thumbUrl || null,
-        thumbLado: registro.thumbLado || 'direito',
+        imagemPosicao: registro.imagemPosicao || 'abaixo',
         totalCriadas: await contarMsgCriadas(interaction.guild.id),
         cor: registro.cor || null,
         botoes: registro.botoes || [],
@@ -8974,7 +8974,7 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_opc
                 embedFooter: draft.embedFooter,
                 imagemUrl: draft.imagemUrl,
                 thumbUrl: draft.thumbUrl || null,
-                thumbLado: draft.thumbLado || 'direito',
+                imagemPosicao: draft.imagemPosicao || 'abaixo',
                 cor: draft.cor,
                 botoes: draft.botoes,
                 atualizadoEm: Date.now()
@@ -9029,7 +9029,7 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_opc
             embedFooter: draft.embedFooter,
             imagemUrl: draft.imagemUrl,
             thumbUrl: draft.thumbUrl || null,
-            thumbLado: draft.thumbLado || 'direito',
+            imagemPosicao: draft.imagemPosicao || 'abaixo',
             cor: draft.cor,
             botoes: draft.botoes
         }).catch(err => console.error('--- Erro ao salvar registro da mensagem criada ---', err));
@@ -9212,12 +9212,12 @@ if (interaction.isModalSubmit() && interaction.customId.startsWith('msgcriador_m
     });
 }
 
-if (interaction.isButton() && (interaction.customId === 'msgcriador_thumb_esq' || interaction.customId === 'msgcriador_thumb_dir')) {
+if (interaction.isButton() && (interaction.customId === 'msgcriador_imagem_acima' || interaction.customId === 'msgcriador_imagem_abaixo')) {
     const draft = msgCriadorDB.get(interaction.message.id);
     if (!draft || draft.autorId !== interaction.user.id) {
         return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
     }
-    draft.thumbLado = interaction.customId === 'msgcriador_thumb_esq' ? 'esquerdo' : 'direito';
+    draft.imagemPosicao = interaction.customId === 'msgcriador_imagem_acima' ? 'acima' : 'abaixo';
     return interaction.update({
         components: [...montarPreviewMsgCriador(draft), ...montarPainelMsgCriadorBuilder(draft)],
         flags: [MessageFlags.IsComponentsV2]
