@@ -6278,10 +6278,11 @@ function descreverLocalRBotao(rb) {
     return 'no final';
 }
 
-const EMOJI_MSG_MONTAR = { name: '30999', id: '1558213626219733043' };
+const EMOJI_MSG_MONTAR = { name: '31028', id: '1558246565028827136' };
 const EMOJI_MSG_ADICIONAR = { name: '31003', id: '1558218752758382612' };
 const EMOJI_MSG_EDITAR = { name: '31005', id: '1558220966386081833' };
 const EMOJI_MSG_IMG_ACIMA = { name: '31017', id: '1558234119908106311' };
+const EMOJI_MSG_REMOVER_MIDIA = { name: '31026', id: '1558244587603234816' };
 const EMOJI_MSG_IMG_ABAIXO = { name: '31016', id: '1558234106578608178' };
 
 function rotuloTipoMsgCriador(tipo) {
@@ -6715,7 +6716,8 @@ function montarPainelMsgCriadorBuilder(draft) {
                         ...(draft.tipo === 'v2' ? [
                             new ButtonBuilder().setCustomId('msgcriador_imagem_acima').setEmoji(EMOJI_MSG_IMG_ACIMA).setStyle(ButtonStyle.Secondary).setDisabled(!temTextoMsg || acimaEfetivo),
                             new ButtonBuilder().setCustomId('msgcriador_imagem_abaixo').setEmoji(EMOJI_MSG_IMG_ABAIXO).setStyle(ButtonStyle.Secondary).setDisabled(!acimaEfetivo)
-                        ] : [])
+                        ] : []),
+                        new ButtonBuilder().setCustomId('msgcriador_imagem_remover').setEmoji(EMOJI_MSG_REMOVER_MIDIA).setStyle(ButtonStyle.Secondary).setDisabled(!draft.imagemUrl)
                     )
                 )
         );
@@ -6734,7 +6736,8 @@ function montarPainelMsgCriadorBuilder(draft) {
                     .addSeparatorComponents(sep())
                     .addActionRowComponents(
                         new ActionRowBuilder().addComponents(
-                            new ButtonBuilder().setCustomId('msgcriador_thumb_editar').setEmoji(EMOJI_MSG_EDITAR).setStyle(ButtonStyle.Secondary).setDisabled(!draft.thumbUrl)
+                            new ButtonBuilder().setCustomId('msgcriador_thumb_editar').setEmoji(EMOJI_MSG_EDITAR).setStyle(ButtonStyle.Secondary).setDisabled(!draft.thumbUrl),
+                            new ButtonBuilder().setCustomId('msgcriador_thumb_remover').setEmoji(EMOJI_MSG_REMOVER_MIDIA).setStyle(ButtonStyle.Secondary).setDisabled(!draft.thumbUrl)
                         )
                     )
             );

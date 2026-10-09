@@ -654,6 +654,47 @@ function montarModalMidiaMsgCriador(painelId, alvo, modo, urlAtual) {
     return modal;
 }
 
+
+// Lista de mensagens já criadas (modo 'editar' ou 'remover'): só o select + linha "Remover/Editar"
+async function montarSelecaoMensagensMsgCriador(guild, autorId, modo) {
+    const registros = await MensagemCriador.find({ autorId, guildId: guild.id })
+        .sort({ criadoEm: -1 })
+        .limit(25)
+        .catch(() => []);
+    if (!registros.length) return null;
+
+    const tipoLabel = { v2: 'Components V2', embed: 'Embed', texto: 'Texto normal' };
+    const remover = modo === 'remover';
+
+    const select = new StringSelectMenuBuilder()
+        .setCustomId(remover ? 'msgcriador_remover_select' : 'msgcriador_editar_select')
+        .setPlaceholder(remover ? 'Selecione a mensagem para remover' : 'Selecione a mensagem')
+        .addOptions(registros.map(r => {
+            const canal = guild.channels.cache.get(r.canalId);
+            const data = new Date(r.criadoEm).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+            return {
+                label: `${tipoLabel[r.tipo] ?? r.tipo} — ${canal ? `#${canal.name}` : 'canal apagado'}`.slice(0, 100),
+                value: r._id,
+                description: `Criada em ${data}`.slice(0, 100)
+            };
+        }));
+
+    return new ContainerBuilder()
+        .addActionRowComponents(new ActionRowBuilder().addComponents(select))
+        .addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+                    remover ? '-# Edite uma mensagem existente ›' : '-# Remova uma mensagem existente ›'
+                ))
+                .setButtonAccessory(
+                    new ButtonBuilder()
+                        .setCustomId(remover ? 'msgcriador_editar_modo' : 'msgcriador_remover_modo')
+                        .setLabel(remover ? 'Editar' : 'Remover')
+                        .setStyle(remover ? ButtonStyle.Secondary : ButtonStyle.Danger)
+                )
+        );
+}
+
 client.on('channelCreate', (canal) => {
     try { antiNukeCanalCriado(canal); } catch (err) { console.error('--- Erro no Anti Nuke (canal criado) ---', err); }
 });
@@ -8733,45 +8774,16 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_tip
         draft.tipo = 'editar';
         await interaction.update({ components: montarPainelMsgCriadorInicial(draft), flags: [MessageFlags.IsComponentsV2] });
 
-        const registros = await MensagemCriador.find({ autorId: interaction.user.id, guildId: interaction.guild.id })
-            .sort({ criadoEm: -1 })
-            .limit(25)
-            .catch(() => []);
-
-        if (!registros.length) {
+        const listaEdicao = await montarSelecaoMensagensMsgCriador(interaction.guild, interaction.user.id, 'editar');
+        if (!listaEdicao) {
             return interaction.followUp({
                 components: containerTexto('Você ainda não criou nenhuma mensagem com este painel neste servidor.'),
                 flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
             });
         }
 
-        const tipoLabel = { v2: 'Components V2', embed: 'Embed', texto: 'Texto normal' };
-
-        const containerSelecao = new ContainerBuilder()
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **EDITAR MENSAGEM EXISTENTE**'))
-            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-                'Selecione abaixo qual mensagem enviada por você deseja editar.'
-            ))
-            .addActionRowComponents(
-                new ActionRowBuilder().addComponents(
-                    new StringSelectMenuBuilder()
-                        .setCustomId('msgcriador_editar_select')
-                        .setPlaceholder('Selecione a mensagem')
-                        .addOptions(registros.map(r => {
-                            const canal = interaction.guild.channels.cache.get(r.canalId);
-                            const data = new Date(r.criadoEm).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-                            return {
-                                label: `${tipoLabel[r.tipo] ?? r.tipo} — ${canal ? `#${canal.name}` : 'canal apagado'}`.slice(0, 100),
-                                value: r._id,
-                                description: `Criada em ${data}`.slice(0, 100)
-                            };
-                        }))
-                )
-            );
-
         return interaction.followUp({
-            components: [containerSelecao],
+            components: [listaEdicao],
             flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
         });
     }
@@ -9221,6 +9233,58 @@ if (interaction.isButton() && (interaction.customId === 'msgcriador_imagem_acima
         return interaction.reply({ content: 'Adicione um texto na mensagem antes de colocar a imagem acima dele.', flags: [MessageFlags.Ephemeral] });
     }
     draft.imagemPosicao = interaction.customId === 'msgcriador_imagem_acima' ? 'acima' : 'abaixo';
+    return interaction.update({
+        components: [...montarPreviewMsgCriador(draft), ...montarPainelMsgCriadorBuilder(draft)],
+        flags: [MessageFlags.IsComponentsV2]
+    });
+}
+
+if (interaction.isButton() && (interaction.customId === 'msgcriador_remover_modo' || interaction.customId === 'msgcriador_editar_modo')) {
+    const modo = interaction.customId === 'msgcriador_remover_modo' ? 'remover' : 'editar';
+    const lista = await montarSelecaoMensagensMsgCriador(interaction.guild, interaction.user.id, modo);
+    if (!lista) {
+        return interaction.update({
+            components: containerTexto('Você não tem nenhuma mensagem criada com este painel neste servidor.'),
+            flags: [MessageFlags.IsComponentsV2]
+        });
+    }
+    return interaction.update({ components: [lista], flags: [MessageFlags.IsComponentsV2] });
+}
+
+if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_remover_select') {
+    const registro = await MensagemCriador.findById(interaction.values[0]).catch(() => null);
+    if (!registro || registro.autorId !== interaction.user.id) {
+        return interaction.update({
+            components: containerTexto('Essa mensagem não foi encontrada ou não pertence a você.'),
+            flags: [MessageFlags.IsComponentsV2]
+        });
+    }
+
+    const canalMsg = await interaction.guild.channels.fetch(registro.canalId).catch(() => null);
+    const msgDiscord = canalMsg ? await canalMsg.messages.fetch(registro._id).catch(() => null) : null;
+    if (msgDiscord) await msgDiscord.delete().catch(err => console.error('--- Erro ao apagar mensagem do criador ---', err));
+    await MensagemCriador.findByIdAndDelete(registro._id).catch(err => console.error('--- Erro ao remover registro da mensagem ---', err));
+
+    const lista = await montarSelecaoMensagensMsgCriador(interaction.guild, interaction.user.id, 'remover');
+    await interaction.update(lista
+        ? { components: [lista], flags: [MessageFlags.IsComponentsV2] }
+        : { components: containerTexto('Mensagem removida. Você não tem mais mensagens criadas com este painel.'), flags: [MessageFlags.IsComponentsV2] });
+    if (lista) {
+        await interaction.followUp({ components: containerTexto('Mensagem removida com sucesso!'), flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral] }).catch(() => null);
+    }
+    return;
+}
+
+if (interaction.isButton() && (interaction.customId === 'msgcriador_imagem_remover' || interaction.customId === 'msgcriador_thumb_remover')) {
+    const draft = msgCriadorDB.get(interaction.message.id);
+    if (!draft || draft.autorId !== interaction.user.id) {
+        return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
+    }
+    const campo = interaction.customId === 'msgcriador_thumb_remover' ? 'thumbUrl' : 'imagemUrl';
+    if (!draft[campo]) {
+        return interaction.reply({ content: 'Não há nada para remover aqui.', flags: [MessageFlags.Ephemeral] });
+    }
+    draft[campo] = null;
     return interaction.update({
         components: [...montarPreviewMsgCriador(draft), ...montarPainelMsgCriadorBuilder(draft)],
         flags: [MessageFlags.IsComponentsV2]
