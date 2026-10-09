@@ -6010,17 +6010,20 @@ function construirV2MsgCriador(draft, modo, modoEmp) {
 
     const houveTexto = String(draft.textoBruto ?? '').trim().length > 0;
 
-    // Thumbnail: à direita vira o acessório do primeiro texto (Section); à esquerda o Discord não
-    // tem layout próprio, então a imagem entra como mídia pequena acima do texto.
-    const temThumb = !!draft.thumbUrl;
-    const thumbADireita = temThumb && draft.thumbLado !== 'esquerdo';
-    let thumbPendente = thumbADireita;
+    // Imagem acima do texto (padrão é abaixo)
+    const imagemAcima = !!draft.imagemUrl && draft.imagemPosicao === 'acima';
+    if (imagemAcima) {
+        container.addMediaGalleryComponents(
+            new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(draft.imagemUrl))
+        );
+    }
+
+    // Thumbnail: sempre à direita, como acessório do primeiro texto (Section)
+    let thumbPendente = !!draft.thumbUrl;
     const galeriaThumb = () => new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(draft.thumbUrl));
     const textoComThumb = (conteudo) => new SectionBuilder()
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(conteudo))
         .setThumbnailAccessory(new ThumbnailBuilder().setURL(draft.thumbUrl));
-
-    if (temThumb && !thumbADireita) container.addMediaGalleryComponents(galeriaThumb());
 
     if (!houveTexto) {
         if (thumbPendente && modo === 'preview') {
@@ -6053,7 +6056,7 @@ function construirV2MsgCriador(draft, modo, modoEmp) {
         montarButtonRows(botoesEntre, modo).forEach(row => container.addActionRowComponents(row));
     }
 
-    if (draft.imagemUrl) {
+    if (draft.imagemUrl && !imagemAcima) {
         container.addMediaGalleryComponents(
             new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(draft.imagemUrl))
         );
@@ -6278,6 +6281,8 @@ function descreverLocalRBotao(rb) {
 const EMOJI_MSG_MONTAR = { name: '30999', id: '1558213626219733043' };
 const EMOJI_MSG_ADICIONAR = { name: '31003', id: '1558218752758382612' };
 const EMOJI_MSG_EDITAR = { name: '31005', id: '1558220966386081833' };
+const EMOJI_MSG_IMG_ACIMA = { name: '31017', id: '1558234119908106311' };
+const EMOJI_MSG_IMG_ABAIXO = { name: '31016', id: '1558234106578608178' };
 
 function rotuloTipoMsgCriador(tipo) {
     return tipo === 'v2' ? 'Components V2'
@@ -6293,7 +6298,7 @@ function montarPainelMsgCriadorInicial(draft) {
 
     const cabecalho = new ContainerBuilder()
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            '## Criador de mensagens v2 — onze\n-# Crie mensagens em v2, embed ou texto puro.'
+            '### Criador de mensagens v2 — onze\n-# Crie mensagens em v2, embed ou texto puro.'
         ))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
@@ -6345,7 +6350,7 @@ function montarPainelMsgCriadorInicial(draft) {
     }
 
     const montagem = new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent('## Monte a mensagem'))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('### Monte a mensagem'))
         .addSectionComponents(
             new SectionBuilder()
                 .addTextDisplayComponents(new TextDisplayBuilder().setContent('**Montagem da mensagem**'))
@@ -6659,7 +6664,7 @@ function montarPainelMsgCriadorBuilder(draft) {
 
         extras.push(
             new ContainerBuilder()
-                .addTextDisplayComponents(txt('## Editor de mensagens — Conteúdo'))
+                .addTextDisplayComponents(txt('### Editor de mensagens — Conteúdo'))
                 .addSectionComponents(
                     new SectionBuilder()
                         .addTextDisplayComponents(txt(
@@ -6694,7 +6699,7 @@ function montarPainelMsgCriadorBuilder(draft) {
     if (draft.opcaoAtual === 'imagem') {
         extras.push(
             new ContainerBuilder()
-                .addTextDisplayComponents(txt('## Editor de mensagens — Mídia'))
+                .addTextDisplayComponents(txt('### Editor de mensagens — Mídia'))
                 .addSectionComponents(
                     new SectionBuilder()
                         .addTextDisplayComponents(txt(`**Mídia**\n-# **${enviada(draft.imagemUrl)}**`))
@@ -6705,47 +6710,33 @@ function montarPainelMsgCriadorBuilder(draft) {
                 .addSeparatorComponents(sep())
                 .addActionRowComponents(
                     new ActionRowBuilder().addComponents(
-                        new ButtonBuilder().setCustomId('msgcriador_imagem_editar').setEmoji(EMOJI_MSG_EDITAR).setStyle(ButtonStyle.Secondary).setDisabled(!draft.imagemUrl)
+                        new ButtonBuilder().setCustomId('msgcriador_imagem_editar').setEmoji(EMOJI_MSG_EDITAR).setStyle(ButtonStyle.Secondary).setDisabled(!draft.imagemUrl),
+                        ...(draft.tipo === 'v2' ? [
+                            new ButtonBuilder().setCustomId('msgcriador_imagem_acima').setEmoji(EMOJI_MSG_IMG_ACIMA).setStyle(ButtonStyle.Secondary).setDisabled(draft.imagemPosicao === 'acima'),
+                            new ButtonBuilder().setCustomId('msgcriador_imagem_abaixo').setEmoji(EMOJI_MSG_IMG_ABAIXO).setStyle(ButtonStyle.Secondary).setDisabled(draft.imagemPosicao !== 'acima')
+                        ] : [])
                     )
                 )
         );
 
         if (draft.tipo === 'v2' || draft.tipo === 'embed') {
-            const lado = draft.thumbLado === 'esquerdo' ? 'esquerdo' : 'direito';
-            const thumb = new ContainerBuilder()
-                .addTextDisplayComponents(txt('## Editor de mensagens — Thumbnail'))
-                .addSectionComponents(
-                    new SectionBuilder()
-                        .addTextDisplayComponents(txt(`**Thumbnail**\n-# **${enviada(draft.thumbUrl)}**`))
-                        .setButtonAccessory(
-                            new ButtonBuilder().setCustomId('msgcriador_thumb_enviar').setEmoji(EMOJI_MSG_ADICIONAR).setStyle(ButtonStyle.Secondary)
-                        )
-                )
-                .addSeparatorComponents(sep());
-
-            if (draft.tipo === 'v2') {
-                thumb
-                    .addActionRowComponents(
-                        new ActionRowBuilder().addComponents(
-                            new ButtonBuilder().setCustomId('msgcriador_thumb_editar').setEmoji(EMOJI_MSG_EDITAR).setStyle(ButtonStyle.Secondary).setDisabled(!draft.thumbUrl),
-                            new ButtonBuilder().setCustomId('msgcriador_thumb_esq').setLabel('Esquerdo').setStyle(lado === 'esquerdo' ? ButtonStyle.Primary : ButtonStyle.Secondary),
-                            new ButtonBuilder().setCustomId('msgcriador_thumb_dir').setLabel('Direito').setStyle(lado === 'direito' ? ButtonStyle.Primary : ButtonStyle.Secondary)
-                        )
+            extras.push(
+                new ContainerBuilder()
+                    .addTextDisplayComponents(txt('### Editor de mensagens — Thumbnail'))
+                    .addSectionComponents(
+                        new SectionBuilder()
+                            .addTextDisplayComponents(txt(`**Thumbnail**\n-# **${enviada(draft.thumbUrl)}**`))
+                            .setButtonAccessory(
+                                new ButtonBuilder().setCustomId('msgcriador_thumb_enviar').setEmoji(EMOJI_MSG_ADICIONAR).setStyle(ButtonStyle.Secondary)
+                            )
                     )
                     .addSeparatorComponents(sep())
-                    .addTextDisplayComponents(txt(`-# Lado atual: ${lado === 'esquerdo' ? 'Esquerdo' : 'Direito'}`));
-            } else {
-                // embed do Discord só aceita a thumbnail à direita
-                thumb
                     .addActionRowComponents(
                         new ActionRowBuilder().addComponents(
                             new ButtonBuilder().setCustomId('msgcriador_thumb_editar').setEmoji(EMOJI_MSG_EDITAR).setStyle(ButtonStyle.Secondary).setDisabled(!draft.thumbUrl)
                         )
                     )
-                    .addSeparatorComponents(sep())
-                    .addTextDisplayComponents(txt('-# Lado atual: Direito (embeds só aceitam à direita)'));
-            }
-            extras.push(thumb);
+            );
         }
     }
 
@@ -6755,7 +6746,7 @@ function montarPainelMsgCriadorBuilder(draft) {
 
         extras.push(
             new ContainerBuilder()
-                .addTextDisplayComponents(txt('## Editor de mensagens — Botões'))
+                .addTextDisplayComponents(txt('### Editor de mensagens — Botões'))
                 .addSectionComponents(
                     new SectionBuilder()
                         .addTextDisplayComponents(txt(
@@ -6840,7 +6831,7 @@ function montarPainelMsgCriadorBuilder(draft) {
         const alvo = candidatos.find(({ i }) => i === draft.respostaBotoesAlvo);
 
         const c = new ContainerBuilder()
-            .addTextDisplayComponents(txt('## Editor de mensagens — Botões das respostas'))
+            .addTextDisplayComponents(txt('### Editor de mensagens — Botões das respostas'))
             .addActionRowComponents(
                 new ActionRowBuilder().addComponents(
                     new StringSelectMenuBuilder()
@@ -6890,7 +6881,7 @@ function montarPainelMsgCriadorBuilder(draft) {
     if (draft.opcaoAtual === 'editar_botoes' && botoes.length > 0) {
         extras.push(
             new ContainerBuilder()
-                .addTextDisplayComponents(txt('## Editor de mensagens — Editar botões'))
+                .addTextDisplayComponents(txt('### Editor de mensagens — Editar botões'))
                 .addActionRowComponents(
                     new ActionRowBuilder().addComponents(
                         new StringSelectMenuBuilder()
@@ -6913,7 +6904,7 @@ function montarPainelMsgCriadorBuilder(draft) {
         const corEhPredefinida = CORES_MSG_CRIADOR.some(c => c.value === draft.cor);
         extras.push(
             new ContainerBuilder()
-                .addTextDisplayComponents(txt('## Editor de mensagens — Cor'))
+                .addTextDisplayComponents(txt('### Editor de mensagens — Cor'))
                 .addTextDisplayComponents(txt(
                     `**Cor atual:** ${draft.cor && draft.cor !== 'nenhuma' ? `\`#${draft.cor.toUpperCase()}\`` : '`nenhuma`'}`
                 ))
