@@ -226,12 +226,29 @@ const PERMS_POR_PAGINA = 5;
 const CARGOS_GERENCIADOR_LIMITADO = ['1542321888309809212', '1542321888309809210'];
 const CARGOS_RESTRITOS_GERENCIADOR_LIMITADO = [
     '1542321888355684456',
+    '1542321888355684455',
+    '1546504893890691093',
+    '1542733119604654152',
     '1542321888355684454',
-    '1542321888309809210',
+    '1542321888355684453',
+    '1546329251219771512',
+    '1546499881156485234',
     '1542321888309809212',
+    '1542321888309809210',
     '1546352749703200798',
     '1546354415689007105',
     '1546350016342532126',
+    '1542321888309809211',
+    '1546329417062686820',
+    '1546552187201527848',
+    '1546552147804692480',
+    '1545230701534777375',
+    '1542321888309809204',
+    '1542321888309809203',
+    '1542321888234045549',
+    '1542321888234045548',
+    '1542321888234045547',
+    '1542321888234045546',
     '1542321888355684453',
     '1546329251219771512',
     '1542321888309809211',
@@ -5993,15 +6010,38 @@ function construirV2MsgCriador(draft, modo, modoEmp) {
 
     const houveTexto = String(draft.textoBruto ?? '').trim().length > 0;
 
+    // Thumbnail: à direita vira o acessório do primeiro texto (Section); à esquerda o Discord não
+    // tem layout próprio, então a imagem entra como mídia pequena acima do texto.
+    const temThumb = !!draft.thumbUrl;
+    const thumbADireita = temThumb && draft.thumbLado !== 'esquerdo';
+    let thumbPendente = thumbADireita;
+    const galeriaThumb = () => new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(draft.thumbUrl));
+    const textoComThumb = (conteudo) => new SectionBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(conteudo))
+        .setThumbnailAccessory(new ThumbnailBuilder().setURL(draft.thumbUrl));
+
+    if (temThumb && !thumbADireita) container.addMediaGalleryComponents(galeriaThumb());
+
     if (!houveTexto) {
-        if (modo === 'preview') {
-            container.addTextDisplayComponents(new TextDisplayBuilder().setContent('-# Nenhum texto adicionado ainda.'));
+        if (thumbPendente && modo === 'preview') {
+            container.addSectionComponents(textoComThumb('-# Nenhum texto adicionado ainda.'));
+        } else {
+            if (thumbPendente) container.addMediaGalleryComponents(galeriaThumb());
+            if (modo === 'preview') {
+                container.addTextDisplayComponents(new TextDisplayBuilder().setContent('-# Nenhum texto adicionado ainda.'));
+            }
         }
+        thumbPendente = false;
     } else {
         const blocos = parseBlocosTexto(draft.textoBruto);
         blocos.forEach((bloco, i) => {
             if (bloco.length > 0) {
-                container.addTextDisplayComponents(new TextDisplayBuilder().setContent(bloco));
+                if (thumbPendente) {
+                    container.addSectionComponents(textoComThumb(bloco));
+                    thumbPendente = false;
+                } else {
+                    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(bloco));
+                }
             }
             if (i < blocos.length - 1) {
                 container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
@@ -6235,21 +6275,33 @@ function descreverLocalRBotao(rb) {
     return 'no final';
 }
 
-function montarPainelMsgCriadorInicial(draft) {
-    const tipoTexto = draft.tipo === 'v2' ? 'Components V2'
-        : draft.tipo === 'embed' ? 'Embed'
-        : draft.tipo === 'texto' ? 'Texto normal'
-        : draft.tipo === 'editar' ? 'Editar mensagem existente'
-        : 'nenhum selecionado';
-    const canalTexto = draft.canalId ? `<#${draft.canalId}>` : 'nenhum selecionado';
+const EMOJI_MSG_MONTAR = { name: '30999', id: '1558213626219733043' };
+const EMOJI_MSG_ADICIONAR = { name: '31003', id: '1558218752758382612' };
+const EMOJI_MSG_EDITAR = { name: '31005', id: '1558220966386081833' };
 
-    return new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **CRIADOR DE MENSAGENS**'))
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+function rotuloTipoMsgCriador(tipo) {
+    return tipo === 'v2' ? 'Components V2'
+        : tipo === 'embed' ? 'Embed'
+        : tipo === 'texto' ? 'Texto normal'
+        : tipo === 'editar' ? 'Editar mensagem existente'
+        : 'nenhum selecionado';
+}
+
+// Painel inicial: devolve uma LISTA de containers (cabeçalho, seletores, montagem)
+function montarPainelMsgCriadorInicial(draft) {
+    const tipoTexto = rotuloTipoMsgCriador(draft.tipo);
+
+    const cabecalho = new ContainerBuilder()
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            `**Tipo:** \`${tipoTexto}\`\n**Canal:** ${canalTexto}`
+            '## Criador de mensagens v2 — onze\n-# Crie mensagens em v2, embed ou texto puro.'
         ))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            `-# **Total de mensagens já criadas:** ${draft.totalCriadas ?? 0}`
+        ));
+
+    const seletores = new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('-# **Selecione o tipo de mensagem:**'))
         .addActionRowComponents(
             new ActionRowBuilder().addComponents(
                 new StringSelectMenuBuilder()
@@ -6262,7 +6314,15 @@ function montarPainelMsgCriadorInicial(draft) {
                         { label: 'Editar mensagem existente', value: 'editar', description: 'Editar uma mensagem já enviada por este painel' }
                     )
             )
-        )
+        );
+
+    if (draft.tipo) {
+        seletores.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# Tipo selecionado: ${tipoTexto}`));
+    }
+
+    seletores
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('-# **Selecione o canal de destino ou informe o id:**'))
         .addActionRowComponents(
             new ActionRowBuilder().addComponents(
                 new ChannelSelectMenuBuilder()
@@ -6274,11 +6334,30 @@ function montarPainelMsgCriadorInicial(draft) {
         .addActionRowComponents(
             new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
-                    .setCustomId('msgcriador_iniciar')
-                    .setLabel('Criar')
-                    .setStyle(ButtonStyle.Success)
+                    .setCustomId('msgcriador_canal_id')
+                    .setLabel('Informar ID do canal')
+                    .setStyle(ButtonStyle.Secondary)
             )
         );
+
+    if (draft.canalId) {
+        seletores.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# Canal selecionado: <#${draft.canalId}>`));
+    }
+
+    const montagem = new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent('## Monte a mensagem'))
+        .addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent('**Montagem da mensagem**'))
+                .setButtonAccessory(
+                    new ButtonBuilder()
+                        .setCustomId('msgcriador_iniciar')
+                        .setEmoji(EMOJI_MSG_MONTAR)
+                        .setStyle(ButtonStyle.Secondary)
+                )
+        );
+
+    return [cabecalho, seletores, montagem];
 }
 
 function montarPreviewMsgCriador(draft) {
@@ -6286,7 +6365,7 @@ function montarPreviewMsgCriador(draft) {
     const botoes = draft.botoes || [];
 
     if (draft.tipo === 'v2') {
-        const custoPainel = contarComponentesV2([montarPainelMsgCriadorBuilder(draft)]);
+        const custoPainel = contarComponentesV2(montarPainelMsgCriadorBuilder(draft));
         const layout = escolherLayoutV2MsgCriador(draft, 'preview', 1 + custoPainel);
         const layoutFinal = escolherLayoutV2MsgCriador(draft, 'final');
 
@@ -6310,6 +6389,11 @@ function montarPreviewMsgCriador(draft) {
 
         if (!titulo && !descricao) {
             componentes.push(new TextDisplayBuilder().setContent('Nenhum título/descrição adicionado ainda.'));
+        } else if (draft.thumbUrl) {
+            const secao = new SectionBuilder().setThumbnailAccessory(new ThumbnailBuilder().setURL(draft.thumbUrl));
+            if (titulo) secao.addTextDisplayComponents(new TextDisplayBuilder().setContent(`# ${titulo}`));
+            if (descricao) secao.addTextDisplayComponents(new TextDisplayBuilder().setContent(descricao));
+            componentes.push(secao);
         } else {
             if (titulo) componentes.push(new TextDisplayBuilder().setContent(`# ${titulo}`));
             if (descricao) componentes.push(new TextDisplayBuilder().setContent(descricao));
@@ -6455,139 +6539,266 @@ function montarControlesEmbedPlano(draft) {
 }
 
 function montarPayloadPainelMsgCriador(draft) {
-    if (draft.tipo === 'embed') {
-        const canalTexto = draft.canalId ? `<#${draft.canalId}>` : '`nenhum selecionado`';
-        return {
-            content: `**MONTAR MENSAGEM (Embed)**\n**Canal de destino:** ${canalTexto}\n-# Prévia abaixo ↓`,
-            embeds: [construirEmbedPreview(draft)],
-            components: montarControlesEmbedPlano(draft),
-            flags: []
-        };
-    }
-
     return {
-        components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
+        components: [...montarPreviewMsgCriador(draft), ...montarPainelMsgCriadorBuilder(draft)],
         flags: [MessageFlags.IsComponentsV2]
     };
 }
 
+// Campos de texto "removíveis" da mensagem (v2: blocos separados por [separador]; embed: título/descrição/footer)
+function listarCamposTextoMsgCriador(draft) {
+    const resumo = (t) => (String(t).replace(/\s+/g, ' ').trim().slice(0, 100) || '—');
+
+    if (draft.tipo === 'embed') {
+        const campos = [];
+        if (draft.embedTitulo?.trim()) campos.push({ value: 't', label: 'Título', description: resumo(draft.embedTitulo) });
+        if (draft.embedDescricao?.trim()) campos.push({ value: 'd', label: 'Descrição', description: resumo(draft.embedDescricao) });
+        if (draft.embedFooter?.trim()) campos.push({ value: 'f', label: 'Footer', description: resumo(draft.embedFooter) });
+        return campos;
+    }
+
+    if (draft.tipo === 'v2') {
+        const campos = [];
+        parseBlocosTexto(draft.textoBruto).forEach((bloco, i) => {
+            if (!bloco.length) return;
+            campos.push({ value: String(i), label: `Campo ${campos.length + 1}`, description: resumo(bloco) });
+        });
+        return campos;
+    }
+
+    return String(draft.textoBruto ?? '').trim()
+        ? [{ value: '0', label: 'Texto', description: resumo(draft.textoBruto) }]
+        : [];
+}
+
+function removerCampoTextoMsgCriador(draft, valor) {
+    if (draft.tipo === 'embed') {
+        if (valor === 't') draft.embedTitulo = '';
+        else if (valor === 'd') draft.embedDescricao = '';
+        else if (valor === 'f') draft.embedFooter = '';
+        else return false;
+        return true;
+    }
+
+    if (draft.tipo === 'v2') {
+        const blocos = parseBlocosTexto(draft.textoBruto);
+        const idx = Number(valor);
+        if (!Number.isInteger(idx) || idx < 0 || idx >= blocos.length) return false;
+        blocos.splice(idx, 1);
+        draft.textoBruto = blocos.filter(b => b.length).join('\n[separador]\n');
+        return true;
+    }
+
+    draft.textoBruto = '';
+    return true;
+}
+
+// Devolve uma LISTA de containers: [editor, ...containers da opção selecionada]
 function montarPainelMsgCriadorBuilder(draft) {
-    const container = new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **MONTAR MENSAGEM**'))
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            `**Canal de destino:** ${draft.canalId ? `<#${draft.canalId}>` : '\`nenhum selecionado\`'}\n**Tipo:** \`${draft.tipo === 'v2' ? 'Components V2' : draft.tipo === 'embed' ? 'Embed' : 'Texto normal'}\``
-        ))
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-if (draft.opcaoAtual === 'botoes_resposta' && !(draft.botoes || []).some(b => !b.url && b.resposta)) {
-    draft.opcaoAtual = null;
-}
+    const txt = (c) => new TextDisplayBuilder().setContent(c);
+    const sep = () => new SeparatorBuilder().setDivider(true);
+    const botoes = draft.botoes || [];
 
-const opcoesMsgCriador = [];
-
-if (draft.tipo === 'embed') {
-    opcoesMsgCriador.push(
-        { label: 'Título/Descrição', value: 'embedconteudo', description: 'Definir o título e a descrição do embed', default: draft.opcaoAtual === 'embedconteudo' }
-    );
-} else {
-    opcoesMsgCriador.push(
-        { label: 'Texto', value: 'texto', description: 'Definir o conteúdo de texto da mensagem', default: draft.opcaoAtual === 'texto' }
-    );
-}
-
-opcoesMsgCriador.push(
-    { label: 'Imagem', value: 'imagem', description: 'Adicionar ou remover uma imagem', default: draft.opcaoAtual === 'imagem' },
-    { label: 'Botões', value: 'botoes', description: 'Adicionar botões à mensagem', default: draft.opcaoAtual === 'botoes' }
-);
-
-if (draft.botoes && draft.botoes.length > 0) {
-    opcoesMsgCriador.push(
-        { label: 'Editar botões', value: 'editar_botoes', description: 'Editar um botão já adicionado', default: draft.opcaoAtual === 'editar_botoes' }
-    );
-}
-
-if (draft.botoes && draft.botoes.some(b => !b.url && b.resposta)) {
-    opcoesMsgCriador.push(
-        { label: 'Botões das respostas', value: 'botoes_resposta', description: 'Adicionar botões dentro da resposta de um botão', default: draft.opcaoAtual === 'botoes_resposta' }
-    );
-}
-
-if (draft.tipo === 'v2' || draft.tipo === 'embed') {
-    opcoesMsgCriador.push(
-        { label: 'Cor', value: 'cor', description: 'Definir a cor de destaque da mensagem', default: draft.opcaoAtual === 'cor' }
-    );
-}
-
-opcoesMsgCriador.push(
-    draft.editando
-        ? { label: 'Salvar edição', value: 'enviar', description: 'Salvar as alterações na mensagem existente' }
-        : { label: 'Enviar', value: 'enviar', description: 'Enviar a mensagem para o canal selecionado' }
-);
-
-container.addActionRowComponents(
-    new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-            .setCustomId('msgcriador_opcao')
-            .setPlaceholder('Selecione o que deseja editar')
-            .addOptions(opcoesMsgCriador)
-    )
-);
-
-    if (draft.opcaoAtual === 'texto') {
-        container.addActionRowComponents(
-            new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('msgcriador_texto_editar').setLabel('Editar').setStyle(ButtonStyle.Secondary)
-            )
-        );
+    if (draft.opcaoAtual === 'botoes_resposta' && !botoes.some(b => !b.url && b.resposta)) {
+        draft.opcaoAtual = null;
+    }
+    if (draft.tipo !== 'v2' && draft.tipo !== 'embed' && draft.opcaoAtual === 'cor') {
+        draft.opcaoAtual = null;
     }
 
-    if (draft.opcaoAtual === 'imagem') {
-        container.addActionRowComponents(
-            new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('msgcriador_imagem_enviar').setLabel('Enviar').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId('msgcriador_imagem_remover').setLabel('Remover').setStyle(ButtonStyle.Danger).setDisabled(!draft.imagemUrl)
-            )
-        );
-    }
-    
-    if (draft.opcaoAtual === 'embedconteudo') {
-        container.addActionRowComponents(
-            new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('msgcriador_embed_editar').setLabel('Editar').setStyle(ButtonStyle.Secondary)
-            )
-        );
-    }
-   
+    const canalTexto = draft.canalId ? `<#${draft.canalId}>` : '`nenhum selecionado`';
+    const tipoTexto = rotuloTipoMsgCriador(draft.tipo);
+    const ehConteudo = draft.opcaoAtual === 'texto' || draft.opcaoAtual === 'embedconteudo';
+    const valorConteudo = draft.tipo === 'embed' ? 'embedconteudo' : 'texto';
 
-if (draft.opcaoAtual === 'botoes') {
-        container.addActionRowComponents(
+    // ----- select principal -----
+    const opcoes = [
+        { label: 'Conteúdo', value: valorConteudo, description: draft.tipo === 'embed' ? 'Título, descrição e footer do embed' : 'Definir o texto da mensagem', default: ehConteudo },
+        { label: 'Mídia', value: 'imagem', description: draft.tipo === 'texto' ? 'Adicionar uma imagem' : 'Imagem e thumbnail da mensagem', default: draft.opcaoAtual === 'imagem' },
+        { label: 'Botões', value: 'botoes', description: 'Adicionar ou remover botões', default: draft.opcaoAtual === 'botoes' }
+    ];
+    if (botoes.length > 0) {
+        opcoes.push({ label: 'Editar botões', value: 'editar_botoes', description: 'Editar um botão já adicionado', default: draft.opcaoAtual === 'editar_botoes' });
+    }
+    if (botoes.some(b => !b.url && b.resposta)) {
+        opcoes.push({ label: 'Botões das respostas', value: 'botoes_resposta', description: 'Adicionar botões dentro da resposta de um botão', default: draft.opcaoAtual === 'botoes_resposta' });
+    }
+    if (draft.tipo === 'v2' || draft.tipo === 'embed') {
+        opcoes.push({ label: 'Cor', value: 'cor', description: 'Definir a cor de destaque da mensagem', default: draft.opcaoAtual === 'cor' });
+    }
+    opcoes.push(
+        draft.editando
+            ? { label: 'Salvar edição', value: 'enviar', description: 'Salvar as alterações na mensagem existente' }
+            : { label: 'Enviar', value: 'enviar', description: 'Enviar a mensagem para o canal selecionado' }
+    );
+
+    const editor = new ContainerBuilder()
+        .addTextDisplayComponents(txt(`**Editor de mensagens — onze**\n**Canal de destino:** ${canalTexto} — Tipo selecionado: \`${tipoTexto}\``))
+        .addActionRowComponents(
             new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('msgcriador_botao_adicionar').setLabel('Adicionar').setStyle(ButtonStyle.Secondary)
+                new StringSelectMenuBuilder()
+                    .setCustomId('msgcriador_opcao')
+                    .setPlaceholder('Selecione o que deseja editar')
+                    .addOptions(opcoes)
+            )
+        )
+        .addSeparatorComponents(sep())
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('msgcriador_voltar').setEmoji(EMOJI_VOLTAR_PAINEL).setStyle(ButtonStyle.Secondary)
             )
         );
 
-        if (draft.botoes && draft.botoes.length > 0) {
-            container.addActionRowComponents(
-                new ActionRowBuilder().addComponents(
-                    new StringSelectMenuBuilder()
-                        .setCustomId('msgcriador_botao_remover')
-                        .setPlaceholder('Remover um botão')
-                        .addOptions(
-                            draft.botoes.slice(0, 25).map((b, i) => ({
-                                label: rotuloSelect(b), ...emojiOpcao(b),
-                                value: String(i),
-                                description: b.url ? 'Link' : (POSICOES_BOTAO.find(p => p.value === b.posicao)?.label ?? 'Ação')
-                            }))
+    const extras = [];
+    const enviada = (url) => (url ? 'Enviada' : 'Não enviada');
+
+    // ----- Conteúdo -----
+    if (ehConteudo) {
+        const ehEmbed = draft.tipo === 'embed';
+        const campos = listarCamposTextoMsgCriador(draft);
+
+        extras.push(
+            new ContainerBuilder()
+                .addTextDisplayComponents(txt('## Editor de mensagens — Conteúdo'))
+                .addSectionComponents(
+                    new SectionBuilder()
+                        .addTextDisplayComponents(txt(
+                            `**${ehEmbed ? 'Conteúdo da embed' : 'Conteúdo da mensagem'}**` +
+                            (draft.tipo === 'v2' ? '\n-# `[separador]` para separado.' : '')
+                        ))
+                        .setButtonAccessory(
+                            new ButtonBuilder()
+                                .setCustomId(ehEmbed ? 'msgcriador_embed_editar' : 'msgcriador_texto_editar')
+                                .setEmoji(EMOJI_MSG_ADICIONAR)
+                                .setStyle(ButtonStyle.Secondary)
                         )
                 )
+        );
+
+        const selectRemover = new StringSelectMenuBuilder()
+            .setCustomId('msgcriador_texto_remover')
+            .setPlaceholder(campos.length ? 'Selecione o campo de texto' : 'Nenhum campo de texto')
+            .setDisabled(!campos.length)
+            .addOptions(campos.length ? campos.slice(0, 25) : [{ label: 'Nenhum campo', value: 'nenhum' }]);
+
+        extras.push(
+            new ContainerBuilder()
+                .addTextDisplayComponents(txt(`**Remover texto:**\n-# Remova textos ${ehEmbed ? 'da embed' : 'da mensagem'}`))
+                .addActionRowComponents(new ActionRowBuilder().addComponents(selectRemover))
+                .addSeparatorComponents(sep())
+                .addTextDisplayComponents(txt(`-# **Campos de texto atuais:** ${campos.length}`))
+        );
+    }
+
+    // ----- Mídia (+ Thumbnail) -----
+    if (draft.opcaoAtual === 'imagem') {
+        extras.push(
+            new ContainerBuilder()
+                .addTextDisplayComponents(txt('## Editor de mensagens — Mídia'))
+                .addSectionComponents(
+                    new SectionBuilder()
+                        .addTextDisplayComponents(txt(`**Mídia**\n-# **${enviada(draft.imagemUrl)}**`))
+                        .setButtonAccessory(
+                            new ButtonBuilder().setCustomId('msgcriador_imagem_enviar').setEmoji(EMOJI_MSG_ADICIONAR).setStyle(ButtonStyle.Secondary)
+                        )
+                )
+                .addSeparatorComponents(sep())
+                .addActionRowComponents(
+                    new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId('msgcriador_imagem_editar').setEmoji(EMOJI_MSG_EDITAR).setStyle(ButtonStyle.Secondary).setDisabled(!draft.imagemUrl)
+                    )
+                )
+        );
+
+        if (draft.tipo === 'v2' || draft.tipo === 'embed') {
+            const lado = draft.thumbLado === 'esquerdo' ? 'esquerdo' : 'direito';
+            const thumb = new ContainerBuilder()
+                .addTextDisplayComponents(txt('## Editor de mensagens — Thumbnail'))
+                .addSectionComponents(
+                    new SectionBuilder()
+                        .addTextDisplayComponents(txt(`**Thumbnail**\n-# **${enviada(draft.thumbUrl)}**`))
+                        .setButtonAccessory(
+                            new ButtonBuilder().setCustomId('msgcriador_thumb_enviar').setEmoji(EMOJI_MSG_ADICIONAR).setStyle(ButtonStyle.Secondary)
+                        )
+                )
+                .addSeparatorComponents(sep());
+
+            if (draft.tipo === 'v2') {
+                thumb
+                    .addActionRowComponents(
+                        new ActionRowBuilder().addComponents(
+                            new ButtonBuilder().setCustomId('msgcriador_thumb_editar').setEmoji(EMOJI_MSG_EDITAR).setStyle(ButtonStyle.Secondary).setDisabled(!draft.thumbUrl),
+                            new ButtonBuilder().setCustomId('msgcriador_thumb_esq').setLabel('Esquerdo').setStyle(lado === 'esquerdo' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+                            new ButtonBuilder().setCustomId('msgcriador_thumb_dir').setLabel('Direito').setStyle(lado === 'direito' ? ButtonStyle.Primary : ButtonStyle.Secondary)
+                        )
+                    )
+                    .addSeparatorComponents(sep())
+                    .addTextDisplayComponents(txt(`-# Lado atual: ${lado === 'esquerdo' ? 'Esquerdo' : 'Direito'}`));
+            } else {
+                // embed do Discord só aceita a thumbnail à direita
+                thumb
+                    .addActionRowComponents(
+                        new ActionRowBuilder().addComponents(
+                            new ButtonBuilder().setCustomId('msgcriador_thumb_editar').setEmoji(EMOJI_MSG_EDITAR).setStyle(ButtonStyle.Secondary).setDisabled(!draft.thumbUrl)
+                        )
+                    )
+                    .addSeparatorComponents(sep())
+                    .addTextDisplayComponents(txt('-# Lado atual: Direito (embeds só aceitam à direita)'));
+            }
+            extras.push(thumb);
+        }
+    }
+
+    // ----- Botões -----
+    if (draft.opcaoAtual === 'botoes') {
+        const qtd = botoes.length;
+
+        extras.push(
+            new ContainerBuilder()
+                .addTextDisplayComponents(txt('## Editor de mensagens — Botões'))
+                .addSectionComponents(
+                    new SectionBuilder()
+                        .addTextDisplayComponents(txt(
+                            `**Botões adicionados** · ${qtd ? 'adicionado' : 'não adicionado'}\n-# Quantidade adicionada: ${qtd}`
+                        ))
+                        .setButtonAccessory(
+                            new ButtonBuilder().setCustomId('msgcriador_botao_adicionar').setEmoji(EMOJI_MSG_ADICIONAR).setStyle(ButtonStyle.Secondary)
+                        )
+                )
+        );
+
+        const selectBotoes = new StringSelectMenuBuilder()
+            .setCustomId('msgcriador_botao_remover')
+            .setPlaceholder(qtd ? 'Remover um botão' : 'Nenhum botão adicionado')
+            .setDisabled(!qtd)
+            .addOptions(
+                qtd
+                    ? botoes.slice(0, 25).map((b, i) => ({
+                        label: rotuloSelect(b), ...emojiOpcao(b),
+                        value: String(i),
+                        description: b.url ? 'Link' : (POSICOES_BOTAO.find(p => p.value === b.posicao)?.label ?? 'Ação')
+                    }))
+                    : [{ label: 'Nenhum botão', value: 'nenhum' }]
             );
 
-            const botoesEmpilhadosPainel = draft.botoes
-                .map((b, i) => ({ b, i }))
-                .filter(({ b }) => b.posicao === 'empilhados');
+        extras.push(
+            new ContainerBuilder()
+                .addTextDisplayComponents(txt('**Remova um botão**'))
+                .addActionRowComponents(new ActionRowBuilder().addComponents(selectBotoes))
+                .addSeparatorComponents(sep())
+                .addTextDisplayComponents(txt(`-# Quantidade de botões: ${qtd}`))
+        );
 
-            if (draft.tipo === 'v2' && botoesEmpilhadosPainel.length) {
-                container.addActionRowComponents(
+        // legenda e resposta continuam disponíveis (container extra só quando há botões)
+        const botoesEmpilhadosPainel = botoes.map((b, i) => ({ b, i })).filter(({ b }) => b.posicao === 'empilhados');
+        const botoesSemUrl = botoes.map((b, i) => ({ b, i })).filter(({ b }) => !b.url);
+        const mostrarLegenda = draft.tipo === 'v2' && botoesEmpilhadosPainel.length > 0;
+
+        if (mostrarLegenda || botoesSemUrl.length) {
+            const extra = new ContainerBuilder().addTextDisplayComponents(txt('**Legendas e respostas dos botões**'));
+
+            if (mostrarLegenda) {
+                extra.addActionRowComponents(
                     new ActionRowBuilder().addComponents(
                         new StringSelectMenuBuilder()
                             .setCustomId('msgcriador_botao_legenda')
@@ -6603,12 +6814,8 @@ if (draft.opcaoAtual === 'botoes') {
                 );
             }
 
-            const botoesSemUrl = draft.botoes
-                .map((b, i) => ({ b, i }))
-                .filter(({ b }) => !b.url);
-
             if (botoesSemUrl.length) {
-                container.addActionRowComponents(
+                extra.addActionRowComponents(
                     new ActionRowBuilder().addComponents(
                         new StringSelectMenuBuilder()
                             .setCustomId('msgcriador_botao_resposta')
@@ -6623,135 +6830,116 @@ if (draft.opcaoAtual === 'botoes') {
                     )
                 );
             }
+            extras.push(extra);
         }
     }
-    
+
+    // ----- Botões das respostas -----
     if (draft.opcaoAtual === 'botoes_resposta') {
-        const candidatos = (draft.botoes || []).map((b, i) => ({ b, i })).filter(({ b }) => !b.url && b.resposta);
+        const candidatos = botoes.map((b, i) => ({ b, i })).filter(({ b }) => !b.url && b.resposta);
         const alvo = candidatos.find(({ i }) => i === draft.respostaBotoesAlvo);
 
-        container.addActionRowComponents(
-            new ActionRowBuilder().addComponents(
-                new StringSelectMenuBuilder()
-                    .setCustomId('msgcriador_rbotao_alvo')
-                    .setPlaceholder('Escolha a resposta que receberá botões')
-                    .addOptions(
-                        candidatos.slice(0, 25).map(({ b, i }) => ({
-                            label: rotuloSelect(b), ...emojiOpcao(b),
-                            value: String(i),
-                            description: `${(b.respostaBotoes || []).length} botão(ões) na resposta`,
-                            default: alvo?.i === i
-                        }))
-                    )
-            )
-        );
+        const c = new ContainerBuilder()
+            .addTextDisplayComponents(txt('## Editor de mensagens — Botões das respostas'))
+            .addActionRowComponents(
+                new ActionRowBuilder().addComponents(
+                    new StringSelectMenuBuilder()
+                        .setCustomId('msgcriador_rbotao_alvo')
+                        .setPlaceholder('Escolha a resposta que receberá botões')
+                        .addOptions(
+                            candidatos.slice(0, 25).map(({ b, i }) => ({
+                                label: rotuloSelect(b), ...emojiOpcao(b),
+                                value: String(i),
+                                description: `${(b.respostaBotoes || []).length} botão(ões) na resposta`,
+                                default: alvo?.i === i
+                            }))
+                        )
+                )
+            );
 
         if (alvo) {
             const lista = alvo.b.respostaBotoes || [];
-            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
-                `-# Resposta de "${rotuloBotao(alvo.b)}": ${lista.length} botão(ões) de link, abaixo do texto.`
-            ));
-            container.addActionRowComponents(
+            c.addTextDisplayComponents(txt(`-# Resposta de "${rotuloBotao(alvo.b)}": ${lista.length} botão(ões) de link, abaixo do texto.`));
+            c.addActionRowComponents(
                 new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId('msgcriador_rbotao_adicionar').setLabel('Adicionar botão').setStyle(ButtonStyle.Secondary)
                 )
             );
             if (lista.length) {
-                container.addActionRowComponents(
+                const opcoesLista = lista.slice(0, 25).map((rb, j) => ({
+                    label: rotuloSelect(rb), ...emojiOpcao(rb),
+                    value: String(j),
+                    description: `${rb.posicao === 'empilhados' ? 'Empilhado' : 'Normal'} · ${descreverLocalRBotao(rb)}`
+                }));
+                c.addActionRowComponents(
                     new ActionRowBuilder().addComponents(
-                        new StringSelectMenuBuilder()
-                            .setCustomId('msgcriador_rbotao_editar')
-                            .setPlaceholder('Editar / mover um botão da resposta')
-                            .addOptions(
-                                lista.slice(0, 25).map((rb, j) => ({
-                                    label: rotuloSelect(rb), ...emojiOpcao(rb),
-                                    value: String(j),
-                                    description: `${rb.posicao === 'empilhados' ? 'Empilhado' : 'Normal'} · ${descreverLocalRBotao(rb)}`
-                                }))
-                            )
+                        new StringSelectMenuBuilder().setCustomId('msgcriador_rbotao_editar').setPlaceholder('Editar / mover um botão da resposta').addOptions(opcoesLista)
                     )
                 );
-                container.addActionRowComponents(
+                c.addActionRowComponents(
                     new ActionRowBuilder().addComponents(
-                        new StringSelectMenuBuilder()
-                            .setCustomId('msgcriador_rbotao_remover')
-                            .setPlaceholder('Remover um botão da resposta')
-                            .addOptions(
-                                lista.slice(0, 25).map((rb, j) => ({
-                                    label: rotuloSelect(rb), ...emojiOpcao(rb),
-                                    value: String(j),
-                                    description: `${rb.posicao === 'empilhados' ? 'Empilhado' : 'Normal'} · ${descreverLocalRBotao(rb)}`
-                                }))
-                            )
+                        new StringSelectMenuBuilder().setCustomId('msgcriador_rbotao_remover').setPlaceholder('Remover um botão da resposta').addOptions(opcoesLista)
                     )
                 );
             }
         }
+        extras.push(c);
     }
 
-    if (draft.opcaoAtual === 'editar_botoes' && draft.botoes && draft.botoes.length > 0) {
-    container.addActionRowComponents(
-        new ActionRowBuilder().addComponents(
-            new StringSelectMenuBuilder()
-                .setCustomId('msgcriador_botao_editar_select')
-                .setPlaceholder('Selecione um botão para editar')
-                .addOptions(
-                    draft.botoes.slice(0, 25).map((b, i) => ({
-                        label: rotuloSelect(b), ...emojiOpcao(b),
-                        value: String(i),
-                        description: b.url ? 'Link' : (POSICOES_BOTAO.find(p => p.value === b.posicao)?.label ?? 'Ação')
-                    }))
+    // ----- Editar botões -----
+    if (draft.opcaoAtual === 'editar_botoes' && botoes.length > 0) {
+        extras.push(
+            new ContainerBuilder()
+                .addTextDisplayComponents(txt('## Editor de mensagens — Editar botões'))
+                .addActionRowComponents(
+                    new ActionRowBuilder().addComponents(
+                        new StringSelectMenuBuilder()
+                            .setCustomId('msgcriador_botao_editar_select')
+                            .setPlaceholder('Selecione um botão para editar')
+                            .addOptions(
+                                botoes.slice(0, 25).map((b, i) => ({
+                                    label: rotuloSelect(b), ...emojiOpcao(b),
+                                    value: String(i),
+                                    description: b.url ? 'Link' : (POSICOES_BOTAO.find(p => p.value === b.posicao)?.label ?? 'Ação')
+                                }))
+                            )
+                    )
                 )
-        )
-    );
-}
-       
-
-if (draft.tipo !== 'v2' && draft.tipo !== 'embed' && draft.opcaoAtual === 'cor') {
-    draft.opcaoAtual = null;
+        );
     }
 
-if (draft.opcaoAtual === 'cor') {
-    const corEhPredefinida = CORES_MSG_CRIADOR.some(c => c.value === draft.cor);
-
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
-        `**Cor atual:** ${draft.cor && draft.cor !== 'nenhuma' ? `\`#${draft.cor.toUpperCase()}\`` : '\`nenhuma\`'}`
-    ));
-
-    container.addActionRowComponents(
-        new ActionRowBuilder().addComponents(
-            new StringSelectMenuBuilder()
-                .setCustomId('msgcriador_cor_select')
-                .setPlaceholder('Selecione a cor')
-                .addOptions(
-                    CORES_MSG_CRIADOR.map(c => ({
-                        label: c.label,
-                        value: c.value,
-                        default: corEhPredefinida && (draft.cor ?? 'nenhuma') === c.value
-                    }))
+    // ----- Cor -----
+    if (draft.opcaoAtual === 'cor') {
+        const corEhPredefinida = CORES_MSG_CRIADOR.some(c => c.value === draft.cor);
+        extras.push(
+            new ContainerBuilder()
+                .addTextDisplayComponents(txt('## Editor de mensagens — Cor'))
+                .addTextDisplayComponents(txt(
+                    `**Cor atual:** ${draft.cor && draft.cor !== 'nenhuma' ? `\`#${draft.cor.toUpperCase()}\`` : '`nenhuma`'}`
+                ))
+                .addActionRowComponents(
+                    new ActionRowBuilder().addComponents(
+                        new StringSelectMenuBuilder()
+                            .setCustomId('msgcriador_cor_select')
+                            .setPlaceholder('Selecione a cor')
+                            .addOptions(
+                                CORES_MSG_CRIADOR.map(c => ({
+                                    label: c.label,
+                                    value: c.value,
+                                    default: corEhPredefinida && (draft.cor ?? 'nenhuma') === c.value
+                                }))
+                            )
+                    )
                 )
-        )
-    );
+                .addActionRowComponents(
+                    new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId('msgcriador_cor_personalizada').setLabel('Cor personalizada').setStyle(ButtonStyle.Secondary)
+                    )
+                )
+        );
+    }
 
-    container.addActionRowComponents(
-        new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId('msgcriador_cor_personalizada')
-                .setLabel('Cor personalizada')
-                .setStyle(ButtonStyle.Secondary)
-        )
-    );
-}
-
-    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-    container.addActionRowComponents(
-        new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('msgcriador_atualizar').setEmoji(EMOJI_ATUALIZAR_PREVIEW).setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder().setCustomId('msgcriador_voltar').setEmoji(EMOJI_VOLTAR_PAINEL).setStyle(ButtonStyle.Secondary)
-        )
-    );
-
-    return container;
+    return [editor, ...extras];
 }
 
 async function montarPayloadFinalMsgCriador(draft) {
@@ -6768,6 +6956,7 @@ if (draft.tipo === 'embed') {
         if (draft.embedDescricao?.trim()) embed.setDescription(draft.embedDescricao.trim());
         if (draft.cor && draft.cor !== 'nenhuma') embed.setColor(parseInt(draft.cor, 16));
         if (draft.imagemUrl) embed.setImage(draft.imagemUrl);
+        if (draft.thumbUrl) embed.setThumbnail(draft.thumbUrl);
         if (draft.embedFooter?.trim()) embed.setFooter({ text: draft.embedFooter.trim() });
 
         const payload = { embeds: [embed] };
@@ -7427,6 +7616,8 @@ module.exports = {
     montarPainelListaCargo, montarPainelConfirmacaoAddCargo, montarPainelConfirmacaoRemCargo,
     montarPainelLock,
     montarPainelMsgCriadorBuilder,
+    listarCamposTextoMsgCriador,
+    removerCampoTextoMsgCriador,
     montarPainelMsgCriadorInicial,
     montarPainelProgressoBackup,
     montarPainelProtecao,
