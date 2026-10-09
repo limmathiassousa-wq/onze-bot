@@ -197,7 +197,7 @@ async function logar(tipo, alvo, autor, opcoes = {}) {
 }
 
 // ============ BANIMENTO / UNBAN — EMBED PRÓPRIA ============
-async function logarBanimento({ guild, tipo, alvo, alvoUser, autor, motivo, extra, canalId }) {
+async function logarBanimento({ guild, tipo, alvo, alvoUser, autor, motivo, extra, canalId, rotuloAlvo = 'Usuário' }) {
     try {
         const canal = await obterCanalLog(guild, canalId || CANAL_LOGS_BANS);
         if (!canal) return;
@@ -211,7 +211,7 @@ async function logarBanimento({ guild, tipo, alvo, alvoUser, autor, motivo, extr
                 new SectionBuilder()
                     .addTextDisplayComponents(
                         new TextDisplayBuilder().setContent(`## ${tipo} — ${guild.name}`),
-                        new TextDisplayBuilder().setContent(`**Usuário:** ${alvo}`),
+                        new TextDisplayBuilder().setContent(`**${rotuloAlvo}:** ${alvo}`),
                         new TextDisplayBuilder().setContent(`**Executado por:** ${autor}`)
                     )
                     .setThumbnailAccessory(new ThumbnailBuilder().setURL(avatarUrl))

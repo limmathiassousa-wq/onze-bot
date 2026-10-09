@@ -919,6 +919,29 @@ client.on('channelDelete', async (canal) => {
     }).catch(err => console.error('--- Erro ao logar exclusão de canal ---', err));
 });
 
+// Lista o que mudou nas permissões de @everyone num canal (antes → depois, por permissão)
+function detalharPermissoesEveryone(overwriteAntigo, overwriteNovo) {
+    const estado = (ow, perm) => ow?.allow?.has(perm) ? 'allow' : (ow?.deny?.has(perm) ? 'deny' : 'neutro');
+    const rotulo = { allow: 'Permitido', deny: 'Negado', neutro: 'Neutro' };
+    const linhas = [];
+    const bitsVistos = new Set(); // evita duplicar permissões que são apelidos da mesma flag
+
+    for (const [perm, bit] of Object.entries(PermissionFlagsBits)) {
+        if (bitsVistos.has(bit)) continue;
+        bitsVistos.add(bit);
+        const de = estado(overwriteAntigo, perm);
+        const para = estado(overwriteNovo, perm);
+        if (de !== para) linhas.push(`• \`${PERM_LABELS_GROLES[perm] || perm}\`: ${rotulo[de]} → ${rotulo[para]}`);
+    }
+
+    const LIMITE = 20;
+    if (linhas.length > LIMITE) {
+        const resto = linhas.length - LIMITE;
+        return linhas.slice(0, LIMITE).join('\n') + `\n… e mais ${resto} permiss${resto === 1 ? 'ão' : 'ões'}`;
+    }
+    return linhas.join('\n');
+}
+
 client.on('channelUpdate', async (canalAntigo, canalNovo) => {
     if (!canalNovo.guild) return;
     // Edição feita pela própria reversão do Anti Nuke: o relatório dele já cobre isso, não duplica o log
@@ -954,7 +977,10 @@ client.on('channelUpdate', async (canalAntigo, canalNovo) => {
         (overwriteAntigo?.allow?.bitfield ?? 0n) !== (overwriteNovo?.allow?.bitfield ?? 0n) ||
         (overwriteAntigo?.deny?.bitfield ?? 0n) !== (overwriteNovo?.deny?.bitfield ?? 0n);
     if (mudouPermissaoEveryone) {
-        alteracoes.push('**Permissões de @everyone alteradas**');
+        const detalhe = detalharPermissoesEveryone(overwriteAntigo, overwriteNovo);
+        alteracoes.push(detalhe
+            ? `**Permissões de @everyone alteradas:**\n${detalhe}`
+            : '**Permissões de @everyone alteradas**');
     }
 
     if (alteracoes.length === 0) return;
@@ -1331,6 +1357,61 @@ client.on('roleDelete', async (role) => {
     }
 });
 
+// ===== Reordenação de cargos: o Discord manda um roleUpdate para CADA cargo que mudou de posição =====
+// Junta tudo num único log (espera 2,5s sem novos eventos) destacando só o(s) cargo(s) movido(s).
+const reordenacaoCargos = new Map(); // guildId -> { timer, itens: Map(roleId -> { cargo, de, para }) }
+
+function registrarMudancaPosicaoCargo(cargoAntigo, cargoNovo) {
+    const guildId = cargoNovo.guild.id;
+    let lote = reordenacaoCargos.get(guildId);
+    if (!lote) {
+        lote = { timer: null, itens: new Map() };
+        reordenacaoCargos.set(guildId, lote);
+    }
+    const existente = lote.itens.get(cargoNovo.id);
+    lote.itens.set(cargoNovo.id, { cargo: cargoNovo, de: existente ? existente.de : cargoAntigo.position, para: cargoNovo.position });
+
+    clearTimeout(lote.timer);
+    lote.timer = setTimeout(() => {
+        enviarLogReordenacaoCargos(cargoNovo.guild).catch(err => console.error('--- Erro ao logar reordenação de cargos ---', err));
+    }, 2500);
+}
+
+async function enviarLogReordenacaoCargos(guild) {
+    const lote = reordenacaoCargos.get(guild.id);
+    reordenacaoCargos.delete(guild.id);
+    if (!lote) return;
+
+    const itens = [...lote.itens.values()].filter(i => i.de !== i.para);
+    if (!itens.length) return;
+
+    // quem foi arrastado muda várias posições; os vizinhos só se deslocam 1
+    const maiorSalto = Math.max(...itens.map(i => Math.abs(i.para - i.de)));
+    const movidos = itens.filter(i => Math.abs(i.para - i.de) === maiorSalto);
+    const ajustados = itens.length - movidos.length;
+
+    const entrada = await aguardarEntradaAudit(guild, AuditLogEvent.RoleUpdate, e => movidos.some(m => m.cargo.id === e.target?.id));
+    const executor = entrada?.executor ?? null;
+
+    const MAX_LISTA = 5;
+    const linhas = movidos.slice(0, MAX_LISTA).map(m => `**Posição de ${m.cargo}:** \`${m.de}\` → \`${m.para}\``);
+    if (movidos.length > MAX_LISTA) linhas.push(`… e mais ${movidos.length - MAX_LISTA} cargo(s) movido(s)`);
+    if (ajustados > 0) linhas.push(`**Outros cargos reajustados automaticamente:** \`${ajustados}\``);
+
+    await logarCargoServidor({
+        guild,
+        tipo: 'Cargo Movido',
+        cargo: movidos.length === 1
+            ? `${movidos[0].cargo} — \`${movidos[0].cargo.name}\``
+            : movidos.slice(0, MAX_LISTA).map(m => `${m.cargo}`).join(', ') + (movidos.length > MAX_LISTA ? ' …' : ''),
+        executor: executor
+            ? (executor.id === client.user.id ? 'Sistema' : `${executor} — \`${executor.tag ?? executor.username}\``)
+            : 'Não identificado',
+        motivo: entrada?.reason || null,
+        extra: linhas.join('\n')
+    });
+}
+
 client.on('roleUpdate', async (cargoAntigo, cargoNovo) => {
     try {
         const mudancas = [];
@@ -1344,7 +1425,7 @@ client.on('roleUpdate', async (cargoAntigo, cargoNovo) => {
         }
 
         if (cargoAntigo.position !== cargoNovo.position) {
-            mudancas.push(`**Posição:** \`${cargoAntigo.position}\` → \`${cargoNovo.position}\``);
+            registrarMudancaPosicaoCargo(cargoAntigo, cargoNovo); // vira um único log agrupado
         }
 
         if (cargoAntigo.hoist !== cargoNovo.hoist) {
@@ -3473,13 +3554,14 @@ function montarPainelUnbanallAlvo(alvoId, alvoTag) {
 }
 
 function montarPainelUnbanallProgresso(erros, concluidos, inicioMs, finalizado = false) {
-    const agoraUnix = Math.floor(Date.now() / 1000);
+    const agora = new Date();
+    const dataHora = `${agora.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })} às ${agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Sao_Paulo' })}`;
     return new ContainerBuilder()
         .setAccentColor(0xFFFFFF)
         .addTextDisplayComponents(new TextDisplayBuilder().setContent('## Desbanimento geral — onze'))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Erros:** ${erros} — **Concluídos:** ${concluidos}`))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            `-# **<t:${agoraUnix}:F> — Tempo: ${formatarTempoUnbanall(Date.now() - inicioMs)}${finalizado ? '' : ' (em andamento)'}**`
+            `-# **${dataHora} — Tempo: ${formatarTempoUnbanall(Date.now() - inicioMs)}${finalizado ? '' : ' (em andamento)'}**`
         ));
 }
 
@@ -3556,9 +3638,11 @@ async function executarUnbanGeral(interaction, estado, msgId, efemero) {
 
         await logarBanimento({
             guild, tipo: 'Unban Geral',
-            alvo: `${concluidos} pessoa(s) desbanida(s)`,
+            alvo: `${concluidos} pessoa(s)`,
+            rotuloAlvo: 'Desbanidos',
             alvoUser: null, autor: interaction.user,
-            motivo: `UnBanall geral — Concluídos: ${concluidos} • Erros: ${erros} • Tempo: ${tempoFinal}`
+            motivo: 'UnBanall geral',
+            extra: `**Concluídos:** ${concluidos}\n**Erros:** ${erros}\n**Tempo:** ${tempoFinal}`
         }).catch(err => console.error('--- Erro ao logar unban geral ---', err));
 
         await new Promise(r => setTimeout(r, 5000)); // deixa o resultado visível antes de voltar
