@@ -4359,7 +4359,13 @@ async function punirExecutorNuke(guild, executor, motivo) {
     if (executor.id === guild.ownerId) return;
     if (protecaoConfig.antiRaid.whitelistIds.includes(executor.id)) return;
 
-    
+    // Bypass total: quem tem cargo de atendente nunca é punido pelo Anti Raid (não precisa estar nos imunes).
+    // Exceção: o cargo abaixo é de atendente, mas NÃO tem bypass no Anti Raid.
+    const CARGO_ATENDENTE_SEM_BYPASS_RAID = '1542321888309809212';
+    const membroExecutor = guild.members.cache.get(executor.id)
+        ?? await guild.members.fetch(executor.id).catch(() => null);
+    if (membroExecutor?.roles.cache.some(r => r.id !== CARGO_ATENDENTE_SEM_BYPASS_RAID && CARGOS_ATENDENTE.includes(r.id))) return;
+
     const cadeia = executor.bot ? ['banir'] : [protecaoConfig.antiRaid.acaoExecutor];
 
     if (executor.bot) {
@@ -5333,7 +5339,7 @@ function montarPainelAntiNuke() {
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(`### ${nuke.nukeAtivo ? EMOJI_ATIVADO : EMOJI_DESATIVADO} Anti Raid`))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent('-# Painel > Anti Raid'))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            'Detecta e pune ações destrutivas em massa (canais, cargos, bans, webhooks), mesmo vindas de staff.'
+            'Detecta e pune ações destrutivas em massa (canais, cargos, bans, webhooks). Cargos de atendente têm bypass total, sem precisar entrar nos imunes (exceto <@&1542321888309809212>).'
         ))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
