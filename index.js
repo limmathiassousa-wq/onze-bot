@@ -9217,6 +9217,9 @@ if (interaction.isButton() && (interaction.customId === 'msgcriador_imagem_acima
     if (!draft || draft.autorId !== interaction.user.id) {
         return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
     }
+    if (interaction.customId === 'msgcriador_imagem_acima' && !String(draft.textoBruto ?? '').trim()) {
+        return interaction.reply({ content: 'Adicione um texto na mensagem antes de colocar a imagem acima dele.', flags: [MessageFlags.Ephemeral] });
+    }
     draft.imagemPosicao = interaction.customId === 'msgcriador_imagem_acima' ? 'acima' : 'abaixo';
     return interaction.update({
         components: [...montarPreviewMsgCriador(draft), ...montarPainelMsgCriadorBuilder(draft)],
