@@ -7245,7 +7245,6 @@ const { CARGO_BLOQUEADO_MODERACAO } = require('./constants');
 
 // ---------------------------------------------------------------- CONFIG ----
 const EMOJI = {
-    buscar: '<:buscar:1548566772700024882>',
     editar: '<:31003:1558218752758382612>',
     lixeira: '<:31026:1558244587603234816>'
 };
@@ -7348,13 +7347,26 @@ function rowPaginas(idBase, pag, total) {
 
 const avisoTxt = (estado) => (estado.aviso ? `\n-# ${estado.aviso}` : '');
 
+function selectMenuPrincipal() {
+    return new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+            .setCustomId('fig:menu')
+            .setPlaceholder('Selecione uma opção')
+            .addOptions([
+                { label: 'Figurinhas do Servidor', value: 'lista', description: 'Veja todas as figurinhas do servidor' },
+                { label: 'Adicionar Figurinhas', value: 'adicionar', description: 'Envie uma figurinha com nome, emoji e arquivo' },
+                { label: 'Importe Figurinhas do Discord', value: 'importar', description: 'Adiciona as figurinhas que você enviar no chat' },
+                { label: 'Remover', value: 'remover', description: 'Remova figurinhas indesejadas' }
+            ])
+    );
+}
+
+// Painel principal (tela inicial): um container só, com o select dentro.
 function viewHome() {
     return new ContainerBuilder()
-        .addTextDisplayComponents(td('**Figurinhas do Servidor**\n-# Veja todas as figurinhas do servidor.'))
+        .addTextDisplayComponents(td('## Figurinhas do Servidor\n-# Gerencie todas as Figurinhas do servidor ou adicione'))
         .addSeparatorComponents(sep())
-        .addActionRowComponents(new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('fig:buscar').setStyle(ButtonStyle.Secondary).setEmoji(parseEmoji(EMOJI.buscar))
-        ));
+        .addActionRowComponents(selectMenuPrincipal());
 }
 
 async function viewLista(estado, guild) {
@@ -7508,28 +7520,10 @@ async function viewRemoverConfirma(estado, guild) {
         ));
 }
 
-function containerMenu(estado) {
-    const subtitulos = {
-        home: 'Vendo Figurinhas do Servidor',
-        lista: 'Vendo Figurinhas do Servidor',
-        adicionar: 'Adicionando Figurinhas',
-        importar: 'Importando Figurinhas do Discord',
-        remover: 'Removendo Figurinhas',
-        remover_confirma: 'Removendo Figurinhas'
-    };
+function containerMenu() {
     return new ContainerBuilder()
-        .addTextDisplayComponents(td(`**Ver Figurinhas**\n-# ${subtitulos[estado.view] || subtitulos.home}`))
-        .addActionRowComponents(new ActionRowBuilder().addComponents(
-            new StringSelectMenuBuilder()
-                .setCustomId('fig:menu')
-                .setPlaceholder('Selecione uma opção')
-                .addOptions([
-                    { label: 'Figurinhas do Servidor', value: 'lista', description: 'Veja todas as figurinhas do servidor' },
-                    { label: 'Adicionar Figurinhas', value: 'adicionar', description: 'Envie uma figurinha com nome, emoji e arquivo' },
-                    { label: 'Importe Figurinhas do Discord', value: 'importar', description: 'Adiciona as figurinhas que você enviar no chat' },
-                    { label: 'Remover', value: 'remover', description: 'Remova figurinhas indesejadas' }
-                ])
-        ));
+        .addTextDisplayComponents(td('**Figurinhas**\n-# Gerenciamento de Figurinhas da Onze'))
+        .addActionRowComponents(selectMenuPrincipal());
 }
 
 async function montar(estado, guild) {
@@ -7545,7 +7539,7 @@ async function montar(estado, guild) {
         case 'remover_confirma': c1 = await viewRemoverConfirma(estado, guild); break;
         default: c1 = viewHome();
     }
-    const componentes = [c1, containerMenu(estado)];
+    const componentes = estado.view === 'home' ? [c1] : [c1, containerMenu()];
     estado.aviso = null;
     return componentes;
 }
@@ -7643,7 +7637,7 @@ async function tratarInteracao(interaction) {
                 return true;
             }
             await interaction.deferUpdate();
-            estado.view = escolha === 'lista' ? 'home' : escolha;
+            estado.view = escolha;
             estado.pagLista = 0;
             estado.pagRemover = 0;
             estado.remSel = null;
@@ -7740,9 +7734,7 @@ async function tratarInteracao(interaction) {
         // ---------- demais componentes (sempre atualizam o painel) ----------
         await interaction.deferUpdate();
 
-        if (acao === 'buscar') { estado.view = 'lista'; estado.pagLista = 0; }
-
-        else if (acao === 'lp') estado.pagLista += arg === 'prox' ? 1 : -1;
+        if (acao === 'lp') estado.pagLista += arg === 'prox' ? 1 : -1;
         else if (acao === 'rp') estado.pagRemover += arg === 'prox' ? 1 : -1;
         else if (acao === 'ep') d.emojiPag += arg === 'prox' ? 1 : -1;
 
