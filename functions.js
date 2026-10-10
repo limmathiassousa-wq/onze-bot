@@ -226,14 +226,31 @@ const PERMS_POR_PAGINA = 5;
 const CARGOS_GERENCIADOR_LIMITADO = ['1542321888309809212', '1542321888309809210'];
 const CARGOS_RESTRITOS_GERENCIADOR_LIMITADO = [
     '1542321888355684456',
+    '1542321888355684455',
+    '1546504893890691093',
+    '1542733119604654152',
     '1542321888355684454',
     '1542321888355684453',
     '1546329251219771512',
+    '1546499881156485234',
     '1542321888309809212',
     '1542321888309809210',
     '1546352749703200798',
     '1546354415689007105',
     '1546350016342532126',
+    '1542321888309809211',
+    '1546329417062686820',
+    '1546552187201527848',
+    '1546552147804692480',
+    '1545230701534777375',
+    '1542321888309809204',
+    '1542321888309809203',
+    '1542321888234045549',
+    '1542321888234045548',
+    '1542321888234045547',
+    '1542321888234045546',
+    '1542321888355684453',
+    '1546329251219771512',
     '1542321888309809211',
     '1546329417062686820'
 ];
@@ -438,13 +455,14 @@ const HELP_PREFIXO_DESCRICOES = {
     cl: 'Apaga mensagens do autor do comando',
     limpar: 'Apaga mensagens do canal',
     areas: 'Mostra as áreas disponíveis da equipe',
-    req: 'Mostra os requisitos mínimos para parceria'
+    req: 'Mostra os requisitos mínimos para parceria',
+    figurinhas: 'Painel para ver, adicionar, importar e remover figurinhas'
 };
 
 // Só pra preencher o "Ajuda › Categoria › comando". Comando fora daqui cai em "Geral".
 const HELP_CATEGORIAS = {
     'Moderação': ['ban', 'unban', 'unbanall', 'kick', 'mute', 'unmute', 'muteinfo', 'limpar', 'nuke', 'painelps', 'cl'],
-    'Administração': ['statuscall', 'addemoji', 'regras', 'tickets', 'addcargo', 'remcargo', 'groles', 'roleall', 'painelurl', 'laterais'],
+    'Administração': ['statuscall', 'addemoji', 'regras', 'tickets', 'addcargo', 'remcargo', 'groles', 'roleall', 'painelurl', 'laterais', 'figurinhas'],
     'Diversão': ['pd', 'tellonym'],
     'Utilidades': ['sorteio', 'convite', 'afk', 'botcall', 'avatar', 'painelcall', 'info', 'msg'],
     'Ajuda': ['help']
@@ -5993,41 +6011,15 @@ function construirV2MsgCriador(draft, modo, modoEmp) {
 
     const houveTexto = String(draft.textoBruto ?? '').trim().length > 0;
 
-    // Imagem acima do texto (padrão é abaixo)
-    const imagemAcima = !!draft.imagemUrl && draft.imagemPosicao === 'acima' && houveTexto;
-    if (imagemAcima) {
-        container.addMediaGalleryComponents(
-            new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(draft.imagemUrl))
-        );
-    }
-
-    // Thumbnail: sempre à direita, como acessório do primeiro texto (Section)
-    let thumbPendente = !!draft.thumbUrl;
-    const galeriaThumb = () => new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(draft.thumbUrl));
-    const textoComThumb = (conteudo) => new SectionBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(conteudo))
-        .setThumbnailAccessory(new ThumbnailBuilder().setURL(draft.thumbUrl));
-
     if (!houveTexto) {
-        if (thumbPendente && modo === 'preview') {
-            container.addSectionComponents(textoComThumb('-# Nenhum texto adicionado ainda.'));
-        } else {
-            if (thumbPendente) container.addMediaGalleryComponents(galeriaThumb());
-            if (modo === 'preview') {
-                container.addTextDisplayComponents(new TextDisplayBuilder().setContent('-# Nenhum texto adicionado ainda.'));
-            }
+        if (modo === 'preview') {
+            container.addTextDisplayComponents(new TextDisplayBuilder().setContent('-# Nenhum texto adicionado ainda.'));
         }
-        thumbPendente = false;
     } else {
         const blocos = parseBlocosTexto(draft.textoBruto);
         blocos.forEach((bloco, i) => {
             if (bloco.length > 0) {
-                if (thumbPendente) {
-                    container.addSectionComponents(textoComThumb(bloco));
-                    thumbPendente = false;
-                } else {
-                    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(bloco));
-                }
+                container.addTextDisplayComponents(new TextDisplayBuilder().setContent(bloco));
             }
             if (i < blocos.length - 1) {
                 container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
@@ -6039,7 +6031,7 @@ function construirV2MsgCriador(draft, modo, modoEmp) {
         montarButtonRows(botoesEntre, modo).forEach(row => container.addActionRowComponents(row));
     }
 
-    if (draft.imagemUrl && !imagemAcima) {
+    if (draft.imagemUrl) {
         container.addMediaGalleryComponents(
             new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(draft.imagemUrl))
         );
@@ -6261,36 +6253,21 @@ function descreverLocalRBotao(rb) {
     return 'no final';
 }
 
-const EMOJI_MSG_MONTAR = { name: '31028', id: '1558246565028827136' };
-const EMOJI_MSG_ADICIONAR = { name: '31003', id: '1558218752758382612' };
-const EMOJI_MSG_EDITAR = { name: '31005', id: '1558220966386081833' };
-const EMOJI_MSG_IMG_ACIMA = { name: '31017', id: '1558234119908106311' };
-const EMOJI_MSG_REMOVER_MIDIA = { name: '31026', id: '1558244587603234816' };
-const EMOJI_MSG_IMG_ABAIXO = { name: '31016', id: '1558234106578608178' };
-
-function rotuloTipoMsgCriador(tipo) {
-    return tipo === 'v2' ? 'Components V2'
-        : tipo === 'embed' ? 'Embed'
-        : tipo === 'texto' ? 'Texto normal'
-        : tipo === 'editar' ? 'Editar mensagem existente'
-        : 'nenhum selecionado';
-}
-
-// Painel inicial: devolve uma LISTA de containers (cabeçalho, seletores, montagem)
 function montarPainelMsgCriadorInicial(draft) {
-    const tipoTexto = rotuloTipoMsgCriador(draft.tipo);
+    const tipoTexto = draft.tipo === 'v2' ? 'Components V2'
+        : draft.tipo === 'embed' ? 'Embed'
+        : draft.tipo === 'texto' ? 'Texto normal'
+        : draft.tipo === 'editar' ? 'Editar mensagem existente'
+        : 'nenhum selecionado';
+    const canalTexto = draft.canalId ? `<#${draft.canalId}>` : 'nenhum selecionado';
 
-    const cabecalho = new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            '### Criador de mensagens v2 — onze\n-# Crie mensagens em v2, embed ou texto puro.'
-        ))
+    return new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **CRIADOR DE MENSAGENS**'))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            `-# Total de mensagens já criadas: ${draft.totalCriadas ?? 0}`
-        ));
-
-    const seletores = new ContainerBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent('-# Selecione o tipo de mensagem:'))
+            `**Tipo:** \`${tipoTexto}\`\n**Canal:** ${canalTexto}`
+        ))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
         .addActionRowComponents(
             new ActionRowBuilder().addComponents(
                 new StringSelectMenuBuilder()
@@ -6303,15 +6280,7 @@ function montarPainelMsgCriadorInicial(draft) {
                         { label: 'Editar mensagem existente', value: 'editar', description: 'Editar uma mensagem já enviada por este painel' }
                     )
             )
-        );
-
-    if (draft.tipo) {
-        seletores.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# Tipo selecionado: ${tipoTexto}`));
-    }
-
-    seletores
-        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent('-# Selecione o canal de destino ou informe o id:'))
+        )
         .addActionRowComponents(
             new ActionRowBuilder().addComponents(
                 new ChannelSelectMenuBuilder()
@@ -6323,29 +6292,11 @@ function montarPainelMsgCriadorInicial(draft) {
         .addActionRowComponents(
             new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
-                    .setCustomId('msgcriador_canal_id')
-                    .setLabel('Informar ID do canal')
-                    .setStyle(ButtonStyle.Secondary)
+                    .setCustomId('msgcriador_iniciar')
+                    .setLabel('Criar')
+                    .setStyle(ButtonStyle.Success)
             )
         );
-
-    if (draft.canalId) {
-        seletores.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# Canal selecionado: <#${draft.canalId}>`));
-    }
-
-    const montagem = new ContainerBuilder()
-        .addSectionComponents(
-            new SectionBuilder()
-                .addTextDisplayComponents(new TextDisplayBuilder().setContent('### Montagem\n-# Monte sua mensagem clicando no botão ao lado ›'))
-                .setButtonAccessory(
-                    new ButtonBuilder()
-                        .setCustomId('msgcriador_iniciar')
-                        .setEmoji(EMOJI_MSG_MONTAR)
-                        .setStyle(ButtonStyle.Secondary)
-                )
-        );
-
-    return [cabecalho, seletores, montagem];
 }
 
 function montarPreviewMsgCriador(draft) {
@@ -6353,7 +6304,7 @@ function montarPreviewMsgCriador(draft) {
     const botoes = draft.botoes || [];
 
     if (draft.tipo === 'v2') {
-        const custoPainel = contarComponentesV2(montarPainelMsgCriadorBuilder(draft));
+        const custoPainel = contarComponentesV2([montarPainelMsgCriadorBuilder(draft)]);
         const layout = escolherLayoutV2MsgCriador(draft, 'preview', 1 + custoPainel);
         const layoutFinal = escolherLayoutV2MsgCriador(draft, 'final');
 
@@ -6377,11 +6328,6 @@ function montarPreviewMsgCriador(draft) {
 
         if (!titulo && !descricao) {
             componentes.push(new TextDisplayBuilder().setContent('Nenhum título/descrição adicionado ainda.'));
-        } else if (draft.thumbUrl) {
-            const secao = new SectionBuilder().setThumbnailAccessory(new ThumbnailBuilder().setURL(draft.thumbUrl));
-            if (titulo) secao.addTextDisplayComponents(new TextDisplayBuilder().setContent(`# ${titulo}`));
-            if (descricao) secao.addTextDisplayComponents(new TextDisplayBuilder().setContent(descricao));
-            componentes.push(secao);
         } else {
             if (titulo) componentes.push(new TextDisplayBuilder().setContent(`# ${titulo}`));
             if (descricao) componentes.push(new TextDisplayBuilder().setContent(descricao));
@@ -6527,256 +6473,139 @@ function montarControlesEmbedPlano(draft) {
 }
 
 function montarPayloadPainelMsgCriador(draft) {
+    if (draft.tipo === 'embed') {
+        const canalTexto = draft.canalId ? `<#${draft.canalId}>` : '`nenhum selecionado`';
+        return {
+            content: `**MONTAR MENSAGEM (Embed)**\n**Canal de destino:** ${canalTexto}\n-# Prévia abaixo ↓`,
+            embeds: [construirEmbedPreview(draft)],
+            components: montarControlesEmbedPlano(draft),
+            flags: []
+        };
+    }
+
     return {
-        components: [...montarPreviewMsgCriador(draft), ...montarPainelMsgCriadorBuilder(draft)],
+        components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
         flags: [MessageFlags.IsComponentsV2]
     };
 }
 
-// Campos de texto "removíveis" da mensagem (v2: blocos separados por [separador]; embed: título/descrição/footer)
-function listarCamposTextoMsgCriador(draft) {
-    const resumo = (t) => (String(t).replace(/\s+/g, ' ').trim().slice(0, 100) || '—');
-
-    if (draft.tipo === 'embed') {
-        const campos = [];
-        if (draft.embedTitulo?.trim()) campos.push({ value: 't', label: 'Título', description: resumo(draft.embedTitulo) });
-        if (draft.embedDescricao?.trim()) campos.push({ value: 'd', label: 'Descrição', description: resumo(draft.embedDescricao) });
-        if (draft.embedFooter?.trim()) campos.push({ value: 'f', label: 'Footer', description: resumo(draft.embedFooter) });
-        return campos;
-    }
-
-    if (draft.tipo === 'v2') {
-        const campos = [];
-        parseBlocosTexto(draft.textoBruto).forEach((bloco, i) => {
-            if (!bloco.length) return;
-            campos.push({ value: String(i), label: `Campo ${campos.length + 1}`, description: resumo(bloco) });
-        });
-        return campos;
-    }
-
-    return String(draft.textoBruto ?? '').trim()
-        ? [{ value: '0', label: 'Texto', description: resumo(draft.textoBruto) }]
-        : [];
-}
-
-function removerCampoTextoMsgCriador(draft, valor) {
-    if (draft.tipo === 'embed') {
-        if (valor === 't') draft.embedTitulo = '';
-        else if (valor === 'd') draft.embedDescricao = '';
-        else if (valor === 'f') draft.embedFooter = '';
-        else return false;
-        return true;
-    }
-
-    if (draft.tipo === 'v2') {
-        const blocos = parseBlocosTexto(draft.textoBruto);
-        const idx = Number(valor);
-        if (!Number.isInteger(idx) || idx < 0 || idx >= blocos.length) return false;
-        blocos.splice(idx, 1);
-        draft.textoBruto = blocos.filter(b => b.length).join('\n[separador]\n');
-        return true;
-    }
-
-    draft.textoBruto = '';
-    return true;
-}
-
-// Devolve uma LISTA de containers: [editor, ...containers da opção selecionada]
 function montarPainelMsgCriadorBuilder(draft) {
-    const txt = (c) => new TextDisplayBuilder().setContent(c);
-    const sep = () => new SeparatorBuilder().setDivider(true);
-    const botoes = draft.botoes || [];
+    const container = new ContainerBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **MONTAR MENSAGEM**'))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            `**Canal de destino:** ${draft.canalId ? `<#${draft.canalId}>` : '\`nenhum selecionado\`'}\n**Tipo:** \`${draft.tipo === 'v2' ? 'Components V2' : draft.tipo === 'embed' ? 'Embed' : 'Texto normal'}\``
+        ))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+if (draft.opcaoAtual === 'botoes_resposta' && !(draft.botoes || []).some(b => !b.url && b.resposta)) {
+    draft.opcaoAtual = null;
+}
 
-    if (draft.opcaoAtual === 'botoes_resposta' && !botoes.some(b => !b.url && b.resposta)) {
-        draft.opcaoAtual = null;
-    }
-    if (draft.tipo !== 'v2' && draft.tipo !== 'embed' && draft.opcaoAtual === 'cor') {
-        draft.opcaoAtual = null;
-    }
+const opcoesMsgCriador = [];
 
-    const canalTexto = draft.canalId ? `<#${draft.canalId}>` : '`nenhum selecionado`';
-    const tipoTexto = rotuloTipoMsgCriador(draft.tipo);
-    const ehConteudo = draft.opcaoAtual === 'texto' || draft.opcaoAtual === 'embedconteudo';
-    const valorConteudo = draft.tipo === 'embed' ? 'embedconteudo' : 'texto';
-
-    // ----- select principal -----
-    const opcoes = [
-        { label: 'Conteúdo', value: valorConteudo, description: draft.tipo === 'embed' ? 'Título, descrição e footer do embed' : 'Definir o texto da mensagem', default: ehConteudo },
-        { label: 'Mídia', value: 'imagem', description: draft.tipo === 'texto' ? 'Adicionar uma imagem' : 'Imagem e thumbnail da mensagem', default: draft.opcaoAtual === 'imagem' },
-        { label: 'Botões', value: 'botoes', description: 'Adicionar ou remover botões', default: draft.opcaoAtual === 'botoes' }
-    ];
-    if (botoes.length > 0) {
-        opcoes.push({ label: 'Editar botões', value: 'editar_botoes', description: 'Editar um botão já adicionado', default: draft.opcaoAtual === 'editar_botoes' });
-    }
-    if (botoes.some(b => !b.url && b.resposta)) {
-        opcoes.push({ label: 'Botões das respostas', value: 'botoes_resposta', description: 'Adicionar botões dentro da resposta de um botão', default: draft.opcaoAtual === 'botoes_resposta' });
-    }
-    if (draft.tipo === 'v2' || draft.tipo === 'embed') {
-        opcoes.push({ label: 'Cor', value: 'cor', description: 'Definir a cor de destaque da mensagem', default: draft.opcaoAtual === 'cor' });
-    }
-    opcoes.push(
-        draft.editando
-            ? { label: 'Salvar edição', value: 'enviar', description: 'Salvar as alterações na mensagem existente' }
-            : { label: 'Enviar', value: 'enviar', description: 'Enviar a mensagem para o canal selecionado' }
+if (draft.tipo === 'embed') {
+    opcoesMsgCriador.push(
+        { label: 'Título/Descrição', value: 'embedconteudo', description: 'Definir o título e a descrição do embed', default: draft.opcaoAtual === 'embedconteudo' }
     );
+} else {
+    opcoesMsgCriador.push(
+        { label: 'Texto', value: 'texto', description: 'Definir o conteúdo de texto da mensagem', default: draft.opcaoAtual === 'texto' }
+    );
+}
 
-    const editor = new ContainerBuilder()
-        .addTextDisplayComponents(txt(`## Editor de mensagens — onze\n**Canal de destino:** ${canalTexto} — Tipo selecionado: \`${tipoTexto}\``))
-        .addActionRowComponents(
+opcoesMsgCriador.push(
+    { label: 'Imagem', value: 'imagem', description: 'Adicionar ou remover uma imagem', default: draft.opcaoAtual === 'imagem' },
+    { label: 'Botões', value: 'botoes', description: 'Adicionar botões à mensagem', default: draft.opcaoAtual === 'botoes' }
+);
+
+if (draft.botoes && draft.botoes.length > 0) {
+    opcoesMsgCriador.push(
+        { label: 'Editar botões', value: 'editar_botoes', description: 'Editar um botão já adicionado', default: draft.opcaoAtual === 'editar_botoes' }
+    );
+}
+
+if (draft.botoes && draft.botoes.some(b => !b.url && b.resposta)) {
+    opcoesMsgCriador.push(
+        { label: 'Botões das respostas', value: 'botoes_resposta', description: 'Adicionar botões dentro da resposta de um botão', default: draft.opcaoAtual === 'botoes_resposta' }
+    );
+}
+
+if (draft.tipo === 'v2' || draft.tipo === 'embed') {
+    opcoesMsgCriador.push(
+        { label: 'Cor', value: 'cor', description: 'Definir a cor de destaque da mensagem', default: draft.opcaoAtual === 'cor' }
+    );
+}
+
+opcoesMsgCriador.push(
+    draft.editando
+        ? { label: 'Salvar edição', value: 'enviar', description: 'Salvar as alterações na mensagem existente' }
+        : { label: 'Enviar', value: 'enviar', description: 'Enviar a mensagem para o canal selecionado' }
+);
+
+container.addActionRowComponents(
+    new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+            .setCustomId('msgcriador_opcao')
+            .setPlaceholder('Selecione o que deseja editar')
+            .addOptions(opcoesMsgCriador)
+    )
+);
+
+    if (draft.opcaoAtual === 'texto') {
+        container.addActionRowComponents(
             new ActionRowBuilder().addComponents(
-                new StringSelectMenuBuilder()
-                    .setCustomId('msgcriador_opcao')
-                    .setPlaceholder('Selecione o que deseja editar')
-                    .addOptions(opcoes)
+                new ButtonBuilder().setCustomId('msgcriador_texto_editar').setLabel('Editar').setStyle(ButtonStyle.Secondary)
             )
-        )
-        .addSeparatorComponents(sep())
-        .addActionRowComponents(
-            new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('msgcriador_voltar').setEmoji(EMOJI_VOLTAR_PAINEL).setStyle(ButtonStyle.Secondary)
-            )
-        );
-
-    const extras = [];
-    const enviada = (url) => (url ? 'Enviada' : 'Não enviada');
-    const temTextoMsg = String(draft.textoBruto ?? '').trim().length > 0;
-    const acimaEfetivo = draft.imagemPosicao === 'acima' && temTextoMsg;
-
-    // ----- Conteúdo -----
-    if (ehConteudo) {
-        const ehEmbed = draft.tipo === 'embed';
-        const campos = listarCamposTextoMsgCriador(draft);
-
-        extras.push(
-            new ContainerBuilder()
-                .addTextDisplayComponents(txt('### Conteúdo'))
-                .addSectionComponents(
-                    new SectionBuilder()
-                        .addTextDisplayComponents(txt(
-                            `**${ehEmbed ? 'Conteúdo da embed' : 'Conteúdo da mensagem'}**` +
-                            (draft.tipo === 'v2' ? '\n-# `[separador]` para separado.' : '')
-                        ))
-                        .setButtonAccessory(
-                            new ButtonBuilder()
-                                .setCustomId(ehEmbed ? 'msgcriador_embed_editar' : 'msgcriador_texto_editar')
-                                .setEmoji(EMOJI_MSG_ADICIONAR)
-                                .setStyle(ButtonStyle.Secondary)
-                        )
-                )
-        );
-
-        const selectRemover = new StringSelectMenuBuilder()
-            .setCustomId('msgcriador_texto_remover')
-            .setPlaceholder(campos.length ? 'Selecione o campo de texto' : 'Nenhum campo de texto')
-            .setDisabled(!campos.length)
-            .addOptions(campos.length ? campos.slice(0, 25) : [{ label: 'Nenhum campo', value: 'nenhum' }]);
-
-        extras.push(
-            new ContainerBuilder()
-                .addTextDisplayComponents(txt(`**Remover texto:**\n-# Remova textos ${ehEmbed ? 'da embed' : 'da mensagem'}`))
-                .addActionRowComponents(new ActionRowBuilder().addComponents(selectRemover))
-                .addSeparatorComponents(sep())
-                .addTextDisplayComponents(txt(`-# Campos de texto atuais: ${campos.length}`))
         );
     }
 
-    // ----- Mídia (+ Thumbnail) -----
     if (draft.opcaoAtual === 'imagem') {
-        extras.push(
-            new ContainerBuilder()
-                .addTextDisplayComponents(txt('### Mídia\n-# Envie uma imagem ou a url dela'))
-                .addSectionComponents(
-                    new SectionBuilder()
-                        .addTextDisplayComponents(txt(`**Mídia**\n-# ${enviada(draft.imagemUrl)}`))
-                        .setButtonAccessory(
-                            new ButtonBuilder().setCustomId('msgcriador_imagem_enviar').setEmoji(EMOJI_MSG_ADICIONAR).setStyle(ButtonStyle.Secondary)
-                        )
-                )
-                .addSeparatorComponents(sep())
-                .addActionRowComponents(
-                    new ActionRowBuilder().addComponents(
-                        new ButtonBuilder().setCustomId('msgcriador_imagem_editar').setEmoji(EMOJI_MSG_EDITAR).setStyle(ButtonStyle.Secondary).setDisabled(!draft.imagemUrl),
-                        ...(draft.tipo === 'v2' ? [
-                            new ButtonBuilder().setCustomId('msgcriador_imagem_acima').setEmoji(EMOJI_MSG_IMG_ACIMA).setStyle(ButtonStyle.Secondary).setDisabled(!temTextoMsg || acimaEfetivo),
-                            new ButtonBuilder().setCustomId('msgcriador_imagem_abaixo').setEmoji(EMOJI_MSG_IMG_ABAIXO).setStyle(ButtonStyle.Secondary).setDisabled(!acimaEfetivo)
-                        ] : []),
-                        new ButtonBuilder().setCustomId('msgcriador_imagem_remover').setEmoji(EMOJI_MSG_REMOVER_MIDIA).setStyle(ButtonStyle.Secondary).setDisabled(!draft.imagemUrl)
-                    )
-                )
+        container.addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('msgcriador_imagem_enviar').setLabel('Enviar').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('msgcriador_imagem_remover').setLabel('Remover').setStyle(ButtonStyle.Danger).setDisabled(!draft.imagemUrl)
+            )
         );
-
-        if (draft.tipo === 'v2' || draft.tipo === 'embed') {
-            extras.push(
-                new ContainerBuilder()
-                    .addTextDisplayComponents(txt('### Thumbnail\n-# Envie uma imagem de canto na embed ou a url dela'))
-                    .addSectionComponents(
-                        new SectionBuilder()
-                            .addTextDisplayComponents(txt(`**Thumbnail**\n-# ${enviada(draft.thumbUrl)}`))
-                            .setButtonAccessory(
-                                new ButtonBuilder().setCustomId('msgcriador_thumb_enviar').setEmoji(EMOJI_MSG_ADICIONAR).setStyle(ButtonStyle.Secondary)
-                            )
-                    )
-                    .addSeparatorComponents(sep())
-                    .addActionRowComponents(
-                        new ActionRowBuilder().addComponents(
-                            new ButtonBuilder().setCustomId('msgcriador_thumb_editar').setEmoji(EMOJI_MSG_EDITAR).setStyle(ButtonStyle.Secondary).setDisabled(!draft.thumbUrl),
-                            new ButtonBuilder().setCustomId('msgcriador_thumb_remover').setEmoji(EMOJI_MSG_REMOVER_MIDIA).setStyle(ButtonStyle.Secondary).setDisabled(!draft.thumbUrl)
-                        )
-                    )
-            );
-        }
     }
+    
+    if (draft.opcaoAtual === 'embedconteudo') {
+        container.addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('msgcriador_embed_editar').setLabel('Editar').setStyle(ButtonStyle.Secondary)
+            )
+        );
+    }
+   
 
-    // ----- Botões -----
-    if (draft.opcaoAtual === 'botoes') {
-        const qtd = botoes.length;
+if (draft.opcaoAtual === 'botoes') {
+        container.addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('msgcriador_botao_adicionar').setLabel('Adicionar').setStyle(ButtonStyle.Secondary)
+            )
+        );
 
-        extras.push(
-            new ContainerBuilder()
-                .addTextDisplayComponents(txt('### Botões'))
-                .addSectionComponents(
-                    new SectionBuilder()
-                        .addTextDisplayComponents(txt(
-                            `**Botões adicionados** · ${qtd ? 'adicionado' : 'não adicionado'}\n-# Quantidade adicionada: ${qtd}`
-                        ))
-                        .setButtonAccessory(
-                            new ButtonBuilder().setCustomId('msgcriador_botao_adicionar').setEmoji(EMOJI_MSG_ADICIONAR).setStyle(ButtonStyle.Secondary)
+        if (draft.botoes && draft.botoes.length > 0) {
+            container.addActionRowComponents(
+                new ActionRowBuilder().addComponents(
+                    new StringSelectMenuBuilder()
+                        .setCustomId('msgcriador_botao_remover')
+                        .setPlaceholder('Remover um botão')
+                        .addOptions(
+                            draft.botoes.slice(0, 25).map((b, i) => ({
+                                label: rotuloSelect(b), ...emojiOpcao(b),
+                                value: String(i),
+                                description: b.url ? 'Link' : (POSICOES_BOTAO.find(p => p.value === b.posicao)?.label ?? 'Ação')
+                            }))
                         )
                 )
-        );
-
-        const selectBotoes = new StringSelectMenuBuilder()
-            .setCustomId('msgcriador_botao_remover')
-            .setPlaceholder(qtd ? 'Remover um botão' : 'Nenhum botão adicionado')
-            .setDisabled(!qtd)
-            .addOptions(
-                qtd
-                    ? botoes.slice(0, 25).map((b, i) => ({
-                        label: rotuloSelect(b), ...emojiOpcao(b),
-                        value: String(i),
-                        description: b.url ? 'Link' : (POSICOES_BOTAO.find(p => p.value === b.posicao)?.label ?? 'Ação')
-                    }))
-                    : [{ label: 'Nenhum botão', value: 'nenhum' }]
             );
 
-        extras.push(
-            new ContainerBuilder()
-                .addTextDisplayComponents(txt('**Remova um botão**'))
-                .addActionRowComponents(new ActionRowBuilder().addComponents(selectBotoes))
-                .addSeparatorComponents(sep())
-                .addTextDisplayComponents(txt(`-# Quantidade de botões: ${qtd}`))
-        );
+            const botoesEmpilhadosPainel = draft.botoes
+                .map((b, i) => ({ b, i }))
+                .filter(({ b }) => b.posicao === 'empilhados');
 
-        // legenda e resposta continuam disponíveis (container extra só quando há botões)
-        const botoesEmpilhadosPainel = botoes.map((b, i) => ({ b, i })).filter(({ b }) => b.posicao === 'empilhados');
-        const botoesSemUrl = botoes.map((b, i) => ({ b, i })).filter(({ b }) => !b.url);
-        const mostrarLegenda = draft.tipo === 'v2' && botoesEmpilhadosPainel.length > 0;
-
-        if (mostrarLegenda || botoesSemUrl.length) {
-            const extra = new ContainerBuilder().addTextDisplayComponents(txt('**Legendas e respostas dos botões**'));
-
-            if (mostrarLegenda) {
-                extra.addActionRowComponents(
+            if (draft.tipo === 'v2' && botoesEmpilhadosPainel.length) {
+                container.addActionRowComponents(
                     new ActionRowBuilder().addComponents(
                         new StringSelectMenuBuilder()
                             .setCustomId('msgcriador_botao_legenda')
@@ -6792,8 +6621,12 @@ function montarPainelMsgCriadorBuilder(draft) {
                 );
             }
 
+            const botoesSemUrl = draft.botoes
+                .map((b, i) => ({ b, i }))
+                .filter(({ b }) => !b.url);
+
             if (botoesSemUrl.length) {
-                extra.addActionRowComponents(
+                container.addActionRowComponents(
                     new ActionRowBuilder().addComponents(
                         new StringSelectMenuBuilder()
                             .setCustomId('msgcriador_botao_resposta')
@@ -6808,116 +6641,135 @@ function montarPainelMsgCriadorBuilder(draft) {
                     )
                 );
             }
-            extras.push(extra);
         }
     }
-
-    // ----- Botões das respostas -----
+    
     if (draft.opcaoAtual === 'botoes_resposta') {
-        const candidatos = botoes.map((b, i) => ({ b, i })).filter(({ b }) => !b.url && b.resposta);
+        const candidatos = (draft.botoes || []).map((b, i) => ({ b, i })).filter(({ b }) => !b.url && b.resposta);
         const alvo = candidatos.find(({ i }) => i === draft.respostaBotoesAlvo);
 
-        const c = new ContainerBuilder()
-            .addTextDisplayComponents(txt('### Botões das respostas'))
-            .addActionRowComponents(
-                new ActionRowBuilder().addComponents(
-                    new StringSelectMenuBuilder()
-                        .setCustomId('msgcriador_rbotao_alvo')
-                        .setPlaceholder('Escolha a resposta que receberá botões')
-                        .addOptions(
-                            candidatos.slice(0, 25).map(({ b, i }) => ({
-                                label: rotuloSelect(b), ...emojiOpcao(b),
-                                value: String(i),
-                                description: `${(b.respostaBotoes || []).length} botão(ões) na resposta`,
-                                default: alvo?.i === i
-                            }))
-                        )
-                )
-            );
+        container.addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new StringSelectMenuBuilder()
+                    .setCustomId('msgcriador_rbotao_alvo')
+                    .setPlaceholder('Escolha a resposta que receberá botões')
+                    .addOptions(
+                        candidatos.slice(0, 25).map(({ b, i }) => ({
+                            label: rotuloSelect(b), ...emojiOpcao(b),
+                            value: String(i),
+                            description: `${(b.respostaBotoes || []).length} botão(ões) na resposta`,
+                            default: alvo?.i === i
+                        }))
+                    )
+            )
+        );
 
         if (alvo) {
             const lista = alvo.b.respostaBotoes || [];
-            c.addTextDisplayComponents(txt(`-# Resposta de "${rotuloBotao(alvo.b)}": ${lista.length} botão(ões) de link, abaixo do texto.`));
-            c.addActionRowComponents(
+            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
+                `-# Resposta de "${rotuloBotao(alvo.b)}": ${lista.length} botão(ões) de link, abaixo do texto.`
+            ));
+            container.addActionRowComponents(
                 new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId('msgcriador_rbotao_adicionar').setLabel('Adicionar botão').setStyle(ButtonStyle.Secondary)
                 )
             );
             if (lista.length) {
-                const opcoesLista = lista.slice(0, 25).map((rb, j) => ({
-                    label: rotuloSelect(rb), ...emojiOpcao(rb),
-                    value: String(j),
-                    description: `${rb.posicao === 'empilhados' ? 'Empilhado' : 'Normal'} · ${descreverLocalRBotao(rb)}`
-                }));
-                c.addActionRowComponents(
+                container.addActionRowComponents(
                     new ActionRowBuilder().addComponents(
-                        new StringSelectMenuBuilder().setCustomId('msgcriador_rbotao_editar').setPlaceholder('Editar / mover um botão da resposta').addOptions(opcoesLista)
+                        new StringSelectMenuBuilder()
+                            .setCustomId('msgcriador_rbotao_editar')
+                            .setPlaceholder('Editar / mover um botão da resposta')
+                            .addOptions(
+                                lista.slice(0, 25).map((rb, j) => ({
+                                    label: rotuloSelect(rb), ...emojiOpcao(rb),
+                                    value: String(j),
+                                    description: `${rb.posicao === 'empilhados' ? 'Empilhado' : 'Normal'} · ${descreverLocalRBotao(rb)}`
+                                }))
+                            )
                     )
                 );
-                c.addActionRowComponents(
+                container.addActionRowComponents(
                     new ActionRowBuilder().addComponents(
-                        new StringSelectMenuBuilder().setCustomId('msgcriador_rbotao_remover').setPlaceholder('Remover um botão da resposta').addOptions(opcoesLista)
+                        new StringSelectMenuBuilder()
+                            .setCustomId('msgcriador_rbotao_remover')
+                            .setPlaceholder('Remover um botão da resposta')
+                            .addOptions(
+                                lista.slice(0, 25).map((rb, j) => ({
+                                    label: rotuloSelect(rb), ...emojiOpcao(rb),
+                                    value: String(j),
+                                    description: `${rb.posicao === 'empilhados' ? 'Empilhado' : 'Normal'} · ${descreverLocalRBotao(rb)}`
+                                }))
+                            )
                     )
                 );
             }
         }
-        extras.push(c);
     }
 
-    // ----- Editar botões -----
-    if (draft.opcaoAtual === 'editar_botoes' && botoes.length > 0) {
-        extras.push(
-            new ContainerBuilder()
-                .addTextDisplayComponents(txt('### Editar botões'))
-                .addActionRowComponents(
-                    new ActionRowBuilder().addComponents(
-                        new StringSelectMenuBuilder()
-                            .setCustomId('msgcriador_botao_editar_select')
-                            .setPlaceholder('Selecione um botão para editar')
-                            .addOptions(
-                                botoes.slice(0, 25).map((b, i) => ({
-                                    label: rotuloSelect(b), ...emojiOpcao(b),
-                                    value: String(i),
-                                    description: b.url ? 'Link' : (POSICOES_BOTAO.find(p => p.value === b.posicao)?.label ?? 'Ação')
-                                }))
-                            )
-                    )
+    if (draft.opcaoAtual === 'editar_botoes' && draft.botoes && draft.botoes.length > 0) {
+    container.addActionRowComponents(
+        new ActionRowBuilder().addComponents(
+            new StringSelectMenuBuilder()
+                .setCustomId('msgcriador_botao_editar_select')
+                .setPlaceholder('Selecione um botão para editar')
+                .addOptions(
+                    draft.botoes.slice(0, 25).map((b, i) => ({
+                        label: rotuloSelect(b), ...emojiOpcao(b),
+                        value: String(i),
+                        description: b.url ? 'Link' : (POSICOES_BOTAO.find(p => p.value === b.posicao)?.label ?? 'Ação')
+                    }))
                 )
-        );
+        )
+    );
+}
+       
+
+if (draft.tipo !== 'v2' && draft.tipo !== 'embed' && draft.opcaoAtual === 'cor') {
+    draft.opcaoAtual = null;
     }
 
-    // ----- Cor -----
-    if (draft.opcaoAtual === 'cor') {
-        const corEhPredefinida = CORES_MSG_CRIADOR.some(c => c.value === draft.cor);
-        extras.push(
-            new ContainerBuilder()
-                .addTextDisplayComponents(txt('### Cor'))
-                .addTextDisplayComponents(txt(
-                    `**Cor atual:** ${draft.cor && draft.cor !== 'nenhuma' ? `\`#${draft.cor.toUpperCase()}\`` : '`nenhuma`'}`
-                ))
-                .addActionRowComponents(
-                    new ActionRowBuilder().addComponents(
-                        new StringSelectMenuBuilder()
-                            .setCustomId('msgcriador_cor_select')
-                            .setPlaceholder('Selecione a cor')
-                            .addOptions(
-                                CORES_MSG_CRIADOR.map(c => ({
-                                    label: c.label,
-                                    value: c.value,
-                                    default: corEhPredefinida && (draft.cor ?? 'nenhuma') === c.value
-                                }))
-                            )
-                    )
-                )
-                .addActionRowComponents(
-                    new ActionRowBuilder().addComponents(
-                        new ButtonBuilder().setCustomId('msgcriador_cor_personalizada').setLabel('Cor personalizada').setStyle(ButtonStyle.Secondary)
-                    )
-                )
-        );
-    }
+if (draft.opcaoAtual === 'cor') {
+    const corEhPredefinida = CORES_MSG_CRIADOR.some(c => c.value === draft.cor);
 
-    return [editor, ...extras];
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
+        `**Cor atual:** ${draft.cor && draft.cor !== 'nenhuma' ? `\`#${draft.cor.toUpperCase()}\`` : '\`nenhuma\`'}`
+    ));
+
+    container.addActionRowComponents(
+        new ActionRowBuilder().addComponents(
+            new StringSelectMenuBuilder()
+                .setCustomId('msgcriador_cor_select')
+                .setPlaceholder('Selecione a cor')
+                .addOptions(
+                    CORES_MSG_CRIADOR.map(c => ({
+                        label: c.label,
+                        value: c.value,
+                        default: corEhPredefinida && (draft.cor ?? 'nenhuma') === c.value
+                    }))
+                )
+        )
+    );
+
+    container.addActionRowComponents(
+        new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('msgcriador_cor_personalizada')
+                .setLabel('Cor personalizada')
+                .setStyle(ButtonStyle.Secondary)
+        )
+    );
+}
+
+    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+    container.addActionRowComponents(
+        new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('msgcriador_atualizar').setEmoji(EMOJI_ATUALIZAR_PREVIEW).setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('msgcriador_voltar').setEmoji(EMOJI_VOLTAR_PAINEL).setStyle(ButtonStyle.Secondary)
+        )
+    );
+
+    return container;
 }
 
 async function montarPayloadFinalMsgCriador(draft) {
@@ -6934,7 +6786,6 @@ if (draft.tipo === 'embed') {
         if (draft.embedDescricao?.trim()) embed.setDescription(draft.embedDescricao.trim());
         if (draft.cor && draft.cor !== 'nenhuma') embed.setColor(parseInt(draft.cor, 16));
         if (draft.imagemUrl) embed.setImage(draft.imagemUrl);
-        if (draft.thumbUrl) embed.setThumbnail(draft.thumbUrl);
         if (draft.embedFooter?.trim()) embed.setFooter({ text: draft.embedFooter.trim() });
 
         const payload = { embeds: [embed] };
@@ -7379,6 +7230,673 @@ function montarCardComentarioTellonym(dados, pagina) {
 }
 
 
+// ============ SISTEMA DE FIGURINHAS (o!figurinhas) ============
+// Painel em Components V2: ver, adicionar, importar (do chat) e remover figurinhas.
+// Tudo fica dentro desta função para não colidir com nomes do resto do arquivo.
+const sistemaFigurinhas = (() => {
+const {
+    ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SectionBuilder, ThumbnailBuilder,
+    ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder,
+    ModalBuilder, TextInputBuilder, TextInputStyle, LabelBuilder, FileUploadBuilder,
+    AttachmentBuilder, MessageFlags, PermissionFlagsBits, StickerFormatType
+} = require('discord.js');
+const { CARGO_BLOQUEADO_MODERACAO } = require('./constants');
+// PREFIXO e CARGOS_ATENDENTE já existem neste arquivo
+
+// ---------------------------------------------------------------- CONFIG ----
+const EMOJI = {
+    buscar: '<:buscar:1548566772700024882>',
+    editar: '<:31003:1558218752758382612>',
+    lixeira: '<:31026:1558244587603234816>'
+};
+// mesmos cargos extras que já usam o /addemoji
+const CARGOS_EXTRAS = ['1542321888309809210', '1542321888309809212'];
+
+const POR_PAGINA = 5;               // figurinhas por página na lista
+const OPCOES_SELECT = 25;           // limite do Discord por select menu
+const LIMITE_BYTES = 512 * 1024;    // 512 KB
+const EXPIRA_MS = 15 * 60 * 1000;   // painel some após 15 min sem uso
+
+// ----------------------------------------------------------------- ESTADO ---
+const paineis = new Map();      // id da mensagem do painel -> estado
+const importacoes = new Map();  // id do canal -> { userId, msgId, nome, emoji, tag, descricao, ativo, estado }
+
+// ---------------------------------------------------------------- HELPERS ---
+const td = (t) => new TextDisplayBuilder().setContent(t);
+const sep = () => new SeparatorBuilder().setDivider(true);
+const cortar = (s, n) => (String(s).length > n ? String(s).slice(0, n - 1) + '…' : String(s));
+
+function parseEmoji(txt) {
+    const m = String(txt).match(/^<(a?):(\w{2,32}):(\d+)>$/);
+    return m ? { id: m[3], name: m[2], animated: !!m[1] } : { name: String(txt) };
+}
+
+function podeUsar(member) {
+    if (!member) return false;
+    if (CARGO_BLOQUEADO_MODERACAO && member.roles.cache.has(CARGO_BLOQUEADO_MODERACAO)) return false;
+    return member.permissions.has('Administrator')
+        || member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id) || CARGOS_EXTRAS.includes(r.id));
+}
+
+// "Emoji relacionado" da figurinha vira a TAG da figurinha no Discord.
+//  - emoji do servidor  -> usa o nome do emoji
+//  - texto/atalho (:nome:) -> usa o nome
+//  - emoji unicode (😀) -> converte pro nome com o pacote opcional "node-emoji@1.11.0"
+function emojiParaTag(txt) {
+    const t = String(txt || '').trim();
+    if (!t) return null;
+    const custom = t.match(/^<a?:(\w{2,32}):\d+>$/);
+    if (custom) return custom[1];
+    const simples = t.replace(/^:|:$/g, '');
+    if (/^[\w+-]{2,100}$/.test(simples)) return simples;
+    try {
+        const ne = require('node-emoji');
+        const nome = ne.which(t) || ne.which(t.replace(/\uFE0F/g, ''));
+        if (nome) return String(nome).replace(/^:|:$/g, '');
+    } catch { /* pacote não instalado */ }
+    return null;
+}
+
+function textoErro(err) {
+    if (err?.code === 30039) return 'O servidor atingiu o limite de figurinhas.';
+    if (err?.code === 50013) return 'Eu não tenho a permissão **Gerenciar Expressões**.';
+    return cortar(err?.message || err, 200);
+}
+
+async function baixar(url) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Falha ao baixar o arquivo (${res.status}).`);
+    return Buffer.from(await res.arrayBuffer());
+}
+
+async function criarFigurinha(guild, { nome, tag, descricao, buffer, ext, motivo }) {
+    if (buffer.length > LIMITE_BYTES) throw new Error('O arquivo passa de 512 KB.');
+    return guild.stickers.create({
+        file: new AttachmentBuilder(buffer, { name: `figurinha.${ext}` }),
+        name: nome,
+        tags: tag,
+        description: descricao || '',
+        reason: motivo
+    });
+}
+
+async function listarFigurinhas(guild) {
+    const col = await guild.stickers.fetch();
+    return [...col.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+}
+
+const novoDraft = () => ({ nome: null, emoji: null, tag: null, descricao: '', arquivo: null, emojiPag: 0 });
+
+function renovarExpiracao(estado) {
+    clearTimeout(estado.timer);
+    estado.timer = setTimeout(() => {
+        paineis.delete(estado.msgId);
+        const imp = importacoes.get(estado.canal.id);
+        if (imp && imp.msgId === estado.msgId) importacoes.delete(estado.canal.id);
+        estado.canal.messages.delete(estado.msgId).catch(() => null);
+    }, EXPIRA_MS);
+}
+
+// ------------------------------------------------------------------ VIEWS ---
+function rowPaginas(idBase, pag, total) {
+    return new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`${idBase}:ant`).setLabel('◀').setStyle(ButtonStyle.Secondary).setDisabled(pag <= 0),
+        new ButtonBuilder().setCustomId(`${idBase}:num`).setLabel(`${pag + 1}/${total}`).setStyle(ButtonStyle.Secondary).setDisabled(true),
+        new ButtonBuilder().setCustomId(`${idBase}:prox`).setLabel('▶').setStyle(ButtonStyle.Secondary).setDisabled(pag >= total - 1)
+    );
+}
+
+const avisoTxt = (estado) => (estado.aviso ? `\n-# ${estado.aviso}` : '');
+
+function viewHome() {
+    return new ContainerBuilder()
+        .addTextDisplayComponents(td('**Figurinhas do Servidor**\n-# Veja todas as figurinhas do servidor.'))
+        .addSeparatorComponents(sep())
+        .addActionRowComponents(new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('fig:buscar').setStyle(ButtonStyle.Secondary).setEmoji(parseEmoji(EMOJI.buscar))
+        ));
+}
+
+async function viewLista(estado, guild) {
+    const figs = await listarFigurinhas(guild);
+    const total = figs.length;
+    const paginas = Math.max(1, Math.ceil(total / POR_PAGINA));
+    estado.pagLista = Math.min(estado.pagLista, paginas - 1);
+    const inicio = estado.pagLista * POR_PAGINA;
+
+    const c = new ContainerBuilder()
+        .addTextDisplayComponents(td(`**Totais:** · ${total}`))
+        .addActionRowComponents(rowPaginas('fig:lp', estado.pagLista, paginas))
+        .addSeparatorComponents(sep());
+
+    if (!total) c.addTextDisplayComponents(td('-# Este servidor ainda não tem figurinhas.'));
+
+    figs.slice(inicio, inicio + POR_PAGINA).forEach((f, i) => {
+        c.addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(td(`**${inicio + i + 1}.** · ${f.name} · \`${f.id}\``))
+                .setButtonAccessory(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(f.url).setLabel('Ver'))
+        );
+    });
+    return c;
+}
+
+function viewAdicionar(estado, guild) {
+    const d = estado.add;
+    const pronto = !!(d.nome && d.emoji && d.arquivo);
+    const atual = (v) => (v ? `\n・Atual: ${v}` : '');
+    const botaoEditar = (id) => new ButtonBuilder().setCustomId(id).setStyle(ButtonStyle.Secondary).setEmoji(parseEmoji(EMOJI.editar));
+
+    const c = new ContainerBuilder()
+        .addTextDisplayComponents(td(`**Adicionar Figurinhas**\n-# Configure as Figurinhas que deseja Adicionar abaixo${avisoTxt(estado)}`))
+        .addSeparatorComponents(sep())
+        .addSectionComponents(new SectionBuilder()
+            .addTextDisplayComponents(td(`**Nome da Figurinha**\n-# Clique no botão ao lado e adicione o nome à sua figurinha${atual(d.nome && `**${d.nome}**`)}`))
+            .setButtonAccessory(botaoEditar('fig:nome')))
+        .addSeparatorComponents(sep())
+        .addSectionComponents(new SectionBuilder()
+            .addTextDisplayComponents(td(`**Emoji relacionado**\n-# Adicione o **emoji** relacionado à sua figurinha${atual(d.emoji)}`))
+            .setButtonAccessory(botaoEditar('fig:emoji')));
+
+    // select menu com os emojis do servidor (paginado de 25 em 25)
+    const emojis = [...guild.emojis.cache.values()];
+    if (emojis.length) {
+        const paginas = Math.ceil(emojis.length / OPCOES_SELECT);
+        d.emojiPag = Math.min(d.emojiPag, paginas - 1);
+        const fatia = emojis.slice(d.emojiPag * OPCOES_SELECT, (d.emojiPag + 1) * OPCOES_SELECT);
+        c.addActionRowComponents(new ActionRowBuilder().addComponents(
+            new StringSelectMenuBuilder()
+                .setCustomId('fig:emojisel')
+                .setPlaceholder('Ou selecione um emoji do servidor')
+                .addOptions(fatia.map(e => ({
+                    label: e.name,
+                    value: e.id,
+                    emoji: { id: e.id, name: e.name, animated: !!e.animated },
+                    default: d.emoji === e.toString()
+                })))
+        ));
+        if (paginas > 1) c.addActionRowComponents(rowPaginas('fig:ep', d.emojiPag, paginas));
+    }
+
+    c.addSeparatorComponents(sep())
+        .addSectionComponents(new SectionBuilder()
+            .addTextDisplayComponents(td(`**Descrição**\n-# Adicione uma **descrição** à sua Figurinha (opcional)${atual(d.descricao && cortar(d.descricao, 100))}`))
+            .setButtonAccessory(botaoEditar('fig:desc')))
+        .addSeparatorComponents(sep())
+        .addSectionComponents(new SectionBuilder()
+            .addTextDisplayComponents(td(`**Arquivo**\n-# Envie a Figurinha PNG, APNG ou GIF de até **512 KB**${atual(d.arquivo && `\`${cortar(d.arquivo.nome, 40)}\` (${Math.ceil(d.arquivo.size / 1024)} KB)`)}`))
+            .setButtonAccessory(botaoEditar('fig:arq')))
+        .addSeparatorComponents(sep())
+        .addActionRowComponents(new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('fig:criar').setLabel('Adicionar Figurinha').setStyle(ButtonStyle.Success).setDisabled(!pronto)
+        ));
+    return c;
+}
+
+function viewImportar(estado) {
+    const imp = importacoes.get(estado.canal.id);
+    const c = new ContainerBuilder()
+        .addTextDisplayComponents(td('**Importação do Discord**\n-# Envie as Figurinhas que deseja Adicionar ao servidor no chat'))
+        .addSeparatorComponents(sep())
+        .addTextDisplayComponents(td(
+            `**Nome:** · ${imp.nome} · **Emoji:** · ${imp.emoji}\n` +
+            `**Descrição:** · ${imp.descricao || 'Não Definida'}`
+        ))
+        .addSeparatorComponents(sep())
+        .addActionRowComponents(new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('fig:imp_toggle')
+                .setLabel(imp.ativo ? 'Parar' : 'Ativar')
+                .setStyle(imp.ativo ? ButtonStyle.Danger : ButtonStyle.Success)
+        ))
+        .addTextDisplayComponents(td(`-# Status: ${imp.ativo ? 'ativo' : 'desativado'}`));
+    return c;
+}
+
+async function viewRemover(estado, guild) {
+    const figs = await listarFigurinhas(guild);
+    const c = new ContainerBuilder()
+        .addTextDisplayComponents(td(`**Remoção de Figurinha**\n-# Remova Figurinhas indesejadas${avisoTxt(estado)}`))
+        .addSeparatorComponents(sep());
+
+    if (!figs.length) {
+        c.addTextDisplayComponents(td('-# Este servidor não tem figurinhas para remover.'));
+        return c;
+    }
+
+    const paginas = Math.ceil(figs.length / OPCOES_SELECT);
+    estado.pagRemover = Math.min(estado.pagRemover, paginas - 1);
+    const fatia = figs.slice(estado.pagRemover * OPCOES_SELECT, (estado.pagRemover + 1) * OPCOES_SELECT);
+
+    c.addActionRowComponents(new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+            .setCustomId('fig:rem_sel')
+            .setPlaceholder('Selecione a figurinha que deseja remover')
+            .addOptions(fatia.map(f => ({
+                label: cortar(f.name, 100),
+                value: f.id,
+                description: cortar(`ID ${f.id}${f.description ? ` · ${f.description}` : ''}`, 100)
+            })))
+    ));
+    if (paginas > 1) c.addActionRowComponents(rowPaginas('fig:rp', estado.pagRemover, paginas));
+    return c;
+}
+
+async function viewRemoverConfirma(estado, guild) {
+    const fig = await guild.stickers.fetch(estado.remSel).catch(() => null);
+    if (!fig) {
+        estado.aviso = 'Essa figurinha não existe mais.';
+        estado.view = 'remover';
+        return viewRemover(estado, guild);
+    }
+    const texto = td(
+        `**Deseja realmente remover essa Figurinha?**\n-# Esta ação será impossível de ser desfeita.\n\n` +
+        `**Figurinha:** · ${fig.name} · \`${fig.id}\``
+    );
+    const c = new ContainerBuilder();
+    if (fig.format !== StickerFormatType.Lottie) {
+        c.addSectionComponents(new SectionBuilder().addTextDisplayComponents(texto).setThumbnailAccessory(new ThumbnailBuilder().setURL(fig.url)));
+    } else {
+        c.addTextDisplayComponents(texto);
+    }
+
+    return c
+        .addSeparatorComponents(sep())
+        .addActionRowComponents(new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('fig:rem_conf').setStyle(ButtonStyle.Danger).setEmoji(parseEmoji(EMOJI.lixeira)),
+            new ButtonBuilder().setCustomId('fig:rem_voltar').setLabel('Voltar').setStyle(ButtonStyle.Secondary)
+        ));
+}
+
+function containerMenu(estado) {
+    const subtitulos = {
+        home: 'Vendo Figurinhas do Servidor',
+        lista: 'Vendo Figurinhas do Servidor',
+        adicionar: 'Adicionando Figurinhas',
+        importar: 'Importando Figurinhas do Discord',
+        remover: 'Removendo Figurinhas',
+        remover_confirma: 'Removendo Figurinhas'
+    };
+    return new ContainerBuilder()
+        .addTextDisplayComponents(td(`**Ver Figurinhas**\n-# ${subtitulos[estado.view] || subtitulos.home}`))
+        .addActionRowComponents(new ActionRowBuilder().addComponents(
+            new StringSelectMenuBuilder()
+                .setCustomId('fig:menu')
+                .setPlaceholder('Selecione uma opção')
+                .addOptions([
+                    { label: 'Figurinhas do Servidor', value: 'lista', description: 'Veja todas as figurinhas do servidor' },
+                    { label: 'Adicionar Figurinhas', value: 'adicionar', description: 'Envie uma figurinha com nome, emoji e arquivo' },
+                    { label: 'Importe Figurinhas do Discord', value: 'importar', description: 'Adiciona as figurinhas que você enviar no chat' },
+                    { label: 'Remover', value: 'remover', description: 'Remova figurinhas indesejadas' }
+                ])
+        ));
+}
+
+async function montar(estado, guild) {
+    const imp = importacoes.get(estado.canal.id);
+    if (estado.view === 'importar' && (!imp || imp.msgId !== estado.msgId)) estado.view = 'home';
+
+    let c1;
+    switch (estado.view) {
+        case 'lista': c1 = await viewLista(estado, guild); break;
+        case 'adicionar': c1 = viewAdicionar(estado, guild); break;
+        case 'importar': c1 = viewImportar(estado); break;
+        case 'remover': c1 = await viewRemover(estado, guild); break;
+        case 'remover_confirma': c1 = await viewRemoverConfirma(estado, guild); break;
+        default: c1 = viewHome();
+    }
+    const componentes = [c1, containerMenu(estado)];
+    estado.aviso = null;
+    return componentes;
+}
+
+const opcoesEdicao = (componentes) => ({
+    components: componentes,
+    flags: [MessageFlags.IsComponentsV2],
+    allowedMentions: { parse: [] }
+});
+
+// ----------------------------------------------------------------- MODAIS ---
+function inputTexto({ id, estilo = TextInputStyle.Short, obrigatorio = true, min, max, placeholder, valor }) {
+    const i = new TextInputBuilder().setCustomId(id).setStyle(estilo).setRequired(obrigatorio);
+    if (min) i.setMinLength(min);
+    if (max) i.setMaxLength(max);
+    if (placeholder) i.setPlaceholder(placeholder);
+    if (valor) i.setValue(valor);
+    return i;
+}
+
+function modalNome(estado) {
+    return new ModalBuilder().setCustomId('fig:modal_nome').setTitle('Nome da Figurinha')
+        .addLabelComponents(new LabelBuilder().setLabel('Nome da figurinha').setDescription('De 2 a 30 caracteres')
+            .setTextInputComponent(inputTexto({ id: 'valor', min: 2, max: 30, placeholder: 'Ex.: gatinho triste', valor: estado.add.nome })));
+}
+
+function modalEmoji(estado) {
+    return new ModalBuilder().setCustomId('fig:modal_emoji').setTitle('Emoji relacionado')
+        .addLabelComponents(new LabelBuilder().setLabel('Emoji relacionado').setDescription('Cole um emoji (ex.: 😀) ou um emoji do servidor')
+            .setTextInputComponent(inputTexto({ id: 'valor', max: 100, placeholder: '😀', valor: estado.add.emoji })));
+}
+
+function modalDescricao(estado) {
+    return new ModalBuilder().setCustomId('fig:modal_desc').setTitle('Descrição da Figurinha')
+        .addLabelComponents(new LabelBuilder().setLabel('Descrição (opcional)').setDescription('De 2 a 100 caracteres')
+            .setTextInputComponent(inputTexto({ id: 'valor', estilo: TextInputStyle.Paragraph, obrigatorio: false, min: 2, max: 100, valor: estado.add.descricao })));
+}
+
+function modalArquivo() {
+    return new ModalBuilder().setCustomId('fig:modal_arq').setTitle('Arquivo da Figurinha')
+        .addLabelComponents(new LabelBuilder().setLabel('Arquivo da figurinha').setDescription('PNG, APNG ou GIF de até 512 KB')
+            .setFileUploadComponent(new FileUploadBuilder().setCustomId('arquivo').setRequired(true).setMinValues(1).setMaxValues(1)));
+}
+
+function modalImportar() {
+    return new ModalBuilder().setCustomId('fig:modal_imp').setTitle('Importar Figurinhas')
+        .addLabelComponents(
+            new LabelBuilder().setLabel('Nome das figurinhas').setDescription('Nome que elas terão no servidor (2 a 30)')
+                .setTextInputComponent(inputTexto({ id: 'nome', min: 2, max: 30, placeholder: 'Ex.: meme' })),
+            new LabelBuilder().setLabel('Emoji relacionado').setDescription('Obrigatório. Cole um emoji ou um emoji do servidor')
+                .setTextInputComponent(inputTexto({ id: 'emoji', max: 100, placeholder: '😀' })),
+            new LabelBuilder().setLabel('Descrição (opcional)')
+                .setTextInputComponent(inputTexto({ id: 'descricao', estilo: TextInputStyle.Paragraph, obrigatorio: false, min: 2, max: 100 }))
+        );
+}
+
+// ------------------------------------------------------------ INTERAÇÕES ----
+const efemero = (interaction, texto) =>
+    interaction.reply({ content: texto, flags: [MessageFlags.Ephemeral] }).catch(() => null);
+
+async function atualizar(interaction, estado) {
+    const componentes = await montar(estado, interaction.guild);
+    return interaction.editReply(opcoesEdicao(componentes));
+}
+
+async function tratarInteracao(interaction) {
+    if (!(interaction.isMessageComponent?.() || interaction.isModalSubmit?.())) return false;
+    if (!interaction.customId?.startsWith('fig:')) return false;
+
+    try {
+        const estado = paineis.get(interaction.message?.id);
+        if (!estado) {
+            await efemero(interaction, `Este painel expirou. Use \`${PREFIXO}figurinhas\` novamente.`);
+            return true;
+        }
+        if (interaction.user.id !== estado.userId) {
+            await efemero(interaction, 'Só quem abriu o painel pode usá-lo.');
+            return true;
+        }
+        if (!podeUsar(interaction.member)) {
+            await efemero(interaction, 'Você não tem permissão para utilizar este painel!');
+            return true;
+        }
+        renovarExpiracao(estado);
+
+        const guild = interaction.guild;
+        const d = estado.add;
+        const [, acao, arg] = interaction.customId.split(':');
+
+        // ---------- menu principal ----------
+        if (acao === 'menu') {
+            const escolha = interaction.values[0];
+            if (escolha === 'importar') {
+                await interaction.showModal(modalImportar());
+                return true;
+            }
+            await interaction.deferUpdate();
+            estado.view = escolha === 'lista' ? 'home' : escolha;
+            estado.pagLista = 0;
+            estado.pagRemover = 0;
+            estado.remSel = null;
+            await atualizar(interaction, estado);
+            return true;
+        }
+
+        // ---------- botões que abrem modal ----------
+        if (acao === 'nome') {
+            await interaction.showModal(modalNome(estado));
+            return true;
+        }
+        if (acao === 'emoji') {
+            await interaction.showModal(modalEmoji(estado));
+            return true;
+        }
+        if (acao === 'desc') {
+            await interaction.showModal(modalDescricao(estado));
+            return true;
+        }
+        if (acao === 'arq') {
+            await interaction.showModal(modalArquivo());
+            return true;
+        }
+
+        // ---------- envio de modais ----------
+        if (acao === 'modal_nome') {
+            d.nome = interaction.fields.getTextInputValue('valor').trim();
+            await interaction.deferUpdate();
+            await atualizar(interaction, estado);
+            return true;
+        }
+
+        if (acao === 'modal_emoji') {
+            const bruto = interaction.fields.getTextInputValue('valor').trim();
+            const tag = emojiParaTag(bruto);
+            if (!tag) {
+                await efemero(interaction, 'Não consegui reconhecer esse emoji. Cole um emoji do servidor, ou instale o pacote `node-emoji@1.11.0` para usar emojis normais.');
+                return true;
+            }
+            d.emoji = bruto;
+            d.tag = tag;
+            await interaction.deferUpdate();
+            await atualizar(interaction, estado);
+            return true;
+        }
+
+        if (acao === 'modal_desc') {
+            d.descricao = interaction.fields.getTextInputValue('valor').trim();
+            await interaction.deferUpdate();
+            await atualizar(interaction, estado);
+            return true;
+        }
+
+        if (acao === 'modal_arq') {
+            const arq = interaction.fields.getUploadedFiles('arquivo')?.first();
+            if (!arq) {
+                await efemero(interaction, 'Nenhum arquivo recebido.');
+                return true;
+            }
+            const nomeArq = arq.name || 'figurinha.png';
+            const ehGif = /\.gif$/i.test(nomeArq) || arq.contentType === 'image/gif';
+            const ehPng = /\.(png|apng)$/i.test(nomeArq) || ['image/png', 'image/apng'].includes(arq.contentType);
+            if (!ehGif && !ehPng) {
+                await efemero(interaction, 'Formato inválido. Envie um arquivo PNG, APNG ou GIF.');
+                return true;
+            }
+            if (arq.size > LIMITE_BYTES) {
+                await efemero(interaction, `O arquivo tem ${Math.ceil(arq.size / 1024)} KB e o limite é 512 KB.`);
+                return true;
+            }
+            d.arquivo = { url: arq.url, nome: nomeArq, size: arq.size, ext: ehGif ? 'gif' : 'png' };
+            await interaction.deferUpdate();
+            await atualizar(interaction, estado);
+            return true;
+        }
+
+        if (acao === 'modal_imp') {
+            const nome = interaction.fields.getTextInputValue('nome').trim();
+            const emoji = interaction.fields.getTextInputValue('emoji').trim();
+            const descricao = interaction.fields.getTextInputValue('descricao').trim();
+            const tag = emojiParaTag(emoji);
+            if (!tag) {
+                await efemero(interaction, 'Não consegui reconhecer esse emoji. Cole um emoji do servidor, ou instale o pacote `node-emoji@1.11.0` para usar emojis normais.');
+                return true;
+            }
+            importacoes.set(estado.canal.id, { userId: estado.userId, msgId: estado.msgId, nome, emoji, tag, descricao, ativo: true, estado });
+            await interaction.deferUpdate();
+            estado.view = 'importar';
+            await atualizar(interaction, estado);
+            return true;
+        }
+
+        // ---------- demais componentes (sempre atualizam o painel) ----------
+        await interaction.deferUpdate();
+
+        if (acao === 'buscar') { estado.view = 'lista'; estado.pagLista = 0; }
+
+        else if (acao === 'lp') estado.pagLista += arg === 'prox' ? 1 : -1;
+        else if (acao === 'rp') estado.pagRemover += arg === 'prox' ? 1 : -1;
+        else if (acao === 'ep') d.emojiPag += arg === 'prox' ? 1 : -1;
+
+        else if (acao === 'emojisel') {
+            const e = guild.emojis.cache.get(interaction.values[0]);
+            if (e) { d.emoji = e.toString(); d.tag = e.name; }
+        }
+
+        else if (acao === 'criar') {
+            if (d.nome && d.emoji && d.tag && d.arquivo) {
+                try {
+                    const buffer = await baixar(d.arquivo.url);
+                    const fig = await criarFigurinha(guild, {
+                        nome: d.nome, tag: d.tag, descricao: d.descricao,
+                        buffer, ext: d.arquivo.ext,
+                        motivo: `Figurinha adicionada por ${interaction.user.tag}`
+                    });
+                    estado.add = novoDraft();
+                    estado.aviso = `Figurinha **${fig.name}** adicionada com sucesso!`;
+                } catch (err) {
+                    console.error('--- Erro ao adicionar figurinha ---', err);
+                    estado.aviso = `Não consegui adicionar: ${textoErro(err)}`;
+                }
+            }
+        }
+
+        else if (acao === 'imp_toggle') {
+            const imp = importacoes.get(estado.canal.id);
+            if (imp && imp.msgId === estado.msgId) imp.ativo = !imp.ativo;
+        }
+
+        else if (acao === 'rem_sel') {
+            estado.remSel = interaction.values[0];
+            estado.view = 'remover_confirma';
+        }
+
+        else if (acao === 'rem_voltar') { estado.view = 'remover'; estado.remSel = null; }
+
+        else if (acao === 'rem_conf') {
+            try {
+                const fig = await guild.stickers.fetch(estado.remSel).catch(() => null);
+                if (fig) {
+                    await fig.delete(`Figurinha removida por ${interaction.user.tag}`);
+                    estado.aviso = `Figurinha **${fig.name}** removida.`;
+                } else {
+                    estado.aviso = 'Essa figurinha não existe mais.';
+                }
+            } catch (err) {
+                console.error('--- Erro ao remover figurinha ---', err);
+                estado.aviso = `Não consegui remover: ${textoErro(err)}`;
+            }
+            estado.view = 'remover';
+            estado.remSel = null;
+        }
+
+        await atualizar(interaction, estado);
+        return true;
+    } catch (err) {
+        console.error('--- Erro no painel de figurinhas ---', err);
+        const msg = { content: 'Ocorreu um erro no painel de figurinhas.', flags: [MessageFlags.Ephemeral] };
+        if (interaction.deferred || interaction.replied) await interaction.followUp(msg).catch(() => null);
+        else await interaction.reply(msg).catch(() => null);
+        return true;
+    }
+}
+
+// --------------------------------------------------------------- MENSAGENS --
+const FORMATO_EXT = {
+    [StickerFormatType.PNG]: 'png',
+    [StickerFormatType.APNG]: 'png',
+    [StickerFormatType.GIF]: 'gif'
+};
+
+async function avisar(message, texto) {
+    const m = await message.reply({ content: texto, allowedMentions: { parse: [] } }).catch(() => null);
+    if (m) setTimeout(() => m.delete().catch(() => null), 8000);
+}
+
+async function importarDaMensagem(message, imp) {
+    for (const [, st] of message.stickers) {
+        const ext = FORMATO_EXT[st.format];
+        if (!ext) {
+            await avisar(message, `A figurinha **${st.name}** é do tipo Lottie e não pode ser importada.`);
+            continue;
+        }
+        if (message.guild.stickers.cache.has(st.id)) {
+            await avisar(message, `A figurinha **${st.name}** já pertence a este servidor.`);
+            continue;
+        }
+        try {
+            const buffer = await baixar(`https://cdn.discordapp.com/stickers/${st.id}.${ext}`);
+            await criarFigurinha(message.guild, {
+                nome: imp.nome, tag: imp.tag, descricao: imp.descricao,
+                buffer, ext,
+                motivo: `Figurinha importada por ${message.author.tag}`
+            });
+            await message.react('✅').catch(() => null);
+        } catch (err) {
+            console.error('--- Erro ao importar figurinha ---', err);
+            await message.react('❌').catch(() => null);
+            await avisar(message, `Não consegui importar **${st.name}**: ${textoErro(err)}`);
+        }
+    }
+    renovarExpiracao(imp.estado);
+}
+
+// Retorna true quando a mensagem foi tratada aqui (o index.js deve dar return).
+async function tratarMensagem(message) {
+    if (!message.guild || message.author.bot) return false;
+
+    // ----- captura de figurinhas da importação ativa -----
+    const imp = importacoes.get(message.channel.id);
+    if (imp && imp.ativo && imp.userId === message.author.id && message.stickers?.size) {
+        importarDaMensagem(message, imp).catch(err => console.error('--- Erro na importação de figurinhas ---', err));
+        return false;
+    }
+
+    // ----- comando o!figurinhas -----
+    if (message.content.toLowerCase().trim() !== `${PREFIXO}figurinhas`) return false;
+
+    message.delete().catch(() => null);
+    const membro = message.member ?? await message.guild.members.fetch(message.author.id).catch(() => null);
+    if (!podeUsar(membro)) {
+        const m = await message.channel.send('Você não tem permissão para utilizar este comando!').catch(() => null);
+        if (m) setTimeout(() => m.delete().catch(() => null), 5000);
+        return true;
+    }
+    if (!message.guild.members.me.permissions.has(PermissionFlagsBits.ManageGuildExpressions)) {
+        const m = await message.channel.send('Eu preciso da permissão **Gerenciar Expressões** para mexer nas figurinhas.').catch(() => null);
+        if (m) setTimeout(() => m.delete().catch(() => null), 8000);
+        return true;
+    }
+
+    const estado = {
+        userId: message.author.id, canal: message.channel, msgId: null, timer: null,
+        view: 'home', pagLista: 0, pagRemover: 0, remSel: null, aviso: null, add: novoDraft()
+    };
+    const enviada = await message.channel.send({
+        ...opcoesEdicao(await montar(estado, message.guild))
+    }).catch(err => { console.error('--- Erro ao enviar painel de figurinhas ---', err); return null; });
+    if (!enviada) return true;
+
+    estado.msgId = enviada.id;
+    paineis.set(enviada.id, estado);
+    renovarExpiracao(estado);
+    return true;
+}
+
+return { tratarMensagem, tratarInteracao };
+})();
+const figurinhasTratarMensagem = sistemaFigurinhas.tratarMensagem;
+const figurinhasTratarInteracao = sistemaFigurinhas.tratarInteracao;
+
+
 // ============ EXPORTS ============
 
 module.exports = {
@@ -7594,8 +8112,6 @@ module.exports = {
     montarPainelListaCargo, montarPainelConfirmacaoAddCargo, montarPainelConfirmacaoRemCargo,
     montarPainelLock,
     montarPainelMsgCriadorBuilder,
-    listarCamposTextoMsgCriador,
-    removerCampoTextoMsgCriador,
     montarPainelMsgCriadorInicial,
     montarPainelProgressoBackup,
     montarPainelProtecao,
@@ -7661,4 +8177,8 @@ module.exports = {
     verificarCallTemp,
     verificarSpamMensagem,
     verificarUrlNaBio,
+
+    // --- figurinhas ---
+    figurinhasTratarMensagem,
+    figurinhasTratarInteracao,
 };

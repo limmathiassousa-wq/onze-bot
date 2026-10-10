@@ -272,7 +272,7 @@ const {
     montarPainelGRolesPermLista, montarPainelGRolesPermissoes, montarPainelHelp, montarPainelInfoHierarquia,
     montarPainelInstaInfo, hashComentarioInsta, montarPainelListaCargo, montarPainelLock,
     montarPainelConfirmacaoAddCargo, montarPainelConfirmacaoRemCargo,
-    montarPainelMsgCriadorBuilder, montarPainelMsgCriadorInicial, listarCamposTextoMsgCriador, removerCampoTextoMsgCriador, montarPainelProgressoBackup,
+    montarPainelMsgCriadorBuilder, montarPainelMsgCriadorInicial, montarPainelProgressoBackup,
     montarPainelProtecao, montarPainelRemoverConfirmacao, montarPainelRemoverSelect, montarPainelRoleAllInicial,
     montarPainelSorteioConfig, montarPainelSorteioInicial, montarPainelStatus, montarPainelVerificacaoCargos, montarPayloadFinalMsgCriador, montarPayloadPainelMsgCriador,
     montarPermissoesTextoGRoles, montarPreviewMsgCriador, validarLimiteMsgCriador, montarPayloadRespostaBotao, validarRespostaBotoes, msgCriadorTimeouts, muteCargoTimeouts, nomeTipoCanalLog,
@@ -289,15 +289,11 @@ const {
     staffBanTracker, staffPunicaoCargos, statusCanalAplicado, tellonymPendentesDB,
     temPermissaoEditarCargosGRoles, ticketDB, tokenizarLinhaComEmoji, tokenizarPalavraComEmoji,
     travarTodosCanais, verificarAntiLink, verificarBanEmMassaStaff, verificarCallTemp,
-    verificarSpamMensagem, verificarUrlNaBio,
+    verificarSpamMensagem, verificarUrlNaBio, figurinhasTratarMensagem, figurinhasTratarInteracao,
     alternarAntiNukeCanais, antiNukeCanalCriado, antiNukeCanalDeletado, antiNukeCanalEditado, canalSendoRevertidoAntiNuke,
     definirBypassAntiNukeCanais, inicializarAntiNukeCanais, marcarAcaoPropriaCanal,
     marcarCanalTemporarioAntiNuke, montarPainelAntiNukeCanais, pausarAntiNukeCanais, retomarAntiNukeCanais
 } = require('./functions');
-
-const CANAL_AFK_ID = '1542321890490847237';
-const silenciadosNoAfk = new Set();
-
 
 
 // ============ HELPER: AGUARDA ENTRADA RECENTE NO AUDIT LOG ============
@@ -616,26 +612,6 @@ const client = new Client({
     messages: { interval: 1800, lifetime: 21600 }
   }
 });
-
-client.on('voiceStateUpdate', async (antes, depois) => {
-    const membro = depois.member;
-    if (!membro || membro.user.bot) return;
-
-    // entrou no AFK: muta e ensurdece
-    if (depois.channelId === CANAL_AFK_ID && antes.channelId !== CANAL_AFK_ID) {
-        silenciadosNoAfk.add(membro.id);
-        await membro.voice.setMute(true, 'Entrou no canal AFK').catch(() => null);
-        await membro.voice.setDeaf(true, 'Entrou no canal AFK').catch(() => null);
-        return;
-    }
-
-    // saiu do AFK para outro canal: devolve o áudio e o microfone
-    if (depois.channelId && depois.channelId !== CANAL_AFK_ID && silenciadosNoAfk.has(membro.id)) {
-        silenciadosNoAfk.delete(membro.id);
-        await membro.voice.setDeaf(false, 'Saiu do canal AFK').catch(() => null);
-        await membro.voice.setMute(false, 'Saiu do canal AFK').catch(() => null);
-    }
-});
 setClient(client);
 
 // Cargos do painel o!laterais (escopo global: usado no comando e no handler dos botões)
@@ -645,79 +621,6 @@ const LATERAIS_CARGOS = {
     laterais_star:   { cargo: '1542321888175456363', emoji: { id: '1542593328753803367', name: 'star' } },
     laterais_splash: { cargo: '1542321888175456362', emoji: { id: '1542590392271376445', name: 'splash' } }
 };
-
-
-// ============ CRIADOR DE MENSAGENS: HELPERS ============
-async function contarMsgCriadas(guildId) {
-    try { return await MensagemCriador.countDocuments({ guildId }); }
-    catch { return 0; }
-}
-
-function montarModalMidiaMsgCriador(painelId, alvo, modo, urlAtual) {
-    const nome = alvo === 'thumb' ? 'thumbnail' : 'mídia';
-    const modal = new ModalBuilder()
-        .setCustomId(`msgcriador_modal_midia_${painelId}_${alvo}_${modo}`)
-        .setTitle(modo === 'edit' ? `Editar ${nome}` : `Adicionar ${nome}`);
-
-    const upload = new FileUploadBuilder().setCustomId('midia_arquivo').setRequired(false).setMaxValues(1);
-    const inputLink = new TextInputBuilder()
-        .setCustomId('midia_link').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(500)
-        .setPlaceholder('https://...');
-    if (urlAtual && urlAtual.length <= 500) inputLink.setValue(urlAtual);
-
-    modal.addLabelComponents(
-        new LabelBuilder()
-            .setLabel('Imagem')
-            .setDescription(modo === 'edit' ? 'Envie outra imagem para trocar. Tudo vazio remove.' : 'Selecione a imagem do seu aparelho.')
-            .setFileUploadComponent(upload),
-        new LabelBuilder()
-            .setLabel('Link da imagem (opcional)')
-            .setDescription('Se enviar a imagem acima, ela vale mais que o link.')
-            .setTextInputComponent(inputLink)
-    );
-    return modal;
-}
-
-
-// Lista de mensagens já criadas (modo 'editar' ou 'remover'): só o select + linha "Remover/Editar"
-async function montarSelecaoMensagensMsgCriador(guild, autorId, modo) {
-    const registros = await MensagemCriador.find({ autorId, guildId: guild.id })
-        .sort({ criadoEm: -1 })
-        .limit(25)
-        .catch(() => []);
-    if (!registros.length) return null;
-
-    const tipoLabel = { v2: 'Components V2', embed: 'Embed', texto: 'Texto normal' };
-    const remover = modo === 'remover';
-
-    const select = new StringSelectMenuBuilder()
-        .setCustomId(remover ? 'msgcriador_remover_select' : 'msgcriador_editar_select')
-        .setPlaceholder(remover ? 'Selecione a mensagem para remover' : 'Selecione a mensagem')
-        .addOptions(registros.map(r => {
-            const canal = guild.channels.cache.get(r.canalId);
-            const data = new Date(r.criadoEm).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-            return {
-                label: `${tipoLabel[r.tipo] ?? r.tipo} — ${canal ? `#${canal.name}` : 'canal apagado'}`.slice(0, 100),
-                value: r._id,
-                description: `Criada em ${data}`.slice(0, 100)
-            };
-        }));
-
-    return new ContainerBuilder()
-        .addActionRowComponents(new ActionRowBuilder().addComponents(select))
-        .addSectionComponents(
-            new SectionBuilder()
-                .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-                    remover ? '-# Edite uma mensagem existente ›' : '-# Remova uma mensagem existente ›'
-                ))
-                .setButtonAccessory(
-                    new ButtonBuilder()
-                        .setCustomId(remover ? 'msgcriador_editar_modo' : 'msgcriador_remover_modo')
-                        .setLabel(remover ? 'Editar' : 'Remover')
-                        .setStyle(remover ? ButtonStyle.Secondary : ButtonStyle.Danger)
-                )
-        );
-}
 
 client.on('channelCreate', (canal) => {
     try { antiNukeCanalCriado(canal); } catch (err) { console.error('--- Erro no Anti Nuke (canal criado) ---', err); }
@@ -2275,6 +2178,9 @@ client.on(Events.MessageCreate, async (message) => {
         await verificarAntiLink(message).catch(() => null);
         return;
     }
+
+    // ============ FIGURINHAS (o!figurinhas + importação pelo chat) ============
+    if (await figurinhasTratarMensagem(message)) return;
     
 
 if (ticketDB.has(message.channel.id)) {
@@ -2338,15 +2244,12 @@ if (message.content.toLowerCase() === `${PREFIXO}msg`) {
         embedDescricao: '',
         embedFooter: '',
         imagemUrl: null,
-        thumbUrl: null,
-        imagemPosicao: 'abaixo',
         cor: null,
-        botoes: [],
-        totalCriadas: await contarMsgCriadas(message.guild.id)
+        botoes: []
     };
 
     const msgPainel = await message.channel.send({
-        components: montarPainelMsgCriadorInicial(draft),
+        components: [montarPainelMsgCriadorInicial(draft)],
         flags: [MessageFlags.IsComponentsV2]
     });
 
@@ -3775,6 +3678,9 @@ function montarPainelTickets() {
 }
 
 client.on('interactionCreate', async (interaction) => {
+    // ============ FIGURINHAS (o!figurinhas) ============
+    if (await figurinhasTratarInteracao(interaction)) return;
+
     // ============ STATUS CALL ============
     if ((interaction.isButton() || interaction.isChannelSelectMenu() || interaction.isStringSelectMenu() || interaction.isModalSubmit())
         && interaction.customId.startsWith('statuscall_')) {
@@ -5656,7 +5562,7 @@ if (interaction.isModalSubmit() && interaction.customId.startsWith('msgcriador_m
     draft.opcaoAtual = 'botoes';
 
     return interaction.update({
-        components: [...montarPreviewMsgCriador(draft), ...montarPainelMsgCriadorBuilder(draft)],
+        components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
         flags: [MessageFlags.IsComponentsV2]
     });
 }
@@ -8763,7 +8669,7 @@ if (!draft.botoes) draft.botoes = [];
     }
 
 return interaction.update({
-    components: [...montarPreviewMsgCriador(draft), ...montarPainelMsgCriadorBuilder(draft)],
+    components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
     flags: [MessageFlags.IsComponentsV2]
 });
 }
@@ -8780,7 +8686,7 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_bot
     draft.respostaBotoesAlvo = null;
 
 return interaction.update({
-    components: [...montarPreviewMsgCriador(draft), ...montarPainelMsgCriadorBuilder(draft)],
+    components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
     flags: [MessageFlags.IsComponentsV2]
 });
 }
@@ -8796,71 +8702,53 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_tip
 
     if (valorSelecionado === 'editar') {
         draft.tipo = 'editar';
-        await interaction.update({ components: montarPainelMsgCriadorInicial(draft), flags: [MessageFlags.IsComponentsV2] });
+        await interaction.update({ components: [montarPainelMsgCriadorInicial(draft)], flags: [MessageFlags.IsComponentsV2] });
 
-        const listaEdicao = await montarSelecaoMensagensMsgCriador(interaction.guild, interaction.user.id, 'editar');
-        if (!listaEdicao) {
+        const registros = await MensagemCriador.find({ autorId: interaction.user.id, guildId: interaction.guild.id })
+            .sort({ criadoEm: -1 })
+            .limit(25)
+            .catch(() => []);
+
+        if (!registros.length) {
             return interaction.followUp({
                 components: containerTexto('Você ainda não criou nenhuma mensagem com este painel neste servidor.'),
                 flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
             });
         }
 
+        const tipoLabel = { v2: 'Components V2', embed: 'Embed', texto: 'Texto normal' };
+
+        const containerSelecao = new ContainerBuilder()
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(' **EDITAR MENSAGEM EXISTENTE**'))
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+                'Selecione abaixo qual mensagem enviada por você deseja editar.'
+            ))
+            .addActionRowComponents(
+                new ActionRowBuilder().addComponents(
+                    new StringSelectMenuBuilder()
+                        .setCustomId('msgcriador_editar_select')
+                        .setPlaceholder('Selecione a mensagem')
+                        .addOptions(registros.map(r => {
+                            const canal = interaction.guild.channels.cache.get(r.canalId);
+                            const data = new Date(r.criadoEm).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+                            return {
+                                label: `${tipoLabel[r.tipo] ?? r.tipo} — ${canal ? `#${canal.name}` : 'canal apagado'}`.slice(0, 100),
+                                value: r._id,
+                                description: `Criada em ${data}`.slice(0, 100)
+                            };
+                        }))
+                )
+            );
+
         return interaction.followUp({
-            components: [listaEdicao],
+            components: [containerSelecao],
             flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral]
         });
     }
 
     draft.tipo = valorSelecionado;
-    return interaction.update({ components: montarPainelMsgCriadorInicial(draft), flags: [MessageFlags.IsComponentsV2] });
-}
-
-if (interaction.isButton() && interaction.customId === 'msgcriador_canal_id') {
-    const draft = msgCriadorDB.get(interaction.message.id);
-    if (!draft || draft.autorId !== interaction.user.id) {
-        return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
-    }
-    const modal = new ModalBuilder()
-        .setCustomId(`msgcriador_modal_canalid_${interaction.message.id}`)
-        .setTitle('Informar ID do canal');
-    const inputCanal = new TextInputBuilder()
-        .setCustomId('canal_id').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(30)
-        .setPlaceholder('Ex.: 123456789012345678');
-    modal.addLabelComponents(new LabelBuilder().setLabel('ID do canal de destino').setTextInputComponent(inputCanal));
-    return interaction.showModal(modal);
-}
-
-if (interaction.isModalSubmit() && interaction.customId.startsWith('msgcriador_modal_canalid_')) {
-    const painelId = interaction.customId.replace('msgcriador_modal_canalid_', '');
-    const draft = msgCriadorDB.get(painelId);
-    if (!draft || draft.autorId !== interaction.user.id) {
-        return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
-    }
-    const idCanal = interaction.fields.getTextInputValue('canal_id').replace(/[<#>\s]/g, '');
-    if (!/^\d{17,20}$/.test(idCanal)) {
-        return interaction.reply({ content: 'Esse ID de canal não é válido.', flags: [MessageFlags.Ephemeral] });
-    }
-    const canalInformado = await interaction.guild.channels.fetch(idCanal).catch(() => null);
-    if (!canalInformado || canalInformado.type !== ChannelType.GuildText) {
-        return interaction.reply({ content: 'Não encontrei um canal de texto com esse ID neste servidor.', flags: [MessageFlags.Ephemeral] });
-    }
-    draft.canalId = canalInformado.id;
-    return interaction.update({ components: montarPainelMsgCriadorInicial(draft), flags: [MessageFlags.IsComponentsV2] });
-}
-
-if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_texto_remover') {
-    const draft = msgCriadorDB.get(interaction.message.id);
-    if (!draft || draft.autorId !== interaction.user.id) {
-        return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
-    }
-    if (!removerCampoTextoMsgCriador(draft, interaction.values[0])) {
-        return interaction.reply({ content: 'Esse campo de texto não existe mais.', flags: [MessageFlags.Ephemeral] });
-    }
-    return interaction.update({
-        components: [...montarPreviewMsgCriador(draft), ...montarPainelMsgCriadorBuilder(draft)],
-        flags: [MessageFlags.IsComponentsV2]
-    });
+    return interaction.update({ components: [montarPainelMsgCriadorInicial(draft)], flags: [MessageFlags.IsComponentsV2] });
 }
 
 if (interaction.isChannelSelectMenu() && interaction.customId === 'msgcriador_canal') {
@@ -8869,7 +8757,7 @@ if (interaction.isChannelSelectMenu() && interaction.customId === 'msgcriador_ca
         return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
     }
     draft.canalId = interaction.values[0];
-    return interaction.update({ components: montarPainelMsgCriadorInicial(draft), flags: [MessageFlags.IsComponentsV2] });
+    return interaction.update({ components: [montarPainelMsgCriadorInicial(draft)], flags: [MessageFlags.IsComponentsV2] });
 }
 
 if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_editar_select') {
@@ -8893,9 +8781,6 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_edi
         embedDescricao: registro.embedDescricao || '',
         embedFooter: registro.embedFooter || '',
         imagemUrl: registro.imagemUrl || null,
-        thumbUrl: registro.thumbUrl || null,
-        imagemPosicao: registro.imagemPosicao || 'abaixo',
-        totalCriadas: await contarMsgCriadas(interaction.guild.id),
         cor: registro.cor || null,
         botoes: registro.botoes || [],
         editando: { messageId: registro._id, canalId: registro.canalId }
@@ -8904,7 +8789,7 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_edi
     msgCriadorDB.set(interaction.message.id, draft);
 
     return interaction.update({
-        components: [...montarPreviewMsgCriador(draft), ...montarPainelMsgCriadorBuilder(draft)],
+        components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
         flags: [MessageFlags.IsComponentsV2]
     });
 }
@@ -8918,7 +8803,7 @@ if (interaction.isButton() && interaction.customId === 'msgcriador_iniciar') {
         return interaction.reply({ content: 'Selecione o tipo da mensagem antes de continuar!', flags: [MessageFlags.Ephemeral] });
     }
     return interaction.update({
-    components: [...montarPreviewMsgCriador(draft), ...montarPainelMsgCriadorBuilder(draft)],
+    components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
     flags: [MessageFlags.IsComponentsV2]
 });
 }
@@ -8930,8 +8815,7 @@ if (interaction.isButton() && interaction.customId === 'msgcriador_voltar') {
         return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
     }
     draft.opcaoAtual = null;
-    draft.totalCriadas = await contarMsgCriadas(interaction.guild.id);
-    return interaction.update({ components: montarPainelMsgCriadorInicial(draft), flags: [MessageFlags.IsComponentsV2] });
+    return interaction.update({ components: [montarPainelMsgCriadorInicial(draft)], flags: [MessageFlags.IsComponentsV2] });
 }
 
 if (interaction.isButton() && interaction.customId === 'msgcriador_atualizar') {
@@ -8940,7 +8824,7 @@ if (interaction.isButton() && interaction.customId === 'msgcriador_atualizar') {
         return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
     }
     return interaction.update({
-    components: [...montarPreviewMsgCriador(draft), ...montarPainelMsgCriadorBuilder(draft)],
+    components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
     flags: [MessageFlags.IsComponentsV2]
 });
 }
@@ -9009,8 +8893,6 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_opc
                 embedDescricao: draft.embedDescricao,
                 embedFooter: draft.embedFooter,
                 imagemUrl: draft.imagemUrl,
-                thumbUrl: draft.thumbUrl || null,
-                imagemPosicao: draft.imagemPosicao || 'abaixo',
                 cor: draft.cor,
                 botoes: draft.botoes,
                 atualizadoEm: Date.now()
@@ -9064,8 +8946,6 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_opc
             embedDescricao: draft.embedDescricao,
             embedFooter: draft.embedFooter,
             imagemUrl: draft.imagemUrl,
-            thumbUrl: draft.thumbUrl || null,
-            imagemPosicao: draft.imagemPosicao || 'abaixo',
             cor: draft.cor,
             botoes: draft.botoes
         }).catch(err => console.error('--- Erro ao salvar registro da mensagem criada ---', err));
@@ -9097,7 +8977,7 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_opc
 
     draft.opcaoAtual = opcao;
     return interaction.update({
-        components: [...montarPreviewMsgCriador(draft), ...montarPainelMsgCriadorBuilder(draft)],
+        components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
         flags: [MessageFlags.IsComponentsV2]
     });
 }
@@ -9171,7 +9051,7 @@ draft.embedTitulo = interaction.fields.getTextInputValue('embed_titulo').trim();
     draft.embedFooter = interaction.fields.getTextInputValue('embed_footer').trim();
 
     return interaction.update({
-    components: [...montarPreviewMsgCriador(draft), ...montarPainelMsgCriadorBuilder(draft)],
+    components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
     flags: [MessageFlags.IsComponentsV2]
 });
 }
@@ -9186,133 +9066,73 @@ if (interaction.isModalSubmit() && interaction.customId.startsWith('msgcriador_m
     draft.textoBruto = interaction.fields.getTextInputValue('texto_conteudo');
 
     return interaction.update({
-    components: [...montarPreviewMsgCriador(draft), ...montarPainelMsgCriadorBuilder(draft)],
+    components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
     flags: [MessageFlags.IsComponentsV2]
 });
 }
 
-// ---- Mídia / Thumbnail ----
-if (interaction.isButton() && ['msgcriador_imagem_enviar', 'msgcriador_imagem_editar', 'msgcriador_thumb_enviar', 'msgcriador_thumb_editar'].includes(interaction.customId)) {
+// ---- Imagem ----
+if (interaction.isButton() && interaction.customId === 'msgcriador_imagem_enviar') {
     const draft = msgCriadorDB.get(interaction.message.id);
     if (!draft || draft.autorId !== interaction.user.id) {
         return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
     }
-    const alvo = interaction.customId.includes('thumb') ? 'thumb' : 'imagem';
-    const modo = interaction.customId.endsWith('editar') ? 'edit' : 'add';
-    return interaction.showModal(
-        montarModalMidiaMsgCriador(interaction.message.id, alvo, modo, alvo === 'thumb' ? draft.thumbUrl : draft.imagemUrl)
-    );
+
+    const modal = new ModalBuilder()
+        .setCustomId(`msgcriador_modal_imagem_${interaction.message.id}`)
+        .setTitle('Adicionar imagem');
+
+    const uploadImagem = new FileUploadBuilder()
+        .setCustomId('imagem_arquivo')
+        .setRequired(true)
+        .setMaxValues(1);
+
+    const labelImagem = new LabelBuilder()
+        .setLabel('Imagem')
+        .setDescription('Selecione a imagem que vai aparecer na mensagem.')
+        .setFileUploadComponent(uploadImagem);
+
+    modal.addLabelComponents(labelImagem);
+    return interaction.showModal(modal);
 }
 
-if (interaction.isModalSubmit() && interaction.customId.startsWith('msgcriador_modal_midia_')) {
-    const [painelId, alvo, modo] = interaction.customId.replace('msgcriador_modal_midia_', '').split('_');
+if (interaction.isModalSubmit() && interaction.customId.startsWith('msgcriador_modal_imagem_')) {
+    const painelId = interaction.customId.replace('msgcriador_modal_imagem_', '');
     const draft = msgCriadorDB.get(painelId);
     if (!draft || draft.autorId !== interaction.user.id) {
         return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
     }
 
-    let arquivo = null;
-    try {
-        const enviados = interaction.fields.getUploadedFiles('midia_arquivo');
-        arquivo = enviados?.first ? enviados.first() : enviados?.[0];
-    } catch { arquivo = null; }
+    const arquivosEnviados = interaction.fields.getUploadedFiles('imagem_arquivo');
+    const arquivo = arquivosEnviados?.first ? arquivosEnviados.first() : arquivosEnviados?.[0];
 
-    const link = (interaction.fields.getTextInputValue('midia_link') || '').trim();
-    let novaUrl = null;
-    if (arquivo) {
-        novaUrl = arquivo.url;
-    } else if (link) {
-        if (!/^https?:\/\/\S+$/i.test(link)) {
-            return interaction.reply({ content: 'Esse link não é válido. Use um endereço começando com http:// ou https://.', flags: [MessageFlags.Ephemeral] });
-        }
-        novaUrl = link;
+    if (!arquivo) {
+        return interaction.reply({ content: 'Nenhuma imagem foi enviada.', flags: [MessageFlags.Ephemeral] });
     }
 
-    const campo = alvo === 'thumb' ? 'thumbUrl' : 'imagemUrl';
-    if (!novaUrl) {
-        if (modo !== 'edit') {
-            return interaction.reply({ content: 'Envie uma imagem ou informe um link.', flags: [MessageFlags.Ephemeral] });
-        }
-        draft[campo] = null;
-    } else {
-        draft[campo] = novaUrl;
-    }
-
-    if (draft.tipo === 'v2' && !validarLimiteMsgCriador(draft).cabe) {
-        return interaction.reply({ content: 'Não cabe: essa mudança passaria do limite de 40 componentes da mensagem.', flags: [MessageFlags.Ephemeral] });
-    }
+    draft.imagemUrl = arquivo.url;
 
     return interaction.update({
-        components: [...montarPreviewMsgCriador(draft), ...montarPainelMsgCriadorBuilder(draft)],
-        flags: [MessageFlags.IsComponentsV2]
-    });
+    components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
+    flags: [MessageFlags.IsComponentsV2]
+});
 }
 
-if (interaction.isButton() && (interaction.customId === 'msgcriador_imagem_acima' || interaction.customId === 'msgcriador_imagem_abaixo')) {
+if (interaction.isButton() && interaction.customId === 'msgcriador_imagem_remover') {
     const draft = msgCriadorDB.get(interaction.message.id);
     if (!draft || draft.autorId !== interaction.user.id) {
         return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
     }
-    if (interaction.customId === 'msgcriador_imagem_acima' && !String(draft.textoBruto ?? '').trim()) {
-        return interaction.reply({ content: 'Adicione um texto na mensagem antes de colocar a imagem acima dele.', flags: [MessageFlags.Ephemeral] });
+    if (!draft.imagemUrl) {
+        return interaction.reply({ content: 'Não há nenhuma imagem para remover.', flags: [MessageFlags.Ephemeral] });
     }
-    draft.imagemPosicao = interaction.customId === 'msgcriador_imagem_acima' ? 'acima' : 'abaixo';
+
+    draft.imagemUrl = null;
+
     return interaction.update({
-        components: [...montarPreviewMsgCriador(draft), ...montarPainelMsgCriadorBuilder(draft)],
-        flags: [MessageFlags.IsComponentsV2]
-    });
-}
-
-if (interaction.isButton() && (interaction.customId === 'msgcriador_remover_modo' || interaction.customId === 'msgcriador_editar_modo')) {
-    const modo = interaction.customId === 'msgcriador_remover_modo' ? 'remover' : 'editar';
-    const lista = await montarSelecaoMensagensMsgCriador(interaction.guild, interaction.user.id, modo);
-    if (!lista) {
-        return interaction.update({
-            components: containerTexto('Você não tem nenhuma mensagem criada com este painel neste servidor.'),
-            flags: [MessageFlags.IsComponentsV2]
-        });
-    }
-    return interaction.update({ components: [lista], flags: [MessageFlags.IsComponentsV2] });
-}
-
-if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_remover_select') {
-    const registro = await MensagemCriador.findById(interaction.values[0]).catch(() => null);
-    if (!registro || registro.autorId !== interaction.user.id) {
-        return interaction.update({
-            components: containerTexto('Essa mensagem não foi encontrada ou não pertence a você.'),
-            flags: [MessageFlags.IsComponentsV2]
-        });
-    }
-
-    const canalMsg = await interaction.guild.channels.fetch(registro.canalId).catch(() => null);
-    const msgDiscord = canalMsg ? await canalMsg.messages.fetch(registro._id).catch(() => null) : null;
-    if (msgDiscord) await msgDiscord.delete().catch(err => console.error('--- Erro ao apagar mensagem do criador ---', err));
-    await MensagemCriador.findByIdAndDelete(registro._id).catch(err => console.error('--- Erro ao remover registro da mensagem ---', err));
-
-    const lista = await montarSelecaoMensagensMsgCriador(interaction.guild, interaction.user.id, 'remover');
-    await interaction.update(lista
-        ? { components: [lista], flags: [MessageFlags.IsComponentsV2] }
-        : { components: containerTexto('Mensagem removida. Você não tem mais mensagens criadas com este painel.'), flags: [MessageFlags.IsComponentsV2] });
-    if (lista) {
-        await interaction.followUp({ components: containerTexto('Mensagem removida com sucesso!'), flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral] }).catch(() => null);
-    }
-    return;
-}
-
-if (interaction.isButton() && (interaction.customId === 'msgcriador_imagem_remover' || interaction.customId === 'msgcriador_thumb_remover')) {
-    const draft = msgCriadorDB.get(interaction.message.id);
-    if (!draft || draft.autorId !== interaction.user.id) {
-        return interaction.reply({ content: 'Esse painel não pertence a você ou expirou.', flags: [MessageFlags.Ephemeral] });
-    }
-    const campo = interaction.customId === 'msgcriador_thumb_remover' ? 'thumbUrl' : 'imagemUrl';
-    if (!draft[campo]) {
-        return interaction.reply({ content: 'Não há nada para remover aqui.', flags: [MessageFlags.Ephemeral] });
-    }
-    draft[campo] = null;
-    return interaction.update({
-        components: [...montarPreviewMsgCriador(draft), ...montarPainelMsgCriadorBuilder(draft)],
-        flags: [MessageFlags.IsComponentsV2]
-    });
+    components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
+    flags: [MessageFlags.IsComponentsV2]
+});
 }
 
 if (interaction.isButton() && interaction.customId === 'msgcriador_cor_personalizada') {
@@ -9361,7 +9181,7 @@ if (interaction.isModalSubmit() && interaction.customId.startsWith('msgcriador_m
     draft.cor = bruto.toUpperCase();
 
     return interaction.update({
-        components: [...montarPreviewMsgCriador(draft), ...montarPainelMsgCriadorBuilder(draft)],
+        components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
         flags: [MessageFlags.IsComponentsV2]
     });
 }
@@ -9376,7 +9196,7 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_cor
     draft.cor = interaction.values[0];
 
     return interaction.update({
-    components: [...montarPreviewMsgCriador(draft), ...montarPainelMsgCriadorBuilder(draft)],
+    components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
     flags: [MessageFlags.IsComponentsV2]
 });
 }
@@ -9391,7 +9211,7 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_rbo
 
     draft.respostaBotoesAlvo = parseInt(interaction.values[0]);
     return interaction.update({
-        components: [...montarPreviewMsgCriador(draft), ...montarPainelMsgCriadorBuilder(draft)],
+        components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
         flags: [MessageFlags.IsComponentsV2]
     });
 }
@@ -9503,7 +9323,7 @@ if (interaction.isModalSubmit() && (interaction.customId.startsWith('msgcriador_
 
     alvo.respostaBotoes = novos;
     return interaction.update({
-        components: [...montarPreviewMsgCriador(draft), ...montarPainelMsgCriadorBuilder(draft)],
+        components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
         flags: [MessageFlags.IsComponentsV2]
     });
 }
@@ -9519,7 +9339,7 @@ if (interaction.isStringSelectMenu() && interaction.customId === 'msgcriador_rbo
     if (alvo?.respostaBotoes?.[j]) alvo.respostaBotoes.splice(j, 1);
 
     return interaction.update({
-        components: [...montarPreviewMsgCriador(draft), ...montarPainelMsgCriadorBuilder(draft)],
+        components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
         flags: [MessageFlags.IsComponentsV2]
     });
 }
@@ -9595,7 +9415,7 @@ if (interaction.isModalSubmit() && interaction.customId.startsWith('msgcriador_m
     }
 
     return interaction.update({
-        components: [...montarPreviewMsgCriador(draft), ...montarPainelMsgCriadorBuilder(draft)],
+        components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
         flags: [MessageFlags.IsComponentsV2]
     });
 }
@@ -9676,7 +9496,7 @@ if (interaction.isModalSubmit() && interaction.customId.startsWith('msgcriador_m
     }
 
     return interaction.update({
-    components: [...montarPreviewMsgCriador(draft), ...montarPainelMsgCriadorBuilder(draft)],
+    components: [...montarPreviewMsgCriador(draft), montarPainelMsgCriadorBuilder(draft)],
     flags: [MessageFlags.IsComponentsV2]
 });
 }
