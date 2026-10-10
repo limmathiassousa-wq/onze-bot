@@ -295,6 +295,29 @@ const {
     marcarCanalTemporarioAntiNuke, montarPainelAntiNukeCanais, pausarAntiNukeCanais, retomarAntiNukeCanais
 } = require('./functions');
 
+const CANAL_AFK_ID = '1542321890490847237';
+const silenciadosNoAfk = new Set();
+
+client.on('voiceStateUpdate', async (antes, depois) => {
+    const membro = depois.member;
+    if (!membro || membro.user.bot) return;
+
+    // entrou no AFK: muta e ensurdece
+    if (depois.channelId === CANAL_AFK_ID && antes.channelId !== CANAL_AFK_ID) {
+        silenciadosNoAfk.add(membro.id);
+        await membro.voice.setMute(true, 'Entrou no canal AFK').catch(() => null);
+        await membro.voice.setDeaf(true, 'Entrou no canal AFK').catch(() => null);
+        return;
+    }
+
+    // saiu do AFK para outro canal: devolve o áudio e o microfone
+    if (depois.channelId && depois.channelId !== CANAL_AFK_ID && silenciadosNoAfk.has(membro.id)) {
+        silenciadosNoAfk.delete(membro.id);
+        await membro.voice.setDeaf(false, 'Saiu do canal AFK').catch(() => null);
+        await membro.voice.setMute(false, 'Saiu do canal AFK').catch(() => null);
+    }
+});
+
 
 // ============ HELPER: AGUARDA ENTRADA RECENTE NO AUDIT LOG ============
 // Tenta buscar no audit log com pequenas esperas (o Discord demora a registrar).
