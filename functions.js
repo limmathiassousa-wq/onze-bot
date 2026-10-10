@@ -7302,21 +7302,65 @@ function textoErro(err) {
     return cortar(err?.message || err, 200);
 }
 
-async function baixar(url) {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`Falha ao baixar o arquivo (${res.status}).`);
-    return Buffer.from(await res.arrayBuffer());
+const ERRO_REDE = /other side closed|fetch failed|socket|ECONNRESET|UND_ERR|ETIMEDOUT|terminated/i;
+const dormir = (ms) => new Promise(r => setTimeout(r, ms));
+
+// repete só quando é queda de conexão (erro HTTP da API não repete)
+async function tentarRede(fn, tentativas = 4) {
+    let ultimo;
+    for (let i = 1; i <= tentativas; i++) {
+        try {
+            return await fn();
+        } catch (err) {
+            ultimo = err;
+            const rede = !err?.status && (err?.name === 'TimeoutError' || ERRO_REDE.test(`${err?.message} ${err?.cause?.code || ''}`));
+            if (!rede || i === tentativas) break;
+            await dormir(800 * i);
+        }
+    }
+    throw ultimo;
 }
 
+async function baixar(url) {
+    return tentarRede(async () => {
+        const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
+        if (!res.ok) throw Object.assign(new Error(`Falha ao baixar o arquivo (HTTP ${res.status}).`), { status: res.status });
+        return Buffer.from(await res.arrayBuffer());
+    });
+}
+
+// Cria a figurinha direto na API com fetch/FormData nativos do Node, sem passar pelo upload do
+// discord.js (que está caindo com "other side closed" neste bot).
 async function criarFigurinha(guild, { nome, tag, descricao, buffer, ext, motivo }) {
     if (buffer.length > LIMITE_BYTES) throw new Error('O arquivo passa de 512 KB.');
-    return guild.stickers.create({
-        file: new AttachmentBuilder(buffer, { name: `figurinha.${ext}` }),
-        name: nome,
-        tags: tag,
-        description: descricao || '',
-        reason: motivo
-    });
+    const tipo = ext === 'gif' ? 'image/gif' : 'image/png';
+
+    for (let tentativa = 1; ; tentativa++) {
+        const form = new FormData();
+        form.append('name', nome);
+        form.append('tags', tag);
+        form.append('description', descricao || '');
+        form.append('file', new Blob([buffer], { type: tipo }), `figurinha.${ext}`);
+
+        const headers = { Authorization: `Bot ${client.token}` };
+        if (motivo) headers['X-Audit-Log-Reason'] = encodeURIComponent(motivo);
+
+        const resp = await tentarRede(() => fetch(`https://discord.com/api/v10/guilds/${guild.id}/stickers`, {
+            method: 'POST', headers, body: form, signal: AbortSignal.timeout(30000)
+        }), 3);
+
+        if (resp.ok) return resp.json();
+
+        const corpo = await resp.text().catch(() => '');
+        let json = {};
+        try { json = JSON.parse(corpo); } catch { /* sem json */ }
+        if (resp.status === 429 && tentativa < 3) {
+            await dormir(Math.ceil((json.retry_after || 2) * 1000) + 200);
+            continue;
+        }
+        const detalhe = json.errors ? ` ${JSON.stringify(json.errors).slice(0, 150)}` : '';
+        throw Object.assign(new Error(`${json.message || `HTTP ${resp.status}`}${detalhe}`), { code: json.code, status: resp.status });
+    }
 }
 
 async function listarFigurinhas(guild) {
@@ -7814,13 +7858,14 @@ async function avisar(message, texto) {
 }
 
 async function importarDaMensagem(message, imp) {
+    const existentes = await message.guild.stickers.fetch().catch(() => message.guild.stickers.cache);
     for (const [, st] of message.stickers) {
         const ext = FORMATO_EXT[st.format];
         if (!ext) {
             await avisar(message, `A figurinha **${st.name}** é do tipo Lottie e não pode ser importada.`);
             continue;
         }
-        if (message.guild.stickers.cache.has(st.id)) {
+        if (existentes.has(st.id)) {
             await avisar(message, `A figurinha **${st.name}** já pertence a este servidor.`);
             continue;
         }
