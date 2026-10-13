@@ -5998,7 +5998,7 @@ function montarComponentesEmpilhados(botoes, modo, modoEmp = 'completo') {
 }
 
 // Monta a mensagem V2 inteira (preview e final usam o mesmo código): [container, ...botões fora]
-function construirV2MsgCriador(draft, modo, modoEmp) {
+function construirV2MsgCriador(draft, modo, modoEmp, semBotoes = false) {
     const botoes = draft.botoes || [];
     const container = new ContainerBuilder();
 
@@ -6012,7 +6012,7 @@ function construirV2MsgCriador(draft, modo, modoEmp) {
     const botoesEmpilhados = botoes.filter(b => b.posicao === 'empilhados');
     const botoesAbaixo = botoes.filter(b => !['cima', 'entre', 'fora', 'empilhados'].includes(b.posicao));
 
-    if (botoesCima.length) {
+    if (botoesCima.length && !semBotoes) {
         montarButtonRows(botoesCima, modo).forEach(row => container.addActionRowComponents(row));
     }
 
@@ -6060,7 +6060,7 @@ function construirV2MsgCriador(draft, modo, modoEmp) {
         });
     }
 
-    if (botoesEntre.length) {
+    if (botoesEntre.length && !semBotoes) {
         montarButtonRows(botoesEntre, modo).forEach(row => container.addActionRowComponents(row));
     }
 
@@ -6070,16 +6070,22 @@ function construirV2MsgCriador(draft, modo, modoEmp) {
         );
     }
 
-    if (botoesAbaixo.length) {
+    if (botoesAbaixo.length && !semBotoes) {
         montarButtonRows(botoesAbaixo, modo).forEach(row => container.addActionRowComponents(row));
     }
 
-    if (botoesEmpilhados.length) {
+    if (botoesEmpilhados.length && !semBotoes) {
         montarComponentesEmpilhados(botoesEmpilhados, modo, modoEmp).forEach(c => adicionarNoContainerMsgCriador(container, c));
     }
 
+    if (semBotoes && botoes.length && modo === 'preview') {
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            `-# ${botoes.length} botão(ões) adicionado(s) — prévia oculta por falta de espaço (limite de 40 componentes)`
+        ));
+    }
+
     const componentesFinais = [container];
-    if (botoesFora.length) {
+    if (botoesFora.length && !semBotoes) {
         montarButtonRows(botoesFora, modo).forEach(row => componentesFinais.push(row));
     }
     return componentesFinais;
@@ -6373,13 +6379,33 @@ function montarPainelMsgCriadorInicial(draft) {
     return [cabecalho, seletores, montagem];
 }
 
+// A mensagem do painel (prévia + editor) também não pode passar de 40 componentes:
+// tenta a prévia completa, depois sem os botões e, por último, só um resumo.
 function montarPreviewMsgCriador(draft) {
+    const custoPainel = contarComponentesV2(montarPainelMsgCriadorBuilder(draft));
+    // margem de 2: o Discord pode contar itens de galeria que o contador local não conta
+    const cabe = (comps) => contarComponentesV2(comps) + custoPainel <= LIMITE_COMPONENTES_V2 - 2;
+
+    let prev = montarPreviewNivelMsgCriador(draft, false, custoPainel);
+    if (!cabe(prev)) prev = montarPreviewNivelMsgCriador(draft, true, custoPainel);
+    if (!cabe(prev)) {
+        const final = draft.tipo === 'v2' ? escolherLayoutV2MsgCriador(draft, 'final') : null;
+        prev = [new TextDisplayBuilder().setContent(
+            ' Prévia da mensagem ↓\n-# Prévia indisponível: a mensagem não cabe ao lado do editor.' +
+            (final ? ` Ela ocupa ${final.total}/${LIMITE_COMPONENTES_V2} componentes${final.cabe ? ' e será enviada normalmente.' : ' e passa do limite, remova itens.'}` : '')
+        )];
+    }
+    return prev;
+}
+
+function montarPreviewNivelMsgCriador(draft, semBotoes, custoPainel) {
     const header = new TextDisplayBuilder().setContent(' Prévia da mensagem ↓');
     const botoes = draft.botoes || [];
 
     if (draft.tipo === 'v2') {
-        const custoPainel = contarComponentesV2(montarPainelMsgCriadorBuilder(draft));
-        const layout = escolherLayoutV2MsgCriador(draft, 'preview', 1 + custoPainel);
+        const layout = semBotoes
+            ? { componentes: construirV2MsgCriador(draft, 'preview', 'compacto', true), modoEmp: 'compacto' }
+            : escolherLayoutV2MsgCriador(draft, 'preview', 1 + custoPainel);
         const layoutFinal = escolherLayoutV2MsgCriador(draft, 'final');
 
         let info = '';
@@ -6418,7 +6444,9 @@ function montarPreviewMsgCriador(draft) {
             );
         }
 
-        if (botoes.length) {
+        if (botoes.length && semBotoes) {
+            componentes.push(new TextDisplayBuilder().setContent(`-# ${botoes.length} botão(ões) adicionado(s) — prévia oculta por falta de espaço`));
+        } else if (botoes.length) {
             componentes.push(new TextDisplayBuilder().setContent('Pré-visualização dos botões (serão enviados junto do embed):'));
             montarButtonRows(botoes, 'preview').forEach(row => componentes.push(row));
         }
@@ -6439,7 +6467,9 @@ function montarPreviewMsgCriador(draft) {
             );
         }
 
-        if (botoes.length) {
+        if (botoes.length && semBotoes) {
+            componentes.push(new TextDisplayBuilder().setContent(`-# ${botoes.length} botão(ões) adicionado(s) — prévia oculta por falta de espaço`));
+        } else if (botoes.length) {
             componentes.push(new TextDisplayBuilder().setContent('Pré-visualização dos botões (serão enviados junto do texto puro, sem container):'));
             montarButtonRows(botoes, 'preview').forEach(row => componentes.push(row));
         }
@@ -6788,7 +6818,6 @@ function montarPainelMsgCriadorBuilder(draft) {
             new ContainerBuilder()
                 .addTextDisplayComponents(txt('**Remova um botão**'))
                 .addActionRowComponents(new ActionRowBuilder().addComponents(selectBotoes))
-                .addSeparatorComponents(sep())
                 .addTextDisplayComponents(txt(`-# Quantidade de botões: ${qtd}`))
         );
 
