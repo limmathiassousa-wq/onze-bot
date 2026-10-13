@@ -224,6 +224,16 @@ const GROLES_POR_PAGINA = 5;
 const PERMS_POR_PAGINA = 5;
 
 const CARGOS_GERENCIADOR_LIMITADO = ['1542321888309809212', '1542321888309809210'];
+// Grupo B: podem gerenciar todos os cargos, exceto os da lista CARGOS_RESTRITOS_GERENCIADOR_MEDIO
+const CARGOS_GERENCIADOR_MEDIO = ['1542321888355684454', '1542321888355684453', '1546329251219771512'];
+const CARGOS_RESTRITOS_GERENCIADOR_MEDIO = [
+    '1546350016342532126',
+    '1546352749703200798',
+    '1546354415689007105',
+    '1542321888355684456'
+];
+// Cargos que, além dos atendentes, podem usar o o!groles
+const CARGOS_EXTRAS_GROLES = [...CARGOS_GERENCIADOR_LIMITADO, ...CARGOS_GERENCIADOR_MEDIO];
 const CARGOS_RESTRITOS_GERENCIADOR_LIMITADO = [
     '1542321888355684456',
     '1542321888355684455',
@@ -1309,7 +1319,7 @@ async function aguardarEBuscarAuditLog(guild, tipoEvento, delayMs = 1200) {
 }
 
 function ehAdminGRoles(member) {
-    return member.permissions.has('Administrator') || member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
+    return member.permissions.has('Administrator') || member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id) || CARGOS_EXTRAS_GROLES.includes(r.id));
 }
 
 function filtrarPermsGRoles(busca) {
@@ -1379,16 +1389,24 @@ function agendarExpiracaoGRoles(painelId, channelId) {
 }
 
 function temPermissaoEditarCargosGRoles(member) {
-    return member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id));
+    return member.roles.cache.some(r => CARGOS_ATENDENTE.includes(r.id) || CARGOS_EXTRAS_GROLES.includes(r.id));
 }
 
+function membroEhGerenciadorMedioGRoles(member) {
+    return !!member?.roles?.cache?.some(r => CARGOS_GERENCIADOR_MEDIO.includes(r.id));
+}
+
+// Grupo A (limitado). Se o membro também tiver cargo do grupo B, vale o grupo B.
 function membroEhGerenciadorLimitadoGRoles(member) {
+    if (membroEhGerenciadorMedioGRoles(member)) return false;
     return !!member?.roles?.cache?.some(r => CARGOS_GERENCIADOR_LIMITADO.includes(r.id));
 }
 
-// true = o membro NÃO pode editar / re-configurar / excluir esse cargo
+// true = o membro NÃO pode editar / re-configurar / excluir / setar esse cargo
 function cargoBloqueadoParaMembroGRoles(member, cargoId) {
-    return membroEhGerenciadorLimitadoGRoles(member) && CARGOS_RESTRITOS_GERENCIADOR_LIMITADO.includes(cargoId);
+    if (membroEhGerenciadorMedioGRoles(member)) return CARGOS_RESTRITOS_GERENCIADOR_MEDIO.includes(cargoId);
+    if (membroEhGerenciadorLimitadoGRoles(member)) return CARGOS_RESTRITOS_GERENCIADOR_LIMITADO.includes(cargoId);
+    return false;
 }
 
 function normalizarTextoGRoles(texto) {
@@ -1666,7 +1684,6 @@ async function montarPainelGRoles(guild, draft, adminId) {
     const avatarAlvo = alvoUserFetch?.displayAvatarURL({ extension: 'png', size: 256 }) ?? IMG_DISCORD_LOGO;
 
     const adminMembro = await guild.members.fetch({ user: adminId, force: true }).catch(() => null);
-    const adminEhLimitado = adminMembro?.roles.cache.some(r => CARGOS_GERENCIADOR_LIMITADO.includes(r.id)) ?? false;
 
     const container = new ContainerBuilder().setAccentColor(0xFFFFFF);
 
@@ -1733,7 +1750,7 @@ async function montarPainelGRoles(guild, draft, adminId) {
 
 for (const cargo of fatia) {
     const possui = alvoMembro.roles.cache.has(cargo.id);
-    const semPermissao = (adminEhLimitado && CARGOS_RESTRITOS_GERENCIADOR_LIMITADO.includes(cargo.id)) ||
+    const semPermissao = (adminMembro && cargoBloqueadoParaMembroGRoles(adminMembro, cargo.id)) ||
         (cargo.id === CARGO_RESTRITO_UNICO && !(adminMembro?.roles.cache.has(CARGO_RESTRITO_UNICO)));
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(
         `<@&${cargo.id}>\n<:pessoa:1548558766230872224> **${cargo.members.size}** membro(s)\n <:lista:1548558969860132864> **Permissões:** ${montarPermissoesTextoGRoles(cargo)}`
@@ -7967,6 +7984,8 @@ module.exports = {
     CARD_WIDTH,
     CARGOS_GERENCIADOR_LIMITADO,
     CARGOS_RESTRITOS_GERENCIADOR_LIMITADO,
+    CARGOS_GERENCIADOR_MEDIO,
+    CARGOS_RESTRITOS_GERENCIADOR_MEDIO,
     CATEGORIAS_HELP,
     DESCRICOES_PROTECAO,
     DIVIDER_BOTTOM,
@@ -8068,6 +8087,7 @@ module.exports = {
     ehAdminGRoles,
     cargoBloqueadoParaMembroGRoles,
     membroEhGerenciadorLimitadoGRoles,
+    membroEhGerenciadorMedioGRoles,
     filtrarCargosPorNomeGRoles,
     encerrarSorteio,
     enviarAlertaProtecao,

@@ -252,7 +252,7 @@ const {
     classificarAnexoTranscript, coletarComandosPrefixoHelp, coletarComandosSlashHelp, construirEmbedPreview,
     contemConviteDoServidor, contemEveryoneOuHere, definirStatusCanal,
     delCallTempPorCanal, destravarTodosCanais, drawAvatar, editarWebhook,
-    ehAdminGRoles, cargoBloqueadoParaMembroGRoles, encerrarSorteio, enviarAlertaProtecao,
+    ehAdminGRoles, cargoBloqueadoParaMembroGRoles, membroEhGerenciadorLimitadoGRoles, encerrarSorteio, enviarAlertaProtecao,
     enviarWebhook, enviarWebhookComArquivo, escapeHTML, extrairDadosComponente,
     extrairLinksDoTexto, extrairPrimeiraMediaUrl, fazerBackupServidor, filtrarCargosGRoles,
     filtrarPermsGRoles, finalizarSessaoVoiceSorteio, flushSessoesVoiceSorteio,
@@ -405,7 +405,6 @@ module.exports = {
 
 
 
-const CARGOS_BLOQUEADOS_GROLES = ['1542321888309809210'];
 
 const CORES_CARGO_GROLES = [
     { label: 'Vermelho', value: 'E74C3C' },
@@ -2330,10 +2329,6 @@ if (message.content.toLowerCase() === `${PREFIXO}áreas` || message.content.toLo
 }
     
     if (message.content.toLowerCase().startsWith(`${PREFIXO}groles`)) {
-    if (message.member.roles.cache.some(r => CARGOS_BLOQUEADOS_GROLES.includes(r.id)) && !message.member.roles.cache.has('1542321888355684454')) {
-        return message.reply('Você não possui um cargo alto o suficiente')
-            .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
-    }
     if (!ehAdminGRoles(message.member)) {
         return message.reply('Você não tem permissão para utilizar este comando!')
             .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
@@ -3062,7 +3057,7 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}addcargo`)) {
             .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
     }
 
-    if (message.member.roles.cache.some(r => CARGOS_GERENCIADOR_LIMITADO.includes(r.id)) && CARGOS_RESTRITOS_GERENCIADOR_LIMITADO.includes(cargo.id)) {
+    if (cargoBloqueadoParaMembroGRoles(message.member, cargo.id)) {
         return message.reply('Você não tem permissão para gerenciar esse cargo!')
             .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
     }
@@ -3121,7 +3116,7 @@ if (message.content.toLowerCase().startsWith(`${PREFIXO}remcargo`)) {
             .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
     }
 
-    if (message.member.roles.cache.some(r => CARGOS_GERENCIADOR_LIMITADO.includes(r.id)) && CARGOS_RESTRITOS_GERENCIADOR_LIMITADO.includes(cargo.id)) {
+    if (cargoBloqueadoParaMembroGRoles(message.member, cargo.id)) {
         return message.reply('Você não tem permissão para gerenciar esse cargo!')
             .then(m => setTimeout(() => m.delete().catch(() => null), 5000));
     }
@@ -4630,7 +4625,7 @@ if (interaction.isButton() && interaction.customId.startsWith('groles_toggle_'))
         return interaction.reply({ content: 'Você não tem permissão para gerenciar esse cargo!', flags: [MessageFlags.Ephemeral] });
     }
 
-    if (interaction.member.roles.cache.some(r => CARGOS_GERENCIADOR_LIMITADO.includes(r.id)) && CARGOS_RESTRITOS_GERENCIADOR_LIMITADO.includes(cargo.id)) {
+    if (cargoBloqueadoParaMembroGRoles(interaction.member, cargo.id)) {
         return interaction.reply({ content: 'Você não tem permissão para gerenciar esse cargo!', flags: [MessageFlags.Ephemeral] });
     }
 
@@ -4669,7 +4664,7 @@ if (interaction.isButton() && interaction.customId === 'groles_editar_abrir') {
     if (interaction.user.id !== draft.autorId) {
         return interaction.reply({ content: 'Esse painel não pertence a você!', flags: [MessageFlags.Ephemeral] });
     }
-    if (interaction.member.roles.cache.some(r => CARGOS_GERENCIADOR_LIMITADO.includes(r.id))) {
+    if (membroEhGerenciadorLimitadoGRoles(interaction.member)) {
         return interaction.reply({ content: 'Você não tem permissão para criar ou editar cargos!', flags: [MessageFlags.Ephemeral] });
     }
     if (!temPermissaoEditarCargosGRoles(interaction.member)) {
